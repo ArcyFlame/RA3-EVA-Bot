@@ -9,6 +9,8 @@ export function setStartTime() {
 
 export const data = new SlashCommandBuilder().setName('uptime').setDescription('Show bot uptime');
 
+export const guildOnly = false;
+
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   const uptimeMs = Date.now() - startTime;
   const seconds = Math.floor(uptimeMs / 1000) % 60;

@@ -1,4 +1,3 @@
-import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { Client, TextChannel } from 'discord.js';
 import { logger } from '../utils/logger';
@@ -6,7 +5,12 @@ import { tournamentRepository } from '../repositories/tournament.repository';
 import { guildRepository } from '../repositories/guild.repository';
 import { knownSkirmishMapNames } from './ra3-stats.service';
 import { extractPrizeValue } from '../utils/text';
+import { parsePortalDate } from '../utils/tournament-status';
 import { getSortedAnnouncements, renderEventCard } from '../commands/tournaments/events.utils';
+import { contentDeliveryRepository } from '../repositories/content-delivery.repository';
+import { safeGetText } from '../utils/safe-fetch';
+
+export { parsePortalDate } from '../utils/tournament-status';
 
 const ESPORTS_URL = 'https://www.gamereplays.org/redalert3/portals.php?show=esports';
 /** Forum that hosts the post-tournament "Bracket, Results and Replays" threads. */
@@ -15,9 +19,6 @@ export const RESULTS_FORUM_URL = 'https://www.gamereplays.org/community/index.ph
 export const ALLOWED_HOSTS = new Set(['www.gamereplays.org', 'gamereplays.org']);
 const SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const RECENT_WINDOW_DAYS = 730; // ingest up to ~2 years of portal history
-const USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-
 export interface ParsedTournament {
   title: string;
   url: string;
@@ -63,29 +64,6 @@ export function parseTournaments(html: string): ParsedTournament[] {
   return items;
 }
 
-/** Parses a portal date like "Saturday, 11 Apr 2026" into a Unix timestamp (ms), or null. */
-export function parsePortalDate(text: string): number | null {
-  const match = text.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/);
-  if (!match) return null;
-  const months: Record<string, number> = {
-    Jan: 0,
-    Feb: 1,
-    Mar: 2,
-    Apr: 3,
-    May: 4,
-    Jun: 5,
-    Jul: 6,
-    Aug: 7,
-    Sep: 8,
-    Oct: 9,
-    Nov: 10,
-    Dec: 11,
-  };
-  const month = months[match[2]];
-  if (month === undefined) return null;
-  return new Date(Number(match[3]), month, Number(match[1])).getTime();
-}
-
 /** Extracts the forum "Sign up now!" thread URL from an article page. */
 export function extractSignUpUrl(html: string): string | undefined {
   const $ = cheerio.load(html);
@@ -114,9 +92,8 @@ export function extractArticleDescription(html: string): string | undefined {
 /**
  * Extracts the key tournament facts (prize, format, map pool) from the article
  * body so /events can show them as compact fields instead of a wall of text.
- * Only patterns that identify REAL facts are accepted — a junky fragment
- * ("ion is broken", "$2" from "120$2nd") is worse than an empty field, and
- * Challonge supplies format/prize as a fallback when the article has none.
+ * Only patterns that identify complete facts are accepted. Challonge supplies
+ * format and prize details when an article does not contain them.
  */
 export function extractEventFacts(description: string | undefined): {
   prizePool?: string;
@@ -176,7 +153,7 @@ export function extractEventFacts(description: string | undefined): {
   // bodies are whitespace-collapsed, so splitting on lines/commas is
   // unreliable — matching against the map allowlist is not.
   const mapsSection = description.match(
-    /map[s]?\s*(?:pool)?\s*[:\-]?\s*([\s\S]{3,500}?)(?=(?:prize|format|date|schedule|rules)\b|$)/i,
+    /map[s]?\s*(?:pool)?\s*[:-]?\s*([\s\S]{3,500}?)(?=(?:prize|format|date|schedule|rules)\b|$)/i,
   );
   if (mapsSection) {
     const section = mapsSection[1].toLowerCase();
@@ -278,9 +255,6 @@ export class TournamentScannerService {
       this.scan().catch((error) => logger.error('Tournament scan tick failed:', error));
     }, SCAN_INTERVAL_MS);
     this.interval.unref();
-    // One scan at boot keeps extracted facts (prize/format) self-repairing
-    // after extractor improvements instead of waiting up to 6 hours.
-    this.scan().catch((error) => logger.error('Tournament boot scan failed:', error));
     logger.info('Tournament scanner started');
   }
 
@@ -292,16 +266,7 @@ export class TournamentScannerService {
   }
 
   private async fetchHtml(url: string): Promise<string | undefined> {
-    try {
-      const response = await axios.get(url, {
-        headers: { 'User-Agent': USER_AGENT },
-        timeout: 15_000,
-      });
-      return response.data as string;
-    } catch (error) {
-      logger.warn(`Tournament scanner: failed to fetch ${url}:`, error);
-      return undefined;
-    }
+    return safeGetText(url, { timeoutMs: 15_000 });
   }
 
   /** Scans for new tournaments, stores and announces any not yet seen. Returns the count. */
@@ -327,8 +292,7 @@ export class TournamentScannerService {
         const facts = extractEventFacts(description);
 
         if (tournamentRepository.hasEventUrl(t.url)) {
-          // Already known — refresh sign-up URL, description and extracted
-          // facts (stored rows self-repair when the extractor improves).
+          // Already known — refresh the sign-up URL, description and facts.
           // Facts are only rewritten when the article was actually fetched;
           // a failed fetch must not wipe existing values.
           // Never re-announce a seen tournament.
@@ -341,7 +305,7 @@ export class TournamentScannerService {
           continue;
         }
 
-        tournamentRepository.createEvent({
+        const eventId = tournamentRepository.createEvent({
           eventUrl: t.url,
           title: t.title,
           description,
@@ -352,6 +316,7 @@ export class TournamentScannerService {
           prizePool: facts.prizePool,
           maps: facts.maps,
         });
+        if (signUpUrl) tournamentRepository.setEventStatus(eventId, 'registration');
         newCount++;
       }
       if (newCount > 0) {
@@ -385,25 +350,34 @@ export class TournamentScannerService {
    * for new announcements and freshly discovered brackets.
    */
   async announceEvent(eventId: number): Promise<void> {
-    const rendered = renderEventCard(eventId);
-    if (!rendered) return;
-
     for (const guildData of guildRepository.getAllGuilds()) {
-      if (!guildData.tournamentEventsChannelId) continue;
-      const guild = this.client?.guilds.cache.get(guildData.discordId);
-      if (!guild) continue;
-      const channel = guild.channels.cache.get(guildData.tournamentEventsChannelId);
-      if (!(channel instanceof TextChannel)) continue;
-
-      try {
-        await channel.send(rendered);
-      } catch (error) {
-        logger.warn(
-          `Tournament scanner: failed to announce to guild ${guildData.discordId}:`,
-          error,
-        );
-      }
+      await this.announceEventToGuild(guildData.discordId, eventId);
     }
+  }
+
+  async announceEventToGuild(guildId: string, eventId: number): Promise<boolean> {
+    const itemKey = String(eventId);
+    const guildData = guildRepository.findByDiscordId(guildId);
+    if (!guildData?.tournamentEventsChannelId || guildData.tournamentsEnabled === 0) return false;
+    const rendered = renderEventCard(eventId);
+    if (!rendered) return false;
+    const guild = this.client?.guilds.cache.get(guildId);
+    const channel = guild?.channels.cache.get(guildData.tournamentEventsChannelId);
+    if (!(channel instanceof TextChannel)) return false;
+    if (contentDeliveryRepository.wasDelivered(guildId, 'tournament', itemKey, channel.id)) return false;
+    try {
+      await channel.send(rendered);
+      contentDeliveryRepository.markDelivered(guildId, 'tournament', itemKey, channel.id);
+      return true;
+    } catch (error) {
+      logger.warn(`Tournament scanner: failed to announce to guild ${guildId}:`, error);
+      return false;
+    }
+  }
+
+  async postLatestToGuild(guildId: string): Promise<boolean> {
+    const latest = getSortedAnnouncements()[0];
+    return latest ? this.announceEventToGuild(guildId, latest.id) : false;
   }
 }
 

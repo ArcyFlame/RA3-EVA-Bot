@@ -1,9 +1,11 @@
 import { Client, TextChannel, EmbedBuilder } from 'discord.js';
-import axios from 'axios';
 import xml2js from 'xml2js';
+import * as cheerio from 'cheerio';
 import { logger } from '../utils/logger';
 import { guildRepository } from '../repositories/guild.repository';
 import { db } from '../database/sqlite';
+import { contentDeliveryRepository } from '../repositories/content-delivery.repository';
+import { safeGetText } from '../utils/safe-fetch';
 
 interface RSSItem {
   title: string;
@@ -111,8 +113,7 @@ export class ModDBNotifierService {
       return;
     }
 
-    // Rate limit: max one post per window, newest item only. Unposted items
-    // stay unmarked and surface on a later poll instead of flooding.
+    // Rate limit: max one post per window, newest item only.
     const sinceLast = Date.now() - this.lastPostedAt;
     if (sinceLast < this.minPostIntervalMs) {
       logger.debug(
@@ -122,51 +123,48 @@ export class ModDBNotifierService {
     }
     const newest = candidates[0];
     await this.sendNotification(newest.item, newest.feedUrl);
-    await this.markNotified(newest.item.guid);
+    for (const candidate of candidates) await this.markNotified(candidate.item.guid);
     this.lastPostedAt = Date.now();
-    logger.info(`ModDB RSS: posted 1 new RA3 item (${candidates.length - 1} queued for later polls)`);
+    logger.info(`ModDB RSS: posted the newest RA3 item; ${candidates.length - 1} older item(s) marked seen`);
   }
 
-  /** Newest RA3 articles/news/mods for the /mods command (no dedup logic). */
-  async fetchLatestRa3Items(limit = 10): Promise<RSSItem[]> {
-    const items: RSSItem[] = [];
+  private async fetchLatestCandidates(): Promise<Array<{ item: RSSItem; feedUrl: string }>> {
+    const candidates: Array<{ item: RSSItem; feedUrl: string }> = [];
     const seen = new Set<string>();
     for (const feedUrl of this.rssFeeds) {
       try {
         for (const item of await this.fetchFeed(feedUrl)) {
-          if (!this.isRA3Related(item)) continue;
-          if (seen.has(item.guid)) continue;
+          if (!this.isRA3Related(item) || seen.has(item.guid)) continue;
           seen.add(item.guid);
-          items.push(item);
+          candidates.push({ item, feedUrl });
         }
       } catch {
-        // try the next feed
+        // A failed feed must not hide valid items from the others.
       }
     }
-    items.sort((a, b) => {
-      const ta = new Date(a.pubDate).getTime() || 0;
-      const tb = new Date(b.pubDate).getTime() || 0;
+    return candidates.sort((a, b) => {
+      const ta = new Date(a.item.pubDate).getTime() || 0;
+      const tb = new Date(b.item.pubDate).getTime() || 0;
       return tb - ta;
     });
-    return items.slice(0, limit);
+  }
+
+  /** Newest RA3 articles/news/mods for the /mods command (no dedup logic). */
+  async fetchLatestRa3Items(limit = 10): Promise<RSSItem[]> {
+    return (await this.fetchLatestCandidates()).slice(0, limit).map(({ item }) => item);
+  }
+
+  async postLatestToGuild(guildId: string): Promise<boolean> {
+    const latest = (await this.fetchLatestCandidates())[0];
+    return latest ? this.sendNotificationToGuild(latest.item, latest.feedUrl, guildId) : false;
   }
 
   /** Admin test: posts the newest RA3 item to every configured guild (no dedup marking). */
   async postTest(): Promise<number> {
-    let posted = 0;
-    for (const feedUrl of this.rssFeeds) {
-      try {
-        const items = await this.fetchFeed(feedUrl);
-        const ra3 = items.find((i) => this.isRA3Related(i));
-        if (!ra3) continue;
-        await this.sendNotification(ra3, feedUrl);
-        posted++;
-        break;
-      } catch {
-        // try the next feed
-      }
-    }
-    return posted;
+    const latest = (await this.fetchLatestCandidates())[0];
+    if (!latest) return 0;
+    await this.sendNotification(latest.item, latest.feedUrl);
+    return 1;
   }
 
   /** xml2js can hand back guid/link as arrays or {_ : text} objects — flatten to a string. */
@@ -181,17 +179,10 @@ export class ModDBNotifierService {
   }
 
   private async fetchFeed(url: string): Promise<RSSItem[]> {
-    const response = await axios.get(url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        Accept: 'application/rss+xml,application/xml,text/xml',
-      },
-      timeout: 15000,
-    });
-
+    const xml = await safeGetText(url, { timeoutMs: 15_000 });
+    if (!xml) return [];
     const parser = new xml2js.Parser({ explicitArray: false });
-    const result = await parser.parseStringPromise(response.data);
+    const result = await parser.parseStringPromise(xml);
 
     if (!result.rss?.channel?.item) return [];
 
@@ -251,31 +242,56 @@ export class ModDBNotifierService {
     }
   }
 
-  private async sendNotification(item: RSSItem, feedUrl: string): Promise<void> {
+  private cleanDescription(value: string | undefined): string {
+    if (!value) return 'Open the post on ModDB for screenshots, downloads and full details.';
+    const text = cheerio.load(`<div>${value}</div>`)('div').text();
+    const cleaned = text
+      .replace(/\b(?:read|view) more\b.*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return this.truncate(cleaned || 'Open the post on ModDB for full details.', 300);
+  }
+
+  private buildEmbed(item: RSSItem, feedUrl: string): EmbedBuilder {
     const type = this.detectType(feedUrl, item);
     const embed = new EmbedBuilder()
       .setTitle(`${this.getTypeEmoji(type)} ${this.formatTypeName(type)}: ${item.title}`)
       .setURL(item.link)
-      .setDescription(this.truncate(item.description || 'Click to view on ModDB', 300))
+      .setDescription(this.cleanDescription(item.description))
       .setColor(this.getTypeColor(type))
       .setAuthor({ name: 'ModDB', iconURL: 'https://www.moddb.com/favicon.ico' })
-      .setTimestamp(new Date(item.pubDate))
       .setFooter({ text: 'ModDB RSS • New content' });
+    const timestamp = new Date(item.pubDate);
+    if (!Number.isNaN(timestamp.getTime())) embed.setTimestamp(timestamp);
+    return embed;
+  }
+
+  private async sendNotificationToGuild(
+    item: RSSItem,
+    feedUrl: string,
+    guildId: string,
+  ): Promise<boolean> {
+    const guildData = guildRepository.findByDiscordId(guildId);
+    if (!guildData?.moddbNotifierEnabled || !guildData.moddbChannelId) return false;
+    const guild = this.client?.guilds.cache.get(guildId);
+    const channel = guild?.channels.cache.get(guildData.moddbChannelId);
+    if (!(channel instanceof TextChannel)) return false;
+    if (contentDeliveryRepository.wasDelivered(guildId, 'moddb', item.guid, channel.id)) return false;
+    try {
+      await channel.send({ embeds: [this.buildEmbed(item, feedUrl)] });
+      contentDeliveryRepository.markDelivered(guildId, 'moddb', item.guid, channel.id);
+      return true;
+    } catch (error) {
+      logger.warn(`Failed to send ModDB notification to guild ${guildId}:`, error);
+      return false;
+    }
+  }
+
+  private async sendNotification(item: RSSItem, feedUrl: string): Promise<void> {
 
     const guilds = guildRepository.getAllGuilds();
     for (const guildData of guilds) {
-      if (!guildData.moddbNotifierEnabled) continue;
-      if (!guildData.moddbChannelId) continue;
-      const guild = this.client?.guilds.cache.get(guildData.discordId);
-      if (!guild) continue;
-      const channel = guild.channels.cache.get(guildData.moddbChannelId) as TextChannel;
-      if (!channel) continue;
-
-      try {
-        await channel.send({ embeds: [embed] });
-      } catch (error) {
-        logger.warn(`Failed to send ModDB notification to guild ${guildData.discordId}:`, error);
-      }
+      await this.sendNotificationToGuild(item, feedUrl, guildData.discordId);
     }
   }
 

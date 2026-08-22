@@ -15,52 +15,52 @@ import {
 import { guildRepository } from '../../repositories/guild.repository';
 import { statsPanelRepository } from '../../repositories/stats-panel.repository';
 import { logger } from '../../utils/logger';
+import { Language } from '../../repositories/user.repository';
+import { t } from '../../utils/i18n';
 
 /** Live wizard sessions keyed by the message id currently hosting the wizard UI. */
 export const wizardViews = new Map<string, GuildChannelsWizardView>();
 
 export class NotificationsMainView {
-  constructor(private isAdmin: boolean) {}
+  constructor(private isAdmin: boolean, private lang: Language = 'en') {}
 
   buildEmbed(): EmbedBuilder {
-    const embed = new EmbedBuilder().setTitle('🔔 Notification Settings').setColor(0x5865f2);
+    const embed = new EmbedBuilder().setTitle(t(this.lang, 'notifications.title')).setColor(0x5865f2);
     if (this.isAdmin) {
       embed
-        .setDescription('Configure server-wide notifications and your personal settings.')
+        .setDescription(t(this.lang, 'notifications.description'))
         .addFields(
           {
-            name: '📡 Tracked Streamers',
-            value: 'Add or remove Twitch/YouTube channels to track.',
+            name: t(this.lang, 'notifications.tracked'),
+            value: t(this.lang, 'notifications.trackedHint'),
             inline: false,
           },
           {
-            name: '📢 Global Channels',
-            value:
-              'Set server-wide announcement channels (clans, tournaments, streams, news).',
+            name: t(this.lang, 'notifications.channels'),
+            value: t(this.lang, 'notifications.channelsHint'),
             inline: false,
           },
           {
-            name: '🧪 Test Posts',
-            value: 'Send a one-off post per service to verify each channel works.',
+            name: t(this.lang, 'notifications.test'),
+            value: t(this.lang, 'notifications.testHint'),
             inline: false,
           },
           {
-            name: '🔔 Personal Settings',
-            value: 'Toggle private DM notifications and pick your language.',
+            name: t(this.lang, 'personal.title'),
+            value: t(this.lang, 'personal.description'),
             inline: false,
           },
         );
     } else {
       embed
-        .setDescription('Manage which personal notifications you receive via DM.')
+        .setDescription(t(this.lang, 'notifications.personalOnly'))
         .addFields({
-          name: '🔔 Personal Settings',
-          value:
-            'Toggle private DM notifications for events that concern you (e.g., tournament matches, clan invites) and pick your language.',
+          name: t(this.lang, 'personal.title'),
+          value: t(this.lang, 'personal.description'),
           inline: false,
         });
     }
-    return embed.setFooter({ text: 'Click a button below to configure.' });
+    return embed.setFooter({ text: t(this.lang, 'notifications.footer') });
   }
 
   getComponents(): ActionRowBuilder<ButtonBuilder>[] {
@@ -69,25 +69,25 @@ export class NotificationsMainView {
       row.addComponents(
         new ButtonBuilder()
           .setCustomId('tracked_streamers')
-          .setLabel('📡 Tracked Streamers')
+          .setLabel(t(this.lang, 'notifications.tracked').replace(/^\S+\s/, ''))
           .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
           .setCustomId('global_channels')
-          .setLabel('📢 Global Channels')
+          .setLabel(t(this.lang, 'notifications.channels').replace(/^\S+\s/, ''))
           .setStyle(ButtonStyle.Secondary),
       );
     }
     row.addComponents(
       new ButtonBuilder()
         .setCustomId('personal_dm')
-        .setLabel('🔔 Personal Settings')
+        .setLabel(t(this.lang, 'personal.title').replace(/^\S+\s/, ''))
         .setStyle(ButtonStyle.Success),
     );
     if (this.isAdmin) {
       row.addComponents(
         new ButtonBuilder()
           .setCustomId('notif_test')
-          .setLabel('🧪 Test Posts')
+          .setLabel(t(this.lang, 'notifications.test').replace(/^\S+\s/, ''))
           .setStyle(ButtonStyle.Primary),
       );
     }

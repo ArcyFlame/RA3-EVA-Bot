@@ -14,17 +14,21 @@ E.V.A, the Allied command voice.
   portal and forum: announcements, sign-up threads, player rosters, prize
   pools, map pools and Challonge brackets (including multi-bracket events like
   qualifiers + playoffs). `/results`, `/matches` and `/events` show podium and
-  standings; check-ins with referee pings are built in.
-- **Player profiles** — `/profile` shows per-mode elo, rank, W/L and win rate
-  with season history, for Discord members (via account linking) or for any
-  player by name — Discord not required.
+  standings; check-ins, score reports and referee review are built in. Older
+  tournament winners are indexed from the full esports forum history.
+- **Player profiles** — `/link` manages Shatabrick and RA3BattleNet identities.
+  `/profile` keeps both platforms separate and shows live rank, Elo and W/L
+  wherever the platform currently exposes that data.
 - **News & content feeds** — GameReplays RA3 news, ModDB RA3 mods and articles
   (`/mods`), Twitch streams and YouTube uploads (RSS-based, no API key),
   posted to the channels you choose, always deduplicated.
-- **Community tools** — build orders with a unit-emoji picker, `/pickmap` with
-  tournament map pools, clan manager, tips, moderation utilities, per-guild
+- **Community tools** — `/pickmap` with verified tournament map pools, clan
+  manager, tips, moderation utilities, per-guild
   game selection (RA3 / Kane's Wrath / Generals Evolution), i18n (EN/RU/ZH)
   and an admin setup wizard.
+- **Direct messages** — safe public commands work in DMs by default. The bot
+  owner can switch this off from `/toggle`; server-only and staff commands stay
+  locked to servers.
 
 ## Quick start
 
@@ -45,6 +49,7 @@ features. `/help` lists everything. Useful scripts:
 | `npm test` | Test suite (vitest) |
 | `npm run diagnose` | Configuration diagnostics |
 | `npm run seed:masters` | Seed the Hall of Fame list |
+| `npm run backfill:tournament-winners` | Resume the historical tournament scan |
 
 ## Architecture
 
@@ -70,4 +75,5 @@ Permissions are layered: `owner` (`OWNER_ID`, gates `/kill` and `/restart`) →
 
 Built for the Red Alert 3 community by **Arcy**. Data from
 [GameReplays.org](https://www.gamereplays.org), [RA3BattleNet](https://ra3battle.cn),
-[C&C Online](https://cnc-online.net) and [Challonge](https://challonge.com).
+[C&C Online](https://cnc-online.net), Shatabrick and
+[Challonge](https://challonge.com).

@@ -1,7 +1,8 @@
 import {
-  SlashCommandBuilder,
   ChatInputCommandInteraction,
+  Message,
   PermissionFlagsBits,
+  SlashCommandBuilder,
   TextChannel,
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
@@ -24,6 +25,31 @@ export const data = new SlashCommandBuilder()
     option.setName('user').setDescription('Only delete from this user').setRequired(false),
   );
 
+async function findMessages(
+  channel: TextChannel,
+  amount: number,
+  userId?: string,
+): Promise<{ messages: Message[]; scanned: number }> {
+  const matches: Message[] = [];
+  let before: string | undefined;
+  let scanned = 0;
+
+  while (matches.length < amount && scanned < 1000) {
+    const batch = await channel.messages.fetch({ limit: 100, before });
+    if (batch.size === 0) break;
+    scanned += batch.size;
+    for (const message of batch.values()) {
+      if ((!userId || message.author.id === userId) && message.deletable) {
+        matches.push(message);
+        if (matches.length === amount) break;
+      }
+    }
+    before = batch.last()?.id;
+    if (!before || batch.size < 100) break;
+  }
+  return { messages: matches, scanned };
+}
+
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   if (!interaction.guild || !(interaction.channel instanceof TextChannel)) {
     await interaction.reply({
@@ -32,13 +58,11 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     });
     return;
   }
-
   const featureDenial = moderationDisabled(interaction.guild);
   if (featureDenial) {
     await interaction.reply({ content: featureDenial, ephemeral: true });
     return;
   }
-
   const gate = await denyUnlessModerator(interaction);
   if ('error' in gate) {
     await interaction.reply({ content: gate.error, ephemeral: true });
@@ -47,23 +71,27 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
 
   const amount = interaction.options.getInteger('amount', true);
   const user = interaction.options.getUser('user');
-
   await interaction.deferReply({ ephemeral: true });
 
   const channel = interaction.channel;
-  const messages = await channel.messages.fetch({ limit: Math.min(amount, 100) });
-  const toDelete = user ? messages.filter((m) => m.author.id === user.id) : messages;
-  // Discord rejects a bulk-delete batch containing system messages or messages
-  // older than 14 days - `bulkDeletable` excludes exactly those.
-  const deletable = toDelete.filter((m) => m.bulkDeletable);
-
+  const found = await findMessages(channel, amount, user?.id);
+  const recent = found.messages.filter((message) => message.bulkDeletable);
+  const old = found.messages.filter((message) => !message.bulkDeletable);
   let deletedCount = 0;
-  try {
-    const deleted = await channel.bulkDelete(deletable, true);
-    deletedCount = deleted.size;
-  } catch (error) {
-    // e.g. a message crossed the 14-day boundary between fetch and delete.
-    logger.warn('purge: bulkDelete failed:', error);
+
+  for (let offset = 0; offset < recent.length; offset += 100) {
+    try {
+      const deleted = await channel.bulkDelete(recent.slice(offset, offset + 100), true);
+      deletedCount += deleted.size;
+    } catch (error) {
+      logger.warn('purge: bulk delete failed; falling back to individual deletes:', error);
+      for (const message of recent.slice(offset, offset + 100)) {
+        if (await message.delete().then(() => true).catch(() => false)) deletedCount++;
+      }
+    }
+  }
+  for (const message of old) {
+    if (await message.delete().then(() => true).catch(() => false)) deletedCount++;
   }
 
   audit('purge', {
@@ -72,7 +100,12 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     channel: channel.id,
     requested: amount,
     deleted: deletedCount,
+    scanned: found.scanned,
     filteredUser: user?.id,
   });
-  await interaction.editReply({ content: `✅ Deleted ${deletedCount} message(s).` });
+  const target = user ? ` from ${user.toString()}` : '';
+  const shortfall = deletedCount < amount
+    ? ` I found only ${deletedCount} deletable matching message(s) after checking ${found.scanned}.`
+    : '';
+  await interaction.editReply({ content: `✅ Deleted ${deletedCount} message(s)${target}.${shortfall}` });
 }

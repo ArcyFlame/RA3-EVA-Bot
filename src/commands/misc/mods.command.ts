@@ -23,6 +23,8 @@ export const data = new SlashCommandBuilder()
       .setMaxValue(10),
   );
 
+export const guildOnly = false;
+
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   await interaction.deferReply({ ephemeral: true });
   const limit = interaction.options.getInteger('limit') ?? 8;

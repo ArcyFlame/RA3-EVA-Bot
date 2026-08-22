@@ -6,6 +6,8 @@ import {
   editionsCompatible,
   parseRegistrations,
   parseRegistrationRoster,
+  parseTopicPage,
+  parseExplicitForumWinner,
 } from '../../src/services/forum-scanner.service';
 
 describe('extractPrize', () => {
@@ -119,6 +121,49 @@ describe('baseName pairing', () => {
     expect(editionsCompatible('FTW #88 Brackets, Results and Replays', 'FTW 91 Registration')).toBe(false);
     expect(editionsCompatible('FTW 91 Brackets, Results and Replays', 'FTW 91 Registration')).toBe(true);
     expect(editionsCompatible('Rise of the Patch, Bracket Results and Replays', 'Rise of the patch')).toBe(true);
+  });
+});
+
+describe('parseTopicPage', () => {
+  it('extracts a normal Challonge link', () => {
+    const parsed = parseTopicPage('<a href="http://challonge.com/ftw91">Bracket</a>');
+    expect(parsed.challonge).toEqual(['https://challonge.com/ftw91']);
+  });
+
+  it('recovers a Challonge link from malformed old forum BBCode', () => {
+    const parsed = parseTopicPage(
+      '<div class="comment">[url=https://challonge.com/z2dt9ono[/url]</div>',
+    );
+    expect(parsed.challonge).toEqual(['https://challonge.com/z2dt9ono']);
+  });
+
+  it('ignores Challonge website assets', () => {
+    const parsed = parseTopicPage('<img src="https://challonge.com/images/logo.svg">');
+    expect(parsed.challonge).toEqual([]);
+  });
+});
+
+describe('parseExplicitForumWinner', () => {
+  const post = (author: string, body: string) =>
+    `<div class="comment_wrapper"><span class="member_name"><a>${author}</a></span>` +
+    `<div class="comment">${body}</div></div>`;
+
+  it('accepts a player-posted final score backed by the replay winner marker', () => {
+    const html = post(
+      'DutchArmy',
+      'Finals<br>Forgot game 2<br>4-1<br>Player Name Side Team<br>DutchArmy* 0<br>GreenAlert 0',
+    );
+    expect(parseExplicitForumWinner(html)).toBe('DutchArmy');
+  });
+
+  it('does not guess from an organizer posting somebody else\'s score', () => {
+    const html = post('Referee', 'Finals<br>DutchArmy 4-1 GreenAlert');
+    expect(parseExplicitForumWinner(html)).toBeUndefined();
+  });
+
+  it('does not count an ordinary match report as a tournament final', () => {
+    const html = post('DutchArmy', 'DutchArmy 4-1 GreenAlert<br>DutchArmy* 0');
+    expect(parseExplicitForumWinner(html)).toBeUndefined();
   });
 });
 

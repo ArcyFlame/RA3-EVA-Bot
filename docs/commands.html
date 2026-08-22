@@ -29,6 +29,8 @@
     <p>
       Every command is also listed in <code>/help</code>, grouped the same way.
       Admins can hide categories per server in <code>/toggle</code>.
+      Safe public commands can also be used in DMs by default; the bot owner can
+      disable that from the same feature menu.
     </p>
 
     <h2>Tournaments</h2>
@@ -37,8 +39,9 @@
       <tr><td><code>/events</code></td><td>Browse tournament announcements with Sign Up / Results buttons</td></tr>
       <tr><td><code>/results</code></td><td>Podium + standings from every discovered Challonge bracket</td></tr>
       <tr><td><code>/matches</code></td><td>The current bracket: standings when finished, up-next while running</td></tr>
-      <tr><td><code>/pickmap</code></td><td>Pick a random map — from a tournament pool, the 1.12.8 patch pool or all maps</td></tr>
-      <tr><td><code>/checkin start|status</code></td><td>Check-in board with referee pings <span class="badge red">referee</span></td></tr>
+      <tr><td><code>/pickmap [event]</code></td><td>Pick a verified map from the current or selected tournament</td></tr>
+      <tr><td><code>/checkin [event]</code></td><td>Open the check-in board; referees also get management controls</td></tr>
+      <tr><td><code>/report_score &lt;opponent&gt; &lt;factions&gt; &lt;score&gt;</code></td><td>Submit a checked-in tournament result for referee review</td></tr>
       <tr><td><code>/tournaments_scan</code></td><td>Force an immediate portal + forum scan <span class="badge red">admin</span></td></tr>
       <tr><td><code>/tournament_link</code></td><td>Attach a Challonge bracket by URL <span class="badge red">admin</span></td></tr>
       <tr><td><code>/add_master</code> / <code>/remove_master</code> / <code>/list_masters</code></td><td>Hall of Fame management <span class="badge red">admin</span></td></tr>
@@ -57,8 +60,7 @@
     <table>
       <tr><th>Command</th><th>What it does</th></tr>
       <tr><td><code>/profile [user] [player]</code></td><td>Player profile — a Discord member or any player by RA3BattleNet name / persona id</td></tr>
-      <tr><td><code>/link_ra3battlenet</code></td><td>Link your RA3BattleNet persona (name or persona id)</td></tr>
-      <tr><td><code>/link_shatabrick</code></td><td>Link your Shatabrick (C&amp;C Online) account</td></tr>
+      <tr><td><code>/link</code></td><td>Manage Shatabrick and RA3BattleNet account links</td></tr>
     </table>
 
     <h2>Community</h2>
@@ -70,15 +72,6 @@
       <tr><td><code>/tips</code></td><td>Random verified gameplay tip or fun fact</td></tr>
       <tr><td><code>/setup</code></td><td>How to install C&amp;C Online / RA3BattleNet and play online</td></tr>
       <tr><td><code>/notifications</code></td><td>Your notification settings; admins manage channels &amp; streamers</td></tr>
-    </table>
-
-    <h2>Build Orders</h2>
-    <table>
-      <tr><th>Command</th><th>What it does</th></tr>
-      <tr><td><code>/build_create</code></td><td>Create a build order (interactive panel with unit-emoji picker)</td></tr>
-      <tr><td><code>/build_list</code></td><td>Your builds + latest community builds</td></tr>
-      <tr><td><code>/build_view</code></td><td>View a build</td></tr>
-      <tr><td><code>/build_remove</code></td><td>Delete your build</td></tr>
     </table>
 
     <h2>Clans</h2>
@@ -94,7 +87,7 @@
       <tr><th>Command</th><th>What it does</th></tr>
       <tr><td><code>/bot_setup</code></td><td>Setup wizard: roles, channels, game, features <span class="badge red">admin</span></td></tr>
       <tr><td><code>/set_admin_role</code></td><td>Set the bot admin role <span class="badge red">admin</span></td></tr>
-      <tr><td><code>/toggle</code></td><td>Feature toggles, help categories, menu mode <span class="badge red">admin</span></td></tr>
+      <tr><td><code>/toggle</code></td><td>Choose a feature category, then enable or disable it <span class="badge red">admin</span></td></tr>
       <tr><td><code>/test_channels</code></td><td>Verify the bot can post in every configured channel <span class="badge red">admin</span></td></tr>
       <tr><td><code>/warn</code></td><td>Warn a member <span class="badge red">mod</span></td></tr>
       <tr><td><code>/help</code></td><td>Command overview</td></tr>

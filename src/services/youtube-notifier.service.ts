@@ -7,6 +7,8 @@ import { guildRepository } from '../repositories/guild.repository';
 import { db } from '../database/sqlite';
 import axios from 'axios';
 import xml2js from 'xml2js';
+import { contentDeliveryRepository } from '../repositories/content-delivery.repository';
+import { safeGetText } from '../utils/safe-fetch';
 
 export class YouTubeNotifierService {
   private callbackUrl: string | null = null;
@@ -83,11 +85,10 @@ export class YouTubeNotifierService {
     channelId: string,
   ): Promise<Array<{ videoId: string; title: string; publishedAt?: string; channelTitle?: string }>> {
     if (!/^[\w-]{5,50}$/.test(channelId)) return [];
-    const res = await axios.get('https://www.youtube.com/feeds/videos.xml', {
-      params: { channel_id: channelId },
-      timeout: 10000,
-    });
-    const result = await new xml2js.Parser({ explicitArray: false }).parseStringPromise(res.data);
+    const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
+    const xml = await safeGetText(url, { timeoutMs: 10_000 });
+    if (!xml) return [];
+    const result = await new xml2js.Parser({ explicitArray: false }).parseStringPromise(xml);
     const feed = result?.feed ?? {};
     if (feed.title && typeof feed.title === 'string') this.channelNames.set(channelId, feed.title);
     let entries = feed.entry ?? [];
@@ -212,6 +213,71 @@ export class YouTubeNotifierService {
     db.prepare('INSERT OR IGNORE INTO youtube_notified_videos (video_id) VALUES (?)').run(videoId);
   }
 
+  private buildVideoEmbed(videoId: string, title: string, channelName: string): EmbedBuilder {
+    return new EmbedBuilder()
+      .setTitle(`📺 New video: ${title}`)
+      .setURL(`https://youtu.be/${videoId}`)
+      .setColor(0xff0000)
+      .setAuthor({ name: channelName, iconURL: 'https://www.youtube.com/favicon.ico' })
+      .setThumbnail(`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`)
+      .setTimestamp();
+  }
+
+  private async sendVideoToGuild(
+    guildId: string,
+    videoId: string,
+    title: string,
+    channelName: string,
+  ): Promise<boolean> {
+    const guild = this.client?.guilds.cache.get(guildId);
+    if (!guild) return false;
+    const guildData = guildRepository.findByDiscordId(guildId);
+    if (!guildData?.youtubeChannelId || !guildData.youtubeNotifierEnabled) return false;
+    const channel = guild.channels.cache.get(guildData.youtubeChannelId);
+    if (!(channel instanceof TextChannel)) return false;
+    if (contentDeliveryRepository.wasDelivered(guildId, 'youtube', videoId, channel.id)) return false;
+    try {
+      await channel.send({ embeds: [this.buildVideoEmbed(videoId, title, channelName)] });
+      contentDeliveryRepository.markDelivered(guildId, 'youtube', videoId, channel.id);
+      return true;
+    } catch (error) {
+      logger.warn(`YouTube send failed for guild ${guildId}:`, error);
+      return false;
+    }
+  }
+
+  async postLatestToGuild(guildId: string): Promise<boolean> {
+    const tracked = trackedStreamerRepository
+      .findByGuild(guildId)
+      .filter((streamer) => streamer.platform === 'youtube')
+      .map((streamer) => streamer.platformId);
+    const channelIds = [...new Set([...this.DEFAULT_CHANNEL_IDS, ...tracked])];
+    const videos: Array<{
+      videoId: string;
+      title: string;
+      publishedAt?: string;
+      channelTitle?: string;
+      channelId: string;
+    }> = [];
+    for (const channelId of channelIds) {
+      try {
+        const uploads = await this.fetchFeedUploads(channelId);
+        videos.push(...uploads.map((video) => ({ ...video, channelId })));
+      } catch (error) {
+        logger.warn(`YouTube bootstrap failed for channel ${channelId}:`, error);
+      }
+    }
+    videos.sort((a, b) => {
+      const ta = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+      const tb = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+      return tb - ta;
+    });
+    const latest = videos[0];
+    if (!latest) return false;
+    const channelName = latest.channelTitle || this.channelNames.get(latest.channelId) || 'YouTube Channel';
+    return this.sendVideoToGuild(guildId, latest.videoId, latest.title, channelName);
+  }
+
   async handleNotification(
     channelId: string,
     videoId: string,
@@ -232,29 +298,9 @@ export class YouTubeNotifierService {
 
     this.markNotified(videoId);
 
-    // Channel name from the feed (no API); thumbnails are public CDN URLs.
     const channelName = this.channelNames.get(channelId) || 'YouTube Channel';
-    const embed = new EmbedBuilder()
-      .setTitle(`📺 New video: ${title}`)
-      .setURL(`https://youtu.be/${videoId}`)
-      .setColor(0xff0000)
-      .setAuthor({ name: channelName, iconURL: 'https://www.youtube.com/favicon.ico' })
-      .setThumbnail(`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`)
-      .setTimestamp();
-
     for (const guildId of targetGuildIds) {
-      const guild = this.client?.guilds.cache.get(guildId);
-      if (!guild) continue;
-      const guildData = guildRepository.findByDiscordId(guild.id);
-      if (!guildData?.youtubeChannelId) continue;
-      if (!guildData.youtubeNotifierEnabled) continue;
-
-      const channel = guild.channels.cache.get(guildData.youtubeChannelId) as TextChannel;
-      if (!channel) continue;
-
-      await channel
-        .send({ embeds: [embed] })
-        .catch((e) => logger.warn(`YouTube send failed: ${e.message}`));
+      await this.sendVideoToGuild(guildId, videoId, title, channelName);
     }
   }
 }

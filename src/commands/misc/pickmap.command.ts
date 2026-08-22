@@ -1,6 +1,7 @@
 import {
   SlashCommandBuilder,
   ChatInputCommandInteraction,
+  AutocompleteInteraction,
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
@@ -9,155 +10,116 @@ import {
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { RA3Bot } from '../../bot';
-import { tournamentRepository } from '../../repositories/tournament.repository';
+import { guildRepository } from '../../repositories/guild.repository';
+import { isKnownSkirmishMap } from '../../services/ra3-stats.service';
+import {
+  findTournament,
+  getCurrentTournament,
+  listTournamentContexts,
+} from '../../services/tournament-context.service';
+import { ESPORTS_FALLBACK_URL } from '../../utils/tournament-status';
 
-/** Maps shipped with the Community Patch 1.12.8 ladder pool. */
 const PATCH_1_12_8_URL = 'https://www.gamereplays.org/community/index.php?showtopic=1083648';
-const patchMaps = new Set([
-  'battlebase alpha',
-  'battlebase delta',
-  'deep cold',
-  'erebor lament',
-  'grinderberg',
-  'isla pascua',
-  'misty abyss',
-  'pacific paradise',
-  'scorching sands',
-  'thermal tension',
-  'lake of albatross',
-]);
-
-const competitiveMaps = [
+const DEFAULT_PATCH_MAPS = [
   'Battlebase Alpha',
   'Battlebase Delta',
   'Deep Cold',
   'Erebor Lament',
   'Grinderberg',
-  'Infinity Isle',
   'Isla Pascua',
   'Lake of Albatross',
   'Misty Abyss',
   'Pacific Paradise',
   'Scorching Sands',
   'Thermal Tension',
-  'Tournament Tower',
-  'Wasteland',
-  'Cabana Republic',
-  'Hammer Beach',
-  'Remo Crossing',
 ];
-
-/** Finds the newest event whose stored map pool matches the given title. */
-function eventPoolByName(title: string): { event: string; maps: string[] } | null {
-  const want = title.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!want) return null;
-  const events = tournamentRepository.getAnnouncements();
-  for (let i = events.length - 1; i >= 0; i--) {
-    const detail = tournamentRepository.getEventDetail(events[i].id);
-    if (!detail?.maps || detail.maps.length < 3) continue;
-    const base = events[i].title
-      .toLowerCase()
-      .replace(/[^a-z0-9 ]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (base.includes(want.slice(0, 10)) || want.includes(base.slice(0, 10))) {
-      return {
-        event: events[i].title,
-        maps: detail.maps.split(/,\s*/).filter(Boolean),
-      };
-    }
-  }
-  return null;
-}
-
-/** images/maps/<slug>.png — drop official minimaps there and they show up. */
-function minimapPath(mapName: string): string | undefined {
-  const slug = mapName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-  const p = join(process.cwd(), 'images', 'maps', `${slug}.png`);
-  return existsSync(p) ? p : undefined;
-}
-
-function downloadButton(mapName: string): ButtonBuilder {
-  if (patchMaps.has(mapName.toLowerCase())) {
-    return new ButtonBuilder()
-      .setLabel('1.12.8 Map Pack')
-      .setStyle(ButtonStyle.Link)
-      .setURL(PATCH_1_12_8_URL);
-  }
-  return new ButtonBuilder()
-    .setLabel('Download')
-    .setStyle(ButtonStyle.Link)
-    .setURL('https://www.cnclabs.com/maps/redalert3/maps.aspx');
-}
 
 export const data = new SlashCommandBuilder()
   .setName('pickmap')
-  .setDescription('Esports map picker')
-  .addSubcommand((sub) =>
-    sub
-      .setName('random')
-      .setDescription('Pick a random competitive map')
-      .addStringOption((opt) =>
-        opt
-          .setName('event')
-          .setDescription('Pick from this event\u2019s map pool (fuzzy title)')
-          .setRequired(false),
-      ),
-  )
-  .addSubcommand((sub) =>
-    sub
-      .setName('list')
-      .setDescription('List the competitive map pool (or an event\u2019s pool)')
-      .addStringOption((opt) =>
-        opt
-          .setName('event')
-          .setDescription('Show this event\u2019s map pool (fuzzy title)')
-          .setRequired(false),
-      ),
+  .setDescription('Pick a verified map for a tournament or the 1.12.8 patch')
+  .addStringOption((option) =>
+    option
+      .setName('event')
+      .setDescription('Tournament name; current tournament is used when omitted')
+      .setAutocomplete(true)
+      .setRequired(false),
   );
 
+export const guildOnly = false;
+
+function gameFor(interaction: ChatInputCommandInteraction | AutocompleteInteraction): string {
+  if (!interaction.guildId) return 'ra3';
+  return guildRepository.findByDiscordId(interaction.guildId)?.game ?? 'ra3';
+}
+
+function minimapPath(mapName: string): string | undefined {
+  const slug = mapName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const path = join(process.cwd(), 'images', 'maps', `${slug}.png`);
+  return existsSync(path) ? path : undefined;
+}
+
+export async function autocomplete(_bot: RA3Bot, interaction: AutocompleteInteraction) {
+  const query = String(interaction.options.getFocused() ?? '').toLowerCase();
+  const options = listTournamentContexts(gameFor(interaction))
+    .filter((event) => event.title.toLowerCase().includes(query))
+    .slice(0, 25)
+    .map((event) => ({ name: event.title.slice(0, 100), value: event.title.slice(0, 100) }));
+  await interaction.respond(options);
+}
+
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
-  const sub = interaction.options.getSubcommand();
-  const eventTitle = interaction.options.getString('event');
-  const pool = eventTitle
-    ? eventPoolByName(eventTitle)
-    : null;
-  if (eventTitle && !pool) {
+  const game = gameFor(interaction);
+  const eventQuery = interaction.options.getString('event')?.trim();
+  const event = eventQuery ? findTournament(eventQuery, game) : getCurrentTournament(game);
+
+  if (eventQuery && !event) {
     await interaction.reply({
-      content: `No stored map pool matches **${eventTitle}**. Run \`/tournaments_scan\` or check the title.`,
+      content: `I could not verify a tournament named **${eventQuery}**.`,
+      components: [
+        new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setLabel('View RA3 Tournaments')
+            .setStyle(ButtonStyle.Link)
+            .setURL(ESPORTS_FALLBACK_URL),
+        ),
+      ],
       ephemeral: true,
     });
     return;
   }
-  const maps = pool ? pool.maps : competitiveMaps;
 
-  if (sub === 'list') {
-    const embed = new EmbedBuilder()
-      .setTitle(`🗺️ Map Pool${pool ? `: ${pool.event}` : ' (Competitive)'}`)
-      .setDescription(maps.map((m) => `• **${m}**`).join('\n').slice(0, 4000))
-      .setColor(0x00ae86)
-      .setFooter({ text: '1.12.8 pool maps link to the patch map pack.' });
-    const rows: ActionRowBuilder<ButtonBuilder>[] = [];
-    for (let i = 0; i < maps.length && rows.length < 5; i += 5) {
-      rows.push(
-        new ActionRowBuilder<ButtonBuilder>().addComponents(
-          ...maps.slice(i, i + 5).map((m) => downloadButton(m).setLabel(
-            patchMaps.has(m.toLowerCase()) ? `${m} · 1.12.8` : m.slice(0, 60),
-          )),
-        ),
-      );
+  let maps = DEFAULT_PATCH_MAPS;
+  if (event) {
+    maps = (event.maps ?? '')
+      .split(/,\s*/)
+      .map((map) => map.trim())
+      .filter((map) => map && isKnownSkirmishMap(map));
+    if (maps.length === 0) {
+      const detailsUrl =
+        event.registrationUrl ?? event.topicUrl ?? event.eventUrl ?? ESPORTS_FALLBACK_URL;
+      await interaction.reply({
+        content:
+          `I could not verify the map pool for **${event.title}**. ` +
+          'Please use the tournament post instead of a generic pool.',
+        components: [
+          new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+              .setLabel('Open Tournament Post')
+              .setStyle(ButtonStyle.Link)
+              .setURL(detailsUrl),
+          ),
+        ],
+        ephemeral: true,
+      });
+      return;
     }
-    await interaction.reply({ embeds: [embed], components: rows, ephemeral: true });
-    return;
   }
 
-  // random
   const map = maps[Math.floor(Math.random() * maps.length)];
   const embed = new EmbedBuilder()
-    .setTitle('🗺️ Random Map')
-    .setDescription(`**${map}**${pool ? `\nFrom the pool of **${pool.event}**` : ''}`)
-    .setColor(0x00ae86)
-    .setFooter({ text: 'Use /pickmap again for another map' });
+    .setTitle('🗺️ Map Pick')
+    .setDescription(`**${map}**${event ? `\nFrom **${event.title}**` : '\nFrom the 1.12.8 patch pool'}`)
+    .setColor(0x00ae86);
 
   const minimap = minimapPath(map);
   const files: Array<{ attachment: string; name: string }> = [];
@@ -165,6 +127,12 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     files.push({ attachment: minimap, name: 'minimap.png' });
     embed.setImage('attachment://minimap.png');
   }
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(downloadButton(map));
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setLabel('1.12.8 Patch')
+      .setStyle(ButtonStyle.Link)
+      .setURL(PATCH_1_12_8_URL),
+  );
   await interaction.reply({ embeds: [embed], components: [row], files });
 }

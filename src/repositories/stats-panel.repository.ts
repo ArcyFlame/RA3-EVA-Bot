@@ -32,9 +32,8 @@ function mapRow(row: StatsPanelRow): StatsPanel {
 const SELECT_COLUMNS = 'guild_id, channel_id, message_id, charts_message_id, current_page, mode';
 
 /**
- * Single source of truth for `stats_panel_config`. Unlike the previous
- * `INSERT OR REPLACE` (which wiped `message_id`/`current_page` because
- * `guild_id` is the primary key), writes here only touch the intended column.
+ * Single source of truth for `stats_panel_config`; writes only touch the
+ * intended column so message and page state are preserved.
  */
 export class StatsPanelRepository extends BaseRepository {
   get(guildId: string): StatsPanel | undefined {

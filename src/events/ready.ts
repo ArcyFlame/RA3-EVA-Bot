@@ -8,7 +8,7 @@ import { matchReminderService } from '../services/match-reminder.service';
 import { tournamentScanner } from '../services/tournament-scanner.service';
 import { forumScanner } from '../services/forum-scanner.service';
 import { newsScanner } from '../services/news-scanner.service';
-import { generateBarChart } from '../utils/charts';
+import { chartTrackingNote, generateBarChart } from '../utils/charts';
 import { guildRepository } from '../repositories/guild.repository';
 import { ra3StatsService } from '../services/ra3-stats.service';
 import { StatsView } from '../commands/stats/stats.view';
@@ -18,6 +18,7 @@ import { startLobbyPanelUpdater } from '../commands/admin/lobby-panel.command';
 import { startMatchPanelUpdater } from '../commands/admin/match-panel.command';
 import { wizardViews } from '../commands/notifications/views';
 import { setStartTime } from '../commands/info/uptime.command';
+import { bootstrapConfiguredContent } from '../services/content-bootstrap.service';
 
 export const name = Events.ClientReady;
 export const once = true;
@@ -88,17 +89,15 @@ export async function execute(bot: RA3Bot): Promise<void> {
   // precedence; YOUTUBE_CALLBACK_BASE is a legacy alias). bot.ts binds the
   // webhook server to the same URL, so they must not diverge.
   const callbackBase = env.PUBLIC_CALLBACK_URL ?? env.YOUTUBE_CALLBACK_BASE;
-  if (env.YOUTUBE_API_KEY && callbackBase) {
-    try {
+  try {
+    youTubeNotifier.setClient(bot.client);
+    if (callbackBase) {
       youTubeNotifier.setCallbackUrl(callbackBase);
-      youTubeNotifier.setClient(bot.client);
-      await youTubeNotifier.start();
-      logger.info('YouTube notifier started');
-    } catch (error) {
-      logger.error('Failed to start YouTube notifier:', error);
     }
-  } else {
-    logger.info('YouTube API key or callback URL missing - YouTube notifier disabled');
+    await youTubeNotifier.start();
+    logger.info('YouTube notifier started');
+  } catch (error) {
+    logger.error('Failed to start YouTube notifier:', error);
   }
 
   try {
@@ -118,17 +117,25 @@ export async function execute(bot: RA3Bot): Promise<void> {
   // ── Tournament scanner (GameReplays eSports portal) ────────────────────
   tournamentScanner.setClient(bot.client);
   tournamentScanner.start();
-  // Backfill recent tournaments once on boot, without blocking the ready handler.
-  tournamentScanner.scan().catch((error) => logger.error('Initial tournament scan failed:', error));
 
   // ── Forum scanner (brackets/challonge links + registrations) ───────────
   forumScanner.start();
-  forumScanner.scan().catch((error) => logger.error('Initial forum scan failed:', error));
 
   // ── News scanner (GameReplays news portal) ─────────────────────────────
   newsScanner.setClient(bot.client);
   newsScanner.start();
-  newsScanner.scan().catch((error) => logger.error('Initial news scan failed:', error));
+  void Promise.allSettled([
+    tournamentScanner.scan(),
+    forumScanner.scan(),
+    newsScanner.scan(),
+  ])
+    .then(async () => {
+      await bootstrapConfiguredContent(bot.client);
+      // This crawl is resumable and normally does no work after the historical
+      // forum has been indexed once.
+      await forumScanner.backfillHistoricalWinners();
+    })
+    .catch((error) => logger.error('Startup content refresh failed:', error));
 
   // ── Persistent stats panels ───────────────────────────────────────────
   await updateStatsPanels(bot);
@@ -192,15 +199,30 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel, view: StatsView):
   try {
     const stats = await ra3StatsService.fetch();
     charts.push({
-      attachment: await generateBarChart(stats.online_last_24h, 'Online Players (Last 24 Hours)', 'Reds_r'),
+      attachment: await generateBarChart(
+        stats.online_last_24h,
+        'Online Players (Last 24 Hours)',
+        'Reds_r',
+        chartTrackingNote(stats.history_started_at),
+      ),
       name: 'online_players_last_24_hours.png',
     });
     charts.push({
-      attachment: await generateBarChart(stats.new_players_last_30d, 'New Players (Last 30 Days)', 'Blues_r'),
+      attachment: await generateBarChart(
+        stats.new_players_last_30d,
+        'New Players (Last 30 Days)',
+        'Blues_r',
+        chartTrackingNote(stats.new_player_tracking_started_at),
+      ),
       name: 'new_players_last_30_days.png',
     });
     charts.push({
-      attachment: await generateBarChart(stats.online_last_30d, 'Online Players (Last 30 Days)', 'YlOrBr_r'),
+      attachment: await generateBarChart(
+        stats.online_last_30d,
+        'Online Players (Last 30 Days)',
+        'YlOrBr_r',
+        chartTrackingNote(stats.history_started_at),
+      ),
       name: 'online_players_last_30_days.png',
     });
   } catch (error) {

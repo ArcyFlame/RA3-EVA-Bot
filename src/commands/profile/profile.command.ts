@@ -10,6 +10,7 @@ import {
 } from '../../services/ra3-stats.service';
 import { FACTION_ALLIED, FACTION_SOVIET, FACTION_EMPIRE, FACTION_RANDOM } from '../../utils/emojis';
 import { t } from '../../utils/i18n';
+import { Language } from '../../repositories/user.repository';
 
 export const data = new SlashCommandBuilder()
   .setName('profile')
@@ -24,11 +25,14 @@ export const data = new SlashCommandBuilder()
       .setRequired(false),
   );
 
+export const guildOnly = false;
+
 /** Shared RA3BattleNet section lines (persona stats + season history). */
 async function buildRa3bLines(
   stats: Ra3bPersonaStats | null,
   history: Ra3bSeasonHistory[],
   fallbackName: string,
+  lang: Language,
 ): Promise<string[]> {
   const lines: string[] = [`**${stats?.personaName ?? fallbackName}**`];
   const ladders: Array<[string, Ra3bPersonaLadder | null]> = [
@@ -37,16 +41,16 @@ async function buildRa3bLines(
     ['3v3', stats?.ladder3v3 ?? null],
   ];
   for (const [mode, ladder] of ladders) {
-    if (ladder) lines.push(`${mode}: ${formatLadder(ladder)}`);
+    if (ladder) lines.push(`${mode}: ${formatLadder(ladder, lang)}`);
   }
-  if (lines.length === 1) lines.push('Not ranked this season.');
+  if (lines.length === 1) lines.push(t(lang, 'profile.notRanked'));
   const seasons = history
     .slice(0, 4)
     .map(
       (h) =>
         `${h.seasonNameEnglish ?? h.seasonNameChinese ?? `S${h.seasonId}`} ${h.ladderType}: ${h.endElo} (#${h.endRank})`,
     );
-  if (seasons.length > 0) lines.push(`Seasons: ${seasons.join(' · ')}`);
+  if (seasons.length > 0) lines.push(`${t(lang, 'profile.seasons')}: ${seasons.join(' · ')}`);
   return lines;
 }
 
@@ -59,7 +63,7 @@ function factionEmoji(faction: string | undefined): string {
 }
 
 /** "1234 elo · #12 · 15W/4L (79%) · 🇺🇸" (placement-aware). */
-function formatLadder(ladder: Ra3bPersonaLadder): string {
+function formatLadder(ladder: Ra3bPersonaLadder, lang: Language): string {
   const total = ladder.wins + ladder.losses;
   const rate = total > 0 ? ` (${Math.round((ladder.wins / total) * 100)}%)` : '';
   const record = `${ladder.wins}W/${ladder.losses}L${rate}`;
@@ -68,19 +72,16 @@ function formatLadder(ladder: Ra3bPersonaLadder): string {
     return `\`${ladder.elo}\` elo · #${ladder.rank} · ${record} · ${faction}`;
   }
   if (total > 0) {
-    return `Placement (${ladder.placementMatchesLeft} left) · ${record} · ${faction}`;
+    return `${t(lang, 'profile.placement')} (${ladder.placementMatchesLeft} ${t(lang, 'profile.left')}) · ${record} · ${faction}`;
   }
-  return `No games · ${faction}`;
+  return `${t(lang, 'profile.noGames')} · ${faction}`;
 }
 
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
-  if (!interaction.guild) {
-    await interaction.reply({ content: 'Server only.', ephemeral: true });
-    return;
-  }
-
-  const guildData = await guildRepository.findByDiscordId(interaction.guild.id);
-  if (guildData?.profilesEnabled === 0) {
+  const guildData = interaction.guildId
+    ? await guildRepository.findByDiscordId(interaction.guildId)
+    : undefined;
+  if (interaction.guildId && guildData?.profilesEnabled === 0) {
     await interaction.reply({
       content: '❌ Profiles are disabled on this server.',
       ephemeral: true,
@@ -113,12 +114,12 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       return;
     }
     const embed = new EmbedBuilder()
-      .setTitle(`🏅 ${stats.personaName} — Player Profile`)
+      .setTitle(`🏅 ${stats.personaName} — ${t(lang, 'profile.playerProfile')}`)
       .setColor(0xffd700)
-      .setDescription('Community player (RA3BattleNet ladder).');
+      .setDescription(t(lang, 'profile.communityPlayer'));
     embed.addFields({
       name: t(lang, 'profile.ra3b'),
-      value: (await buildRa3bLines(stats, history, playerQuery)).join('\n').slice(0, 1024),
+      value: (await buildRa3bLines(stats, history, playerQuery, lang)).join('\n').slice(0, 1024),
       inline: false,
     });
     // Tournament Wins leaderboard, when this name has recorded titles.
@@ -127,7 +128,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       wins[stats.personaName] ??
       Object.entries(wins).find(([n]) => n.toLowerCase() === stats.personaName.toLowerCase())?.[1];
     if (winCount) {
-      embed.addFields({ name: '🏆 Tournament Wins', value: `${winCount}`, inline: true });
+      embed.addFields({ name: `🏆 ${t(lang, 'profile.tournamentWins')}`, value: `${winCount}`, inline: true });
     }
     await interaction.editReply({ embeds: [embed] });
     return;
@@ -147,20 +148,25 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   if (user?.shatabrickUsername) {
     embed.addFields({
       name: t(lang, 'profile.shatabrick'),
-      value: `${user.shatabrickUsername}\n${t(lang, 'profile.rank')}: ${user.rank || '—'}`,
+      value:
+        `**${user.shatabrickUsername}**\n` +
+        `${t(lang, 'profile.rank')}: ${user.rank || '—'}\n` +
+        t(lang, 'profile.apiPending'),
       inline: true,
     });
   } else {
     embed.setDescription(t(lang, 'profile.noLink'));
     embed.addFields({
       name: t(lang, 'profile.shatabrick'),
-      value: `${t(lang, 'profile.notFound')}\n${t(lang, 'profile.rank')}: ${user?.rank || '—'}`,
+      value:
+        `${t(lang, 'profile.notFound')}\n${t(lang, 'profile.rank')}: ${user?.rank || '—'}\n` +
+        t(lang, 'profile.noLink'),
       inline: true,
     });
   }
 
-  // RA3BattleNet is a SEPARATE account system from Shatabrick — only query it
-  // with the persona the user explicitly linked via /link_ra3battlenet. The
+  // RA3BattleNet is separate from Shatabrick, so only query it with the
+  // persona the user explicitly linked through /link. The
   // stored numeric persona id works even off-season; otherwise resolve by
   // name through the current ladders.
   const ra3bLinked = user?.ra3bUsername;
@@ -175,7 +181,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       ]);
       embed.addFields({
         name: t(lang, 'profile.ra3b'),
-        value: (await buildRa3bLines(stats, history, ra3bLinked)).join('\n').slice(0, 1024),
+        value: (await buildRa3bLines(stats, history, ra3bLinked, lang)).join('\n').slice(0, 1024),
         inline: false,
       });
     } else {

@@ -7,13 +7,12 @@ export const data = new SlashCommandBuilder()
   .setName('events')
   .setDescription('Browse RA3 tournament announcements, sign-ups and results');
 
-export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
-  if (!interaction.guild) {
-    await interaction.reply({ content: 'Server only.', ephemeral: true });
-    return;
-  }
+export const guildOnly = false;
 
-  const guildData = guildRepository.findByDiscordId(interaction.guild.id);
+export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
+  const guildData = interaction.guildId
+    ? guildRepository.findByDiscordId(interaction.guildId)
+    : undefined;
   if (guildData?.tournamentsEnabled === 0) {
     await interaction.reply({
       content: '❌ Tournaments are disabled on this server.',

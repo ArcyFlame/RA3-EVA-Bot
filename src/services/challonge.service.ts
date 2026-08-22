@@ -33,23 +33,36 @@ export class ChallongeService {
   parseTournamentRef(input: string): string | null {
     const raw = input.trim();
     if (!raw) return null;
-    // Pure numeric id.
     if (/^\d{1,12}$/.test(raw)) return raw;
-    // URL forms.
-    const match = raw.match(
-      /^(?:https?:\/\/)?([a-z0-9][a-z0-9-]{0,30})\.challonge\.com\/([a-z0-9][a-z0-9-]{0,60})/i,
-    );
-    if (match) return `${match[1]}-${match[2]}`.toLowerCase();
-    // Locale-prefixed path (challonge.com/zh_CN/stormgatheringBN): the locale
-    // segment is not part of the tournament id.
-    const locale = raw.match(
-      /^(?:https?:\/\/)?(?:www\.)?challonge\.com\/[a-z]{2}(?:_[A-Za-z]{2})?\/([a-z0-9][a-z0-9-]{0,60})/i,
-    );
-    if (locale) return locale[1].toLowerCase();
-    const plain = raw.match(/^(?:https?:\/\/)?(?:www\.)?challonge\.com\/([a-z0-9][a-z0-9-]{0,60})/i);
-    if (plain) return plain[1].toLowerCase();
-    // Bare slug.
-    if (/^[a-z0-9][a-z0-9-]{0,60}$/i.test(raw)) return raw.toLowerCase();
+
+    const reserved = new Set([
+      'about', 'api', 'assets', 'communities', 'contact', 'dashboard', 'features',
+      'images', 'login', 'pricing', 'privacy', 'search', 'settings', 'signup',
+      'static', 'teams', 'terms', 'tournaments', 'users',
+    ]);
+    const validSlug = (value: string | undefined): value is string =>
+      !!value && /^[a-z0-9][a-z0-9-]{0,60}$/i.test(value) && !reserved.has(value.toLowerCase());
+
+    if (/challonge\.com/i.test(raw)) {
+      try {
+        const parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+        const host = parsed.hostname.toLowerCase();
+        const parts = parsed.pathname.split('/').filter(Boolean);
+        if (parts[0] && /^[a-z]{2}(?:_[a-z]{2})?$/i.test(parts[0])) parts.shift();
+        const slug = parts[0];
+        if (!validSlug(slug)) return null;
+        if (host === 'challonge.com' || host === 'www.challonge.com') return slug.toLowerCase();
+        const subdomain = host.match(/^([a-z0-9][a-z0-9-]{0,30})\.challonge\.com$/i)?.[1];
+        if (subdomain && subdomain.toLowerCase() !== 'www') {
+          return `${subdomain}-${slug}`.toLowerCase();
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    }
+    if (validSlug(raw)) return raw.toLowerCase();
     return null;
   }
 
@@ -67,7 +80,11 @@ export class ChallongeService {
       const response = await axios({ method, url, params, data, timeout: 10000 });
       return response.data;
     } catch (error: any) {
-      logger.error(`Challonge API error: ${error.message}`);
+      if (error.response?.status === 404) {
+        logger.debug(`Challonge tournament not found: ${endpoint}`);
+      } else {
+        logger.error(`Challonge API error: ${error.message}`);
+      }
       throw new Error(`Challonge request failed: ${error.response?.data || error.message}`);
     }
   }

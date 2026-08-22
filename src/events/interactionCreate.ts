@@ -4,6 +4,7 @@ import { logger } from '../utils/logger';
 import { cooldownManager } from '../utils/cooldown';
 import { handleInteractionError } from '../utils/interaction-error';
 import { resolveComponent, ComponentRegistry } from '../types';
+import { appSettingsRepository } from '../repositories/app-settings.repository';
 
 export const name = Events.InteractionCreate;
 export const once = false;
@@ -16,20 +17,18 @@ const COMPONENT_COOLDOWN_MS = 2_000;
  * (e.g. /toggle, /help). The router must not dispatch or cooldown these —
  * the collectors already filter by message id and user.
  */
-const COLLECTOR_OWNED_PREFIXES = ['setup_feature_toggle_', 'feature_toggle_'];
+const COLLECTOR_OWNED_PREFIXES: string[] = [];
 const COLLECTOR_OWNED_IDS = new Set([
   'help_category',
   'select_match',
   'stats_mode',
-  'toggle_menus_mode',
   'helpcat_select',
 ]);
 
 /**
  * Self-sweeping per-user component cooldowns. A single entry is kept per
  * user+customId and expired rows are dropped by an unref'd interval, so the
- * map stays bounded on long-running processes (the previous implementation
- * leaked one entry per user per component forever).
+ * map stays bounded on long-running processes.
  */
 const componentCooldowns = new Map<string, number>();
 const cooldownSweep = setInterval(() => {
@@ -71,6 +70,15 @@ export async function execute(bot: RA3Bot, interaction: Interaction): Promise<vo
       await interaction
         .reply({ content: '❌ This command can only be used inside a server.', ephemeral: true })
         .catch((e) => logger.debug('Failed to answer DM command:', e));
+      return;
+    }
+    if (
+      !interaction.inGuild() &&
+      command.guildOnly === false &&
+      !command.dmAlwaysAllowed &&
+      !appSettingsRepository.isDmPublicCommandsEnabled()
+    ) {
+      await interaction.reply({ content: 'Public commands in DMs are currently disabled.' });
       return;
     }
 

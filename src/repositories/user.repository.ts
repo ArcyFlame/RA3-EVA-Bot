@@ -56,9 +56,7 @@ export class UserRepository extends BaseRepository {
     }
   }
 
-  // Typed DM-setting toggles. The previous `updateNotifySetting(discordId, column, …)`
-  // interpolated a raw `column` string into SQL - a loaded-gun injection risk.
-  // These methods hard-code the column names instead of accepting one.
+  // DM-setting methods hard-code column names instead of accepting SQL identifiers.
 
   /** Ensures a row exists so a flag toggle always persists (never a silent no-op). */
   private ensureUser(discordId: string): void {
@@ -92,9 +90,18 @@ export class UserRepository extends BaseRepository {
   }
 
   linkShatabrick(discordId: string, shatabrickUsername: string): void {
+    this.ensureUser(discordId);
     this.run(
       `UPDATE users SET shatabrick_username = ?, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ?`,
       [shatabrickUsername, discordId],
+    );
+  }
+
+  unlinkShatabrick(discordId: string): void {
+    this.ensureUser(discordId);
+    this.run(
+      'UPDATE users SET shatabrick_username = NULL, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ?',
+      [discordId],
     );
   }
 
@@ -104,6 +111,14 @@ export class UserRepository extends BaseRepository {
     this.run(
       `UPDATE users SET ra3b_username = ?, ra3b_persona_id = ?, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ?`,
       [ra3bUsername, personaId ?? null, discordId],
+    );
+  }
+
+  unlinkRa3BattleNet(discordId: string): void {
+    this.ensureUser(discordId);
+    this.run(
+      'UPDATE users SET ra3b_username = NULL, ra3b_persona_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ?',
+      [discordId],
     );
   }
 

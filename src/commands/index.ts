@@ -68,7 +68,10 @@ export async function loadCommands(bot: RA3Bot): Promise<void> {
 
 /** Pushes the loaded definitions to Discord (guild-scoped in dev, global in prod). */
 export async function registerCommands(bot: RA3Bot): Promise<void> {
-  const body = bot.commands.map((command) => command.data.toJSON());
+  const body = bot.commands.map((command) => ({
+    ...(command.data.toJSON() as Record<string, unknown>),
+    dm_permission: command.guildOnly === false,
+  }));
   const clientId = bot.client.user?.id;
   if (!clientId) {
     logger.error('Cannot register commands: client user unavailable (not logged in?)');

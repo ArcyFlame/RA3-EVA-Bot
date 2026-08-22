@@ -6,6 +6,7 @@ import { isTournamentRelevant, tournamentScanner } from './tournament-scanner.se
 import { challongeService } from './challonge.service';
 import { isKnownSkirmishMap } from './ra3-stats.service';
 import { extractPrizeValue, truncateSentences } from '../utils/text';
+import { statusFromChallonge } from '../utils/tournament-status';
 
 export { truncateSentences };
 
@@ -18,9 +19,17 @@ export { truncateSentences };
 
 const FORUM_URL = 'https://www.gamereplays.org/community/index.php?showforum=2364';
 const SCAN_INTERVAL_MS = 3 * 60 * 60 * 1000; // 3 hours
-const FORUM_PAGES = 2; // first two pages of the forum cover months of topics
+const FORUM_PAGE_SIZE = 25;
+const RECENT_FORUM_PAGES = 3;
 /** Sign-up threads paginate 20 posts per page; three pages cover any thread. */
 const REGISTRATION_PAGES = [0, 20, 40];
+const NON_RA3_TOURNAMENT = /generals evolution|genevo|gen evo|kane'?s wrath|tiberi\w*|c&c ?3|zero hour/i;
+
+function tournamentGame(title: string): 'ra3' | 'kw' | 'genevo' {
+  if (/generals evolution|genevo|gen evo|zero hour/i.test(title)) return 'genevo';
+  if (/kane'?s wrath|tiberi\w*|c&c ?3/i.test(title)) return 'kw';
+  return 'ra3';
+}
 
 export interface ForumTopic {
   title: string;
@@ -103,12 +112,24 @@ export function parseTopicPage(html: string): TopicLinks {
   const $ = cheerio.load(html);
   const links: TopicLinks = { challonge: [], mapLines: [], bodyText: '' };
 
+  const addChallongeLink = (value: string) => {
+    const directUrl = value.match(
+      /(?:https?:\/\/)?(?:www\.)?(?:[a-z0-9-]+\.)?challonge\.com\/(?:[a-z]{2}(?:_[a-z]{2})?\/)?[a-z0-9][a-z0-9-]{0,60}/i,
+    )?.[0];
+    if (!directUrl) return;
+    const normalized = (/^https?:\/\//i.test(directUrl) ? directUrl : `https://${directUrl}`).replace(
+      /^http:\/\//i,
+      'https://',
+    );
+    if (!challongeService.parseTournamentRef(normalized)) return;
+    if (!links.challonge.includes(normalized)) links.challonge.push(normalized);
+  };
+
   $('a').each((_, el) => {
     const href = ($(el).attr('href') || '').trim();
     const lower = href.toLowerCase();
     if (lower.includes('challonge.com')) {
-      const normalized = href.replace(/^http:\/\//i, 'https://');
-      if (!links.challonge.includes(normalized)) links.challonge.push(normalized);
+      addChallongeLink(href);
     }
     const text = $(el).text().toLowerCase();
     if (text.includes('check') && href.includes('showtopic=')) {
@@ -119,8 +140,52 @@ export function parseTopicPage(html: string): TopicLinks {
     }
   });
 
+  // Some old forum posts contain broken BBCode such as
+  // "[url=https://challonge.com/example[/url]". It is visible in the page
+  // source but never becomes an anchor, so scan the source for direct links.
+  for (const match of html.matchAll(
+    /(?:https?:\/\/)?(?:www\.)?(?:[a-z0-9-]+\.)?challonge\.com\/(?:[a-z]{2}(?:_[a-z]{2})?\/)?[a-z0-9][a-z0-9-]{0,60}/gi,
+  )) {
+    addChallongeLink(match[0]);
+  }
+
   links.bodyText = $.text().replace(/\r/g, '');
   return links;
+}
+
+/**
+ * Finds a winner only when a player posts an explicitly labelled final score
+ * and the same player appears as a winner in the attached replay summary.
+ * This covers a few older events that never used a bracket service while
+ * avoiding guesses from ordinary replay or discussion threads.
+ */
+export function parseExplicitForumWinner(html: string): string | undefined {
+  const $ = cheerio.load(html);
+  let winner: string | undefined;
+
+  $('.comment_wrapper').each((_, element) => {
+    if (winner) return;
+    const post = $(element);
+    const author = post.find('.member_name a').first().text().replace(/\s+/g, ' ').trim();
+    if (!author || author.length < 2 || author.length > 40) return;
+
+    const comment = post.find('.comment').first().clone();
+    comment.find('br').replaceWith('\n');
+    const text = comment.text().replace(/\u00a0/g, ' ');
+    const finalAt = text.search(/\b(?:grand\s+)?finals?\b/i);
+    if (finalAt < 0) return;
+
+    const score = text
+      .slice(finalAt, finalAt + 400)
+      .match(/\b([0-9])\s*[-:]\s*([0-9])\b/);
+    if (!score || Number(score[1]) <= Number(score[2])) return;
+
+    const escapedAuthor = author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!new RegExp(`${escapedAuthor}\\*`, 'i').test(text)) return;
+    winner = author;
+  });
+
+  return winner;
 }
 
 /**
@@ -266,7 +331,7 @@ export class ForumScannerService {
       let results = 0;
       let registrations = 0;
 
-      // Fresh deployment (no stored events): everything links "new" at once —
+      // With no stored events, everything links "new" at once —
       // posting a card per bracket would flood the channels. Suppress the
       // per-bracket cards; the portal scanner's announce() posts ONE card for
       // the newest tournament.
@@ -287,8 +352,8 @@ export class ForumScannerService {
         if (candidates.length === 0) {
           // Unpaired results topics still hold valuable history: record their
           // bracket winners for Tournament Wins without creating an event.
-          if (topic.kind === 'results') {
-            await this.recordOrphanWinners(topic.url);
+          if (topic.kind === 'results' && !NON_RA3_TOURNAMENT.test(topic.title)) {
+            await this.recordOrphanWinners(topic.url, topic.title);
           }
           continue;
         }
@@ -348,6 +413,9 @@ export class ForumScannerService {
           }
         } else if (topic.kind === 'registration') {
           tournamentRepository.updateEventLinks(match.id, { registrationUrl: topic.url });
+          if (tournamentRepository.getEventDetail(match.id)?.status === 'unknown') {
+            tournamentRepository.setEventStatus(match.id, 'registration');
+          }
           const pages = await this.fetchRegistrationPages(topic.url);
           if (pages.length === 0) continue;
           const prize = extractPrize(pages.map((p) => cheerio.load(p).text()).join(' '), topic.title);
@@ -390,15 +458,16 @@ export class ForumScannerService {
 
   /** Records the champion of every completed bracket that has none yet. */
   private async syncWinners(): Promise<void> {
-    try {
-      // Brackets discovered before the brackets table existed.
-      for (const e of tournamentRepository.getEventsWithChallonge()) {
-        tournamentRepository.addBracket(e.id, e.challongeUrl);
-      }
-      for (const bracket of tournamentRepository.getAllBrackets()) {
-        if (tournamentRepository.hasWinnerFor(bracket.challongeUrl)) continue;
+    // Brackets discovered before the brackets table existed.
+    for (const e of tournamentRepository.getEventsWithChallonge()) {
+      tournamentRepository.addBracket(e.id, e.challongeUrl);
+    }
+    for (const bracket of tournamentRepository.getAllBrackets()) {
+      try {
         const ref = challongeService.parseTournamentRef(bracket.challongeUrl);
         if (!ref) continue;
+        const canonicalUrl = challongeService.bracketUrl(ref);
+        if (tournamentRepository.hasWinnerFor(canonicalUrl)) continue;
         const tournament = await challongeService.getTournament(ref).catch(() => null);
         if (!tournament || !['complete', 'awaiting_review'].includes(tournament.state)) continue;
         const rankings = await challongeService.getFinalRankings(ref).catch(() => []);
@@ -408,12 +477,17 @@ export class ForumScannerService {
           winner = (await challongeService.inferWinnerByMatches(ref).catch(() => null)) ?? undefined;
         }
         if (winner) {
-          tournamentRepository.recordWinner(bracket.challongeUrl, winner);
-          logger.info(`Forum scanner: recorded winner ${winner} for ${bracket.challongeUrl}`);
+          tournamentRepository.recordWinner(
+            canonicalUrl,
+            winner,
+            bracket.eventTitle,
+            tournamentGame(bracket.eventTitle),
+          );
+          logger.info(`Forum scanner: recorded winner ${winner} for ${canonicalUrl}`);
         }
+      } catch (error) {
+        logger.warn(`Winner sync failed for ${bracket.challongeUrl}:`, error);
       }
-    } catch (error) {
-      logger.warn('Winner sync failed:', error);
     }
   }
 
@@ -451,6 +525,8 @@ export class ForumScannerService {
     if (!ref) return;
     const tournament = await challongeService.getTournament(ref).catch(() => null);
     if (!tournament) return;
+    const status = statusFromChallonge(tournament.state);
+    if (status !== 'unknown') tournamentRepository.setEventStatus(eventId, status);
 
     if (isPrimary) {
       // Format: team size from the title + bracket style from Challonge.
@@ -485,7 +561,14 @@ export class ForumScannerService {
       if (!winner) {
         winner = (await challongeService.inferWinnerByMatches(ref).catch(() => null)) ?? undefined;
       }
-      if (winner) tournamentRepository.recordWinner(challongeUrl, winner);
+      if (winner) {
+        tournamentRepository.recordWinner(
+          challongeService.bracketUrl(ref),
+          winner,
+          eventTitle,
+          tournamentGame(eventTitle),
+        );
+      }
     }
   }
 
@@ -493,14 +576,17 @@ export class ForumScannerService {
    * Results topics with no matching event (older FTW editions etc.) still
    * carry bracket links — record their champions for Tournament Wins.
    */
-  private async recordOrphanWinners(topicUrl: string): Promise<void> {
+  private async recordOrphanWinners(topicUrl: string, topicTitle: string): Promise<number> {
+    if (NON_RA3_TOURNAMENT.test(topicTitle)) return 0;
     const html = await safeGetText(topicUrl);
-    if (!html) return;
+    if (!html) return 0;
     const parsed = parseTopicPage(html);
+    let recorded = 0;
     for (const link of parsed.challonge) {
-      if (tournamentRepository.hasWinnerFor(link)) continue;
       const ref = challongeService.parseTournamentRef(link);
       if (!ref) continue;
+      const canonicalUrl = challongeService.bracketUrl(ref);
+      if (tournamentRepository.hasWinnerFor(canonicalUrl)) continue;
       const tournament = await challongeService.getTournament(ref).catch(() => null);
       if (!tournament || !['complete', 'awaiting_review'].includes(tournament.state)) continue;
       const rankings = await challongeService.getFinalRankings(ref).catch(() => []);
@@ -510,10 +596,84 @@ export class ForumScannerService {
         winner = (await challongeService.inferWinnerByMatches(ref).catch(() => null)) ?? undefined;
       }
       if (winner) {
-        tournamentRepository.recordWinner(link, winner);
-        logger.info(`Forum scanner: recorded winner ${winner} for ${link}`);
+        tournamentRepository.recordWinner(canonicalUrl, winner, topicTitle, 'ra3');
+        logger.info(`Forum scanner: recorded winner ${winner} for ${canonicalUrl}`);
+        recorded++;
       }
     }
+    if (parsed.challonge.length === 0 && !tournamentRepository.hasWinnerFor(topicUrl)) {
+      const forumWinner = parseExplicitForumWinner(html);
+      if (forumWinner) {
+        tournamentRepository.recordWinner(topicUrl, forumWinner, topicTitle, 'ra3');
+        logger.info(`Forum scanner: recorded forum winner ${forumWinner} for ${topicUrl}`);
+        recorded++;
+      }
+    }
+    return recorded;
+  }
+
+  /**
+   * One-time resumable crawl of the complete RA3 events forum. Normal scans
+   * only inspect recent pages; this pass discovers older result brackets for
+   * the Tournament Wins history without flooding Discord channels.
+   */
+  async backfillHistoricalWinners(
+    maxPages = 400,
+  ): Promise<{ pages: number; topics: number; winners: number; completed: boolean }> {
+    const state = tournamentRepository.getHistoricalScanState();
+    if (state.completed) return { pages: 0, topics: 0, winners: 0, completed: true };
+
+    let offset = state.nextOffset;
+    let pages = 0;
+    let topics = 0;
+    let winners = 0;
+    let completed = false;
+    let previousFingerprint = '';
+
+    while (pages < maxPages) {
+      const html = await safeGetText(this.forumPageUrl(offset));
+      if (!html) {
+        logger.warn(`Historical forum crawl could not fetch offset ${offset}; checkpoint preserved`);
+        break;
+      }
+      if (!html.includes('showtopic=')) {
+        completed = true;
+        break;
+      }
+      const pageTopics = parseForumTopics(html);
+      const fingerprint = pageTopics.map((topic) => topic.url).sort().join('|');
+      if (fingerprint && fingerprint === previousFingerprint) {
+        logger.warn(`Historical forum crawl repeated page at offset ${offset}; stopping safely`);
+        completed = true;
+        break;
+      }
+      previousFingerprint = fingerprint;
+
+      for (const topic of pageTopics) {
+        if (topic.kind !== 'results') continue;
+        topics++;
+        if (NON_RA3_TOURNAMENT.test(topic.title)) continue;
+        winners += await this.recordOrphanWinners(topic.url, topic.title);
+        await this.delay(150);
+      }
+
+      pages++;
+      offset += FORUM_PAGE_SIZE;
+      tournamentRepository.setHistoricalScanOffset(offset, false);
+
+      // The last forum page has no link to another offset.
+      if (!html.includes(`st=${offset}`)) {
+        completed = true;
+        break;
+      }
+      await this.delay(300);
+    }
+
+    tournamentRepository.setHistoricalScanOffset(offset, completed);
+    logger.info(
+      `Historical tournament crawl: ${pages} page(s), ${topics} result topic(s), ${winners} winner(s) recorded`,
+    );
+    return { pages, topics, winners, completed };
   }
 
   /** Fetches the first pages of a registration thread (posts paginate by 20). */
@@ -541,8 +701,8 @@ export class ForumScannerService {
 
   private async fetchTopics(): Promise<ForumTopic[]> {
     const all: ForumTopic[] = [];
-    for (let page = 1; page <= FORUM_PAGES; page++) {
-      const url = page === 1 ? FORUM_URL : `${FORUM_URL}&page=${page}`;
+    for (let page = 0; page < RECENT_FORUM_PAGES; page++) {
+      const url = this.forumPageUrl(page * FORUM_PAGE_SIZE);
       const html = await safeGetText(url);
       if (!html) break;
       all.push(...parseForumTopics(html));
@@ -550,6 +710,15 @@ export class ForumScannerService {
     // Newest topics first (page order), dedupe by URL.
     const seen = new Set<string>();
     return all.filter((t) => (seen.has(t.url) ? false : (seen.add(t.url), true)));
+  }
+
+  private forumPageUrl(offset: number): string {
+    if (offset <= 0) return FORUM_URL;
+    return `${FORUM_URL}&prune_day=100&sort_by=Z-A&sort_key=last_post&topicfilter=all&st=${offset}`;
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
 

@@ -17,6 +17,7 @@ const HOST_ALLOWLIST = new Set([
   'www.cnc-online.net',
   'rss.moddb.com',
   'www.moddb.com',
+  'www.youtube.com',
   'shatabrick.com',
   'www.shatabrick.com',
   'steamplayercount.com',
@@ -36,8 +37,8 @@ function assertAllowed(rawUrl: string): URL {
   } catch {
     throw new FetchRefusedError(`invalid URL: ${rawUrl.slice(0, 120)}`);
   }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    throw new FetchRefusedError(`refused protocol ${parsed.protocol}:`);
+  if (parsed.protocol !== 'https:') {
+    throw new FetchRefusedError(`refused non-HTTPS protocol ${parsed.protocol}`);
   }
   const host = parsed.hostname.toLowerCase();
   if (!HOST_ALLOWLIST.has(host)) {
@@ -74,15 +75,24 @@ export async function safeGetText(
     return undefined;
   }
   try {
-    const res = await axios.get<string>(url, {
-      headers: { 'User-Agent': BROWSER_UA },
-      timeout: opts.timeoutMs ?? 15_000,
-      responseType: 'text',
-      // Keep redirects inside https/http and let axios validate the final URL
-      // is still absolute; the initial allowlist check above gates the target.
-      maxRedirects: 4,
-    });
-    return typeof res.data === 'string' ? res.data : String(res.data);
+    let current = assertAllowed(url);
+    for (let redirects = 0; redirects <= 4; redirects++) {
+      const res = await axios.get<string>(current.toString(), {
+        headers: { 'User-Agent': BROWSER_UA },
+        timeout: opts.timeoutMs ?? 15_000,
+        responseType: 'text',
+        maxRedirects: 0,
+        validateStatus: (status) => status >= 200 && status < 400,
+      });
+      if (res.status >= 300) {
+        const location = res.headers.location;
+        if (!location || redirects === 4) return undefined;
+        current = assertAllowed(new URL(location, current).toString());
+        continue;
+      }
+      return typeof res.data === 'string' ? res.data : String(res.data);
+    }
+    return undefined;
   } catch (err) {
     logger.warn(`safeFetch: GET failed for ${new URL(url).host}: ${(err as Error).message}`);
     return undefined;

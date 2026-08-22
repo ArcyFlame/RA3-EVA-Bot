@@ -7,13 +7,15 @@ import { RA3Bot } from '../../bot';
 
 export const data = new SlashCommandBuilder().setName('info').setDescription('About this bot');
 
+export const guildOnly = false;
+
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   const embed = new EmbedBuilder()
     .setTitle('🤖 About RA3 EVA Bot')
     .setDescription(
       'This bot helps the **Command & Conquer: Red Alert 3** community ' +
         'organize matches, run tournaments and stay connected ' +
-        'across different multiplayer platforms.\n\n' +
+        'across GameReplays, C&C Online, Shatabrick and RA3BattleNet.\n\n' +
         '**Features:**\n' +
         '• Multi-platform setup guides & lobby tracker\n' +
         '• Tournaments with Challonge integration & results\n' +
@@ -22,7 +24,6 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
         '• Player profiles and ranks (Shatabrick & RA3BattleNet)\n' +
         '• Twitch/YouTube/ModDB notifications & RA3 news\n' +
         '• Custom maps hub & esports map picker\n' +
-        '• Build orders with unit emojis\n' +
         '• Moderation tools (kick, ban, warnings)\n\n' +
         '*"From the community, for the community."*',
     )

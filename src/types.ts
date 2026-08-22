@@ -24,6 +24,8 @@ export interface Command {
   cooldown?: number;
   /** When false the command may also run in DMs (default: true). */
   guildOnly?: boolean;
+  /** Personal commands that remain available when public DM commands are disabled. */
+  dmAlwaysAllowed?: boolean;
 }
 
 /**

@@ -40,11 +40,11 @@ export async function showPersonalDmMenu(
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId('toggle_match_dm')
-      .setLabel('Toggle Tournament Matches')
+      .setLabel(t(lang, 'personal.toggleMatch'))
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId('toggle_clan_dm')
-      .setLabel('Toggle Clan Invites')
+      .setLabel(t(lang, 'personal.toggleClan'))
       .setStyle(ButtonStyle.Secondary),
   );
 

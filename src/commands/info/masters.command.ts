@@ -7,6 +7,8 @@ export const data = new SlashCommandBuilder()
   .setName('masters')
   .setDescription('Show the Hall of Fame (all-time masters)');
 
+export const guildOnly = false;
+
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   await interaction.deferReply({ ephemeral: true });
   const masters = masterRepository.getAll();

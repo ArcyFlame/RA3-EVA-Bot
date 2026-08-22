@@ -20,12 +20,12 @@ export function buildMainEmbed(): EmbedBuilder {
       },
       {
         name: '👥 Community',
-        value: 'Clans, lobby, maps, online setup guides, build orders, tips, live stats, streams.',
+        value: 'Clans, lobby, maps, online setup guides, tips, live stats and streams.',
         inline: false,
       },
       {
         name: '👤 Profile',
-        value: 'View your rank and link your Shatabrick account.',
+        value: 'View your ranks and manage Shatabrick and RA3BattleNet links.',
         inline: false,
       },
       { name: 'ℹ️ Information', value: 'About this bot, features and news.', inline: false },
@@ -58,18 +58,12 @@ export function buildTournamentsEmbed(): EmbedBuilder {
       {
         name: '⚔️ Matches & Reporting',
         value:
-          '`/matches` - Live bracket: results, scores, upcoming matches\n`/report_score [opponent]` - Report a match result',
-        inline: false,
-      },
-      {
-        name: '✅ Check-ins',
-        value: '`/checkin start <event>` - Open the check-in board (referee)\n`/checkin status <event>` - Registered and checked-in players',
+          '`/matches` - Live bracket: results, scores, upcoming matches\n`/report_score <opponent> <factions> <score>` - Submit a result for referee review',
         inline: false,
       },
       {
         name: '🗺️ Map Picker',
-        value:
-          '`/pickmap random [event]` - Random map (from an event\u2019s pool if given)\n`/pickmap list [event]` - Show a map pool with 1.12.8 links',
+        value: '`/pickmap [event]` - Pick a verified map from the current or selected tournament',
         inline: false,
       },
       {
@@ -108,12 +102,6 @@ export function buildCommunityEmbed(): EmbedBuilder {
         inline: false,
       },
       {
-        name: '📦 Build Orders',
-        value:
-          '`/build_create` - Create a build order (interactive, unit emojis supported)\n`/build_list` - Your builds & latest community builds\n`/build_view <name> [author]` - View a build\n`/build_remove <name>` - Delete your build',
-        inline: false,
-      },
-      {
         name: '💡 Tips & Trivia',
         value: '`/tips` - Random verified RA3 gameplay tip or fun fact.',
         inline: false,
@@ -146,13 +134,12 @@ export function buildProfileEmbed(): EmbedBuilder {
       {
         name: 'Your Profile',
         value:
-          '`/profile [user]` - View RA3 ranks (Shatabrick & RA3BattleNet)\n`/link_shatabrick <username>` - Connect your Shatabrick (C&C Online) account\n`/link_ra3battlenet <username>` - Connect your RA3BattleNet persona',
+          '`/profile [user] [player]` - View Shatabrick and RA3BattleNet ranks\n`/link` - Add, update or remove either linked account',
         inline: false,
       },
       {
         name: '🔔 Personal Settings',
-        value:
-          '`/notifications` - Personal settings: DM notifications and your language (English / Русский / 中文).',
+        value: '`/notifications` - Choose your DM notifications and language.',
         inline: false,
       },
     )
@@ -166,7 +153,7 @@ export function buildInfoEmbed(): EmbedBuilder {
     .setDescription(
       'This bot helps the **Command & Conquer: Red Alert 3** community ' +
         'organize matches, run tournaments and stay connected ' +
-        'across different multiplayer platforms.\n\n' +
+        'across GameReplays, C&C Online, Shatabrick and RA3BattleNet.\n\n' +
         '**Features:**\n' +
         '• Multi-platform setup guides & lobby tracker\n' +
         '• Tournaments with Challonge integration & results\n' +
@@ -175,7 +162,6 @@ export function buildInfoEmbed(): EmbedBuilder {
         '• Player profiles and ranks (Shatabrick & RA3BattleNet)\n' +
         '• Twitch/YouTube/ModDB notifications & RA3 news\n' +
         '• Custom maps hub & esports map picker\n' +
-        '• Build orders with unit emojis\n' +
         '• Moderation tools (kick, ban, warnings)\n\n' +
         '*"From the community, for the community."*',
     )
@@ -190,12 +176,12 @@ export function buildAdminEmbed(): EmbedBuilder {
     {
       name: '⚙️ Server Configuration',
       value:
-        '`/bot_setup` - Server setup wizard (admin role, channels, features)\n`/set_admin_role <role>` - Set the bot admin role\n`/toggle` - Feature toggles + Menu/Command mode switch\n`/notifications` - Notification channels & streamers (admin view)',
+        '`/bot_setup` - Server setup wizard (admin role, channels, features)\n`/set_admin_role <role>` - Set the bot admin role\n`/toggle` - Choose a feature, then enable or disable it\n`/notifications` - Notification channels & streamers (admin view)',
       inline: false,
     },
     {
       name: '🧪 Test Posts (admin)',
-      value: '`/notifications` → Test Posts - verify each notification channel works.',
+      value: '`/test_channels` or `/notifications` → Test Posts - verify every configured channel.',
       inline: false,
     },
     {
@@ -210,6 +196,11 @@ export function buildAdminEmbed(): EmbedBuilder {
           '`/add_master <name> <year> [patch]` - Add a master\n`/remove_master <name>` - Remove a master\n`/list_masters` - List all masters\n`/tournament_link` - Link a Challonge bracket (paste URL)\n`/tournaments_scan` - Scan the portal + forum for tournaments, brackets and sign-ups',
         inline: false,
       },
+    {
+      name: '✅ Tournament Check-ins',
+      value: '`/checkin [event]` - Open the current tournament management board (referee)',
+      inline: false,
+    },
     {
       name: '🛡️ Clans',
       value:

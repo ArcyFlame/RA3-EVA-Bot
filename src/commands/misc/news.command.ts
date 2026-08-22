@@ -21,6 +21,8 @@ export const data = new SlashCommandBuilder()
       .setMaxValue(25),
   );
 
+export const guildOnly = false;
+
 /** Shared renderer used by /news and the newspg_* navigation buttons. */
 export function renderNewsPage(
   item: NewsItem,

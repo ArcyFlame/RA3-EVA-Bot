@@ -12,6 +12,8 @@ export const data = new SlashCommandBuilder()
   .setName('replays')
   .setDescription('Browse RA3 replays on GameReplays');
 
+export const guildOnly = false;
+
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   const embed = new EmbedBuilder()
     .setTitle('🎮 RA3 Replays')

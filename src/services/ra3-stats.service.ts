@@ -10,9 +10,11 @@ export interface RA3Stats {
   ra3battle_online: number;
   ra3battle_active_games: number;
   peak_24h: number;
-  online_last_24h: number[];
-  online_last_30d: number[];
-  new_players_last_30d: number[];
+  online_last_24h: Array<number | null>;
+  online_last_30d: Array<number | null>;
+  new_players_last_30d: Array<number | null>;
+  history_started_at?: string;
+  new_player_tracking_started_at?: string;
   faction_distribution: { Allies: number; Soviets: number; Empire: number };
   top_maps: Array<[string, number]>;
   cnc_recent_matches: Array<{ players: string; map: string; platform: string }>;
@@ -66,6 +68,22 @@ export interface Ra3bLadderEntry {
   wins: number;
   losses: number;
   primaryFaction: string;
+}
+
+interface CncLiveData {
+  ok: boolean;
+  players: number;
+  activeGames: number;
+  mapCounts: Record<string, number>;
+  recentMatches: Array<{ players: string; map: string; platform: string }>;
+}
+
+interface Ra3bLiveData {
+  ok: boolean;
+  players: number;
+  rooms: number;
+  mapCounts: Record<string, number>;
+  recentMatches: Array<{ players: string; map: string; platform: string }>;
 }
 
 // Friendly map name mapping (same as Python)
@@ -278,6 +296,8 @@ export class RA3StatsService {
   private readonly cacheTTL = 5 * 60 * 1000; // 5 minutes
   private lastSnapshotAt = 0;
   private readonly snapshotInterval = 10 * 60 * 1000; // persist a snapshot every 10 min
+  private lastCncData: CncLiveData | null = null;
+  private lastRa3bData: Ra3bLiveData | null = null;
 
   async fetch(): Promise<RA3Stats> {
     if (this.cache && Date.now() - this.cacheTime < this.cacheTTL) return this.cache;
@@ -294,14 +314,19 @@ export class RA3StatsService {
         this.fetchCurrentSeason(),
       ]);
 
-    const cnc =
+    const cncLive =
       cncData.status === 'fulfilled'
         ? cncData.value
-        : { players: 0, activeGames: 0, mapCounts: {}, recentMatches: [] };
-    const ra3b =
+        : { ok: false, players: 0, activeGames: 0, mapCounts: {}, recentMatches: [] };
+    const ra3bLive =
       ra3bData.status === 'fulfilled'
         ? ra3bData.value
-        : { players: 0, rooms: 0, mapCounts: {}, recentMatches: [] };
+        : { ok: false, players: 0, rooms: 0, mapCounts: {}, recentMatches: [] };
+    if (cncLive.ok) this.lastCncData = cncLive;
+    if (ra3bLive.ok) this.lastRa3bData = ra3bLive;
+    const cnc = cncLive.ok ? cncLive : this.lastCncData ?? cncLive;
+    const ra3b = ra3bLive.ok ? ra3bLive : this.lastRa3bData ?? ra3bLive;
+    const completeSample = cncLive.ok && ra3bLive.ok;
     const ra3bLaddersVal =
       ra3bLadders.status === 'fulfilled' ? ra3bLadders.value : { '1v1': [], '2v2': [], '3v3': [], '4v4': [] };
     const factions =
@@ -326,22 +351,27 @@ export class RA3StatsService {
     const onlineNow = cnc.players + ra3b.players;
 
     // Real history from the stats_snapshots the bot persists every 10 min.
-    // Buckets without data yet are forward-filled flat (tracking simply
-    // hasn't run that long) — no invented peaks, no random dips.
+    // Missing buckets stay null so a short tracking window is never presented
+    // as a full day or month of repeated measurements.
     const history24 = this.getRecentHistory(24);
+    const currentPoint = completeSample ? [{ at: Date.now(), v: onlineNow }] : [];
     const onlineLast24h = this.bucketHistory(
-      history24.map((r) => ({ at: this.parseSnapshotTime(r.created_at), v: r.online_now })),
+      history24
+        .map((r) => ({ at: this.parseSnapshotTime(r.created_at), v: r.online_now }))
+        .concat(currentPoint),
       24,
       3_600_000,
-      onlineNow,
     );
-    const peak24h = Math.max(onlineNow, ...history24.map((r) => r.online_now));
+    const peakValues = history24.map((r) => r.online_now);
+    if (completeSample) peakValues.push(onlineNow);
+    const peak24h = peakValues.length > 0 ? Math.max(...peakValues) : onlineNow;
     const history30 = this.getRecentHistory(24 * 30);
     const onlineLast30d = this.bucketHistory(
-      history30.map((r) => ({ at: this.parseSnapshotTime(r.created_at), v: r.online_now })),
+      history30
+        .map((r) => ({ at: this.parseSnapshotTime(r.created_at), v: r.online_now }))
+        .concat(currentPoint),
       30,
       86_400_000,
-      onlineNow,
     );
     // New players per day: personas whose first ladder appearance was that
     // day (tracked since the bot started watching the ladders).
@@ -369,6 +399,8 @@ export class RA3StatsService {
       online_last_24h: onlineLast24h,
       online_last_30d: onlineLast30d,
       new_players_last_30d: newPlayersLast30d,
+      history_started_at: history30[0]?.created_at,
+      new_player_tracking_started_at: this.getTrackingStart(),
       faction_distribution: factions,
       top_maps: topMaps,
       cnc_recent_matches: cnc.recentMatches,
@@ -385,13 +417,15 @@ export class RA3StatsService {
 
     // Persist a snapshot every snapshotInterval so refresh can show history.
     const now = Date.now();
-    if (now - this.lastSnapshotAt >= this.snapshotInterval) {
+    if (completeSample && now - this.lastSnapshotAt >= this.snapshotInterval) {
       this.lastSnapshotAt = now;
       try {
         this.snapshotStats(stats);
       } catch (err) {
         logger.warn('Failed to persist RA3 stats snapshot:', err);
       }
+    } else if (!completeSample) {
+      logger.warn('Skipping stats snapshot because one or more player-count APIs failed');
     }
 
     return stats;
@@ -441,13 +475,19 @@ export class RA3StatsService {
     if (Date.now() - this.lastSeenTrackAt < this.personaCacheTTL) return;
     this.lastSeenTrackAt = Date.now();
     try {
+      const existing = db.prepare('SELECT COUNT(*) AS n FROM ra3b_seen_players').get() as {
+        n: number;
+      };
+      const isBaseline = existing.n === 0;
       const insert = db.prepare(
-        'INSERT OR IGNORE INTO ra3b_seen_players (persona_id, persona_name, first_seen) VALUES (?, ?, date(\'now\'))',
+        `INSERT OR IGNORE INTO ra3b_seen_players
+           (persona_id, persona_name, first_seen, is_baseline)
+         VALUES (?, ?, date('now'), ?)`,
       );
       const tx = db.transaction(() => {
         for (const mode of ['1v1', '2v2', '3v3'] as const) {
           for (const entry of this.laddersCache.get(mode) ?? []) {
-            insert.run(entry.personaId, entry.personaName);
+            insert.run(entry.personaId, entry.personaName, isBaseline ? 1 : 0);
           }
         }
       });
@@ -456,59 +496,66 @@ export class RA3StatsService {
         await this.getRa3bLadder(mode);
       }
       tx();
+      db.prepare(
+        `INSERT OR IGNORE INTO stats_tracking_meta (key, value)
+         VALUES ('new_players_started_at', date('now'))`,
+      ).run();
     } catch (error) {
       logger.warn('Seen-player tracking failed:', error);
     }
   }
 
   /** New players per day over the last 30 days, oldest first. */
-  private newPlayersByDay(): number[] {
+  private newPlayersByDay(): Array<number | null> {
     try {
       const rows = db
         .prepare(
-          "SELECT first_seen, COUNT(*) as n FROM ra3b_seen_players WHERE first_seen >= date('now', '-29 days') GROUP BY first_seen",
+          "SELECT first_seen, COUNT(*) as n FROM ra3b_seen_players WHERE is_baseline = 0 AND first_seen >= date('now', '-29 days') GROUP BY first_seen",
         )
         .all() as Array<{ first_seen: string; n: number }>;
       const byDate = new Map(rows.map((r) => [r.first_seen, r.n]));
-      const out: number[] = [];
+      const trackingStart = this.getTrackingStart();
+      const out: Array<number | null> = [];
       for (let i = 29; i >= 0; i--) {
         const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
-        out.push(byDate.get(d) ?? 0);
+        out.push(trackingStart && d >= trackingStart ? byDate.get(d) ?? 0 : null);
       }
       return out;
     } catch {
-      return new Array(30).fill(0);
+      return new Array(30).fill(null);
+    }
+  }
+
+  private getTrackingStart(): string | undefined {
+    try {
+      const row = db
+        .prepare("SELECT value FROM stats_tracking_meta WHERE key = 'new_players_started_at'")
+        .get() as { value: string } | undefined;
+      return row?.value;
+    } catch {
+      return undefined;
     }
   }
 
   /**
    * Buckets snapshot points into `count` time buckets ending now (oldest
-   * first, MAX value per bucket). Leading buckets before the first snapshot
-   * and gaps are forward-filled flat from the nearest known value — no
-   * invented peaks.
+   * first, MAX value per bucket). A null bucket means there was no valid
+   * complete sample in that interval.
    */
   private bucketHistory(
     points: Array<{ at: number; v: number }>,
     count: number,
     bucketMs: number,
-    fallback: number,
-  ): number[] {
+  ): Array<number | null> {
     const now = Date.now();
-    const out: number[] = new Array(count).fill(0);
-    const has: boolean[] = new Array(count).fill(false);
+    const out: Array<number | null> = new Array(count).fill(null);
     for (const p of points) {
       if (!p.at) continue;
       const age = now - p.at;
       if (age < 0 || age >= count * bucketMs) continue;
       const idx = count - 1 - Math.floor(age / bucketMs);
       if (idx < 0 || idx >= count) continue;
-      out[idx] = Math.max(out[idx], p.v);
-      has[idx] = true;
-    }
-    let last = points.length > 0 ? points[0].v : fallback; // oldest known value
-    for (let i = 0; i < count; i++) {
-      if (!has[i]) out[i] = last;
-      else last = out[i];
+      out[idx] = out[idx] === null ? p.v : Math.max(out[idx]!, p.v);
     }
     return out;
   }
@@ -639,12 +686,7 @@ export class RA3StatsService {
   // ------------------------------------------------------------------
   // C&C Online API
   // ------------------------------------------------------------------
-  private async fetchCnCOnline(): Promise<{
-    players: number;
-    activeGames: number;
-    mapCounts: Record<string, number>;
-    recentMatches: Array<{ players: string; map: string; platform: string }>;
-  }> {
+  private async fetchCnCOnline(): Promise<CncLiveData> {
     try {
       const res = await axios.get('https://cnc-online.net/api/serverinfo/?site=cnconline', {
         timeout: 5000,
@@ -681,7 +723,7 @@ export class RA3StatsService {
           players = Object.values(game.players).map((p: any) => p.nickname || 'Unknown');
         }
         if (players.length === 0) continue;
-        const playersStr = players.map((p) => `\`${p}\``).join(', ');
+        const playersStr = players.join(', ');
         let map = game.map || 'Unknown';
         map = map.split('.map')[0];
         map =
@@ -695,22 +737,17 @@ export class RA3StatsService {
         if (recentMatches.length >= 5) break;
       }
 
-      return { players: playersOnline, activeGames, mapCounts, recentMatches };
+      return { ok: true, players: playersOnline, activeGames, mapCounts, recentMatches };
     } catch (error) {
       logger.warn('C&C Online API failed:', error);
-      return { players: 0, activeGames: 0, mapCounts: {}, recentMatches: [] };
+      return { ok: false, players: 0, activeGames: 0, mapCounts: {}, recentMatches: [] };
     }
   }
 
   // ------------------------------------------------------------------
   // RA3BattleNet API
   // ------------------------------------------------------------------
-  private async fetchRA3BattleNet(): Promise<{
-    players: number;
-    rooms: number;
-    mapCounts: Record<string, number>;
-    recentMatches: Array<{ players: string; map: string; platform: string }>;
-  }> {
+  private async fetchRA3BattleNet(): Promise<Ra3bLiveData> {
     try {
       const res = await axios.get('https://api.ra3battle.cn/api/server/status/detail', {
         timeout: 5000,
@@ -728,7 +765,7 @@ export class RA3StatsService {
           playersList = Object.values(game.players).map((p: any) => p.name || 'Unknown');
         }
         if (playersList.length === 0) continue;
-        const playersStr = playersList.map((p) => `\`${p}\``).join(', ');
+        const playersStr = playersList.join(', ');
         let map = game.mapname || 'Unknown';
         map = cleanMapName(map);
         // Only genuine RA3 skirmish games — no co-op, campaign or mod lobbies.
@@ -738,10 +775,10 @@ export class RA3StatsService {
           recentMatches.push({ players: playersStr, map, platform: 'RA3BattleNet' });
         }
       }
-      return { players, rooms, mapCounts, recentMatches };
+      return { ok: true, players, rooms, mapCounts, recentMatches };
     } catch (error) {
       logger.warn('RA3BattleNet status API failed:', error);
-      return { players: 0, rooms: 0, mapCounts: {}, recentMatches: [] };
+      return { ok: false, players: 0, rooms: 0, mapCounts: {}, recentMatches: [] };
     }
   }
 
@@ -843,11 +880,29 @@ export class RA3StatsService {
     try {
       const rows = db
         .prepare(
-          'SELECT winner_name, COUNT(*) as wins FROM tournament_winners GROUP BY winner_name ORDER BY wins DESC',
+          "SELECT winner_name, winner_key FROM tournament_winners WHERE game = 'ra3' ORDER BY recorded_at ASC",
         )
-        .all() as Array<{ winner_name: string; wins: number }>;
+        .all() as Array<{ winner_name: string; winner_key: string | null }>;
+      const aliases = new Map(
+        (
+          db
+            .prepare('SELECT alias_key, canonical_name FROM tournament_player_aliases')
+            .all() as Array<{ alias_key: string; canonical_name: string }>
+        ).map((row) => [row.alias_key, row.canonical_name]),
+      );
+      const grouped = new Map<string, { name: string; wins: number }>();
+      for (const row of rows) {
+        const key = (row.winner_key || row.winner_name).trim().toLocaleLowerCase('en-US');
+        const displayName = aliases.get(key) ?? row.winner_name.trim();
+        const canonicalKey = displayName.toLocaleLowerCase('en-US');
+        const current = grouped.get(canonicalKey);
+        grouped.set(canonicalKey, {
+          name: current?.name ?? displayName,
+          wins: (current?.wins ?? 0) + 1,
+        });
+      }
       const wins: Record<string, number> = {};
-      for (const row of rows) wins[row.winner_name] = row.wins;
+      for (const row of grouped.values()) wins[row.name] = row.wins;
       return wins;
     } catch (error) {
       logger.warn('Failed to fetch tournament wins:', error);

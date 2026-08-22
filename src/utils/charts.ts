@@ -35,6 +35,13 @@ const COLOR_TITLE_RED = '#FF0F0F';
 const COLOR_TITLE_BLUE = '#4682B4';
 const COLOR_TITLE_GOLD = '#FFD700';
 
+export function chartTrackingNote(startedAt?: string): string {
+  if (!startedAt) return 'Collecting real data; missing periods are left blank.';
+  const parsed = new Date(startedAt.includes('T') ? startedAt : `${startedAt.replace(' ', 'T')}Z`);
+  const date = Number.isNaN(parsed.getTime()) ? startedAt : parsed.toISOString().slice(0, 10);
+  return `Tracking since ${date}; missing periods are left blank.`;
+}
+
 /** Draws each bar's value on top of it. */
 const valueLabelsPlugin = {
   id: 'valueLabels',
@@ -47,13 +54,31 @@ const valueLabelsPlugin = {
     ctx.fillStyle = COLOR_TEXT;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    const maxVal = Math.max(...(chart.data.datasets[0].data as number[]), 1);
+    const values = (chart.data.datasets[0].data as Array<number | null>).filter(
+      (value): value is number => typeof value === 'number',
+    );
+    const maxVal = Math.max(...values, 1);
     for (let i = 0; i < meta.data.length; i++) {
       const bar = meta.data[i];
       const value = chart.data.datasets[0].data[i];
       if (value == null || bar?.x == null) continue;
       ctx.fillText(String(value), bar.x, bar.y - maxVal * 0.015);
     }
+    ctx.restore();
+  },
+};
+
+const trackingNotePlugin = {
+  id: 'trackingNote',
+  afterDraw(chart: any, _args: unknown, options: { text?: string }) {
+    if (!options.text) return;
+    const { ctx, width: chartWidth } = chart;
+    ctx.save();
+    ctx.font = '22px sans-serif';
+    ctx.fillStyle = COLOR_TEXT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(options.text, chartWidth / 2, 140);
     ctx.restore();
   },
 };
@@ -65,11 +90,13 @@ const valueLabelsPlugin = {
  * title-colored spines. Bars fill the plot densely.
  */
 export async function generateBarChart(
-  data: number[],
+  data: Array<number | null>,
   title: string,
   cmap: 'Reds_r' | 'Blues_r' | 'YlOrBr_r' = 'Reds_r',
+  trackingNote?: string,
 ): Promise<Buffer> {
   const labels = title.includes('24 Hours') ? generateHourLabels() : generateDayLabels();
+  const numericData = data.filter((value): value is number => typeof value === 'number');
 
   let titleColor = COLOR_TITLE_RED;
   let deepColor = '#8B1A1A'; // top of the bar gradient
@@ -129,13 +156,15 @@ export async function generateBarChart(
           font: { size: 62, weight: 'bold' as const, family: RED_ALERT },
           padding: { top: 12, bottom: 36 },
         },
+        subtitle: { display: false },
+        trackingNote: { text: trackingNote },
         tooltip: { enabled: false },
         valueLabels: { display: true },
       },
       scales: {
         y: {
           beginAtZero: true,
-          suggestedMax: Math.max(...data, 1) * 1.12,
+          suggestedMax: Math.max(...numericData, 1) * 1.12,
           ticks: {
             color: COLOR_TEXT,
             precision: 0,
@@ -159,7 +188,7 @@ export async function generateBarChart(
         },
       },
     },
-    plugins: [valueLabelsPlugin],
+    plugins: [trackingNotePlugin, valueLabelsPlugin],
   };
   return chartJSNodeCanvas.renderToBuffer(configuration);
 }

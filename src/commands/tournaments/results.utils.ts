@@ -4,7 +4,11 @@ import {
   ButtonBuilder,
   ButtonStyle,
 } from 'discord.js';
-import { challongeService } from '../../services/challonge.service';
+import {
+  challongeService,
+  ChallongeMatch,
+  ChallongeParticipant,
+} from '../../services/challonge.service';
 import { tournamentRepository } from '../../repositories/tournament.repository';
 import { parseForumTopics, RESULTS_FORUM_URL } from '../../services/tournament-scanner.service';
 import { safeGetText } from '../../utils/safe-fetch';
@@ -45,6 +49,80 @@ export interface ResultsEntry {
 export interface ResultsList {
   source: 'challonge' | 'forum';
   entries: ResultsEntry[];
+}
+
+export function aggregateSeriesScore(scoresCsv?: string): [number, number] | null {
+  if (!scoresCsv) return null;
+  const pairs = scoresCsv
+    .split(',')
+    .map((part) => part.trim().match(/^(\d+)\s*-\s*(\d+)$/))
+    .filter((match): match is RegExpMatchArray => !!match)
+    .map((match) => [Number(match[1]), Number(match[2])] as [number, number]);
+  if (pairs.length === 0) return null;
+  if (pairs.length === 1) return pairs[0];
+  let left = 0;
+  let right = 0;
+  for (const [a, b] of pairs) {
+    if (a > b) left++;
+    else if (b > a) right++;
+  }
+  return [left, right];
+}
+
+export function formatCompletedMatch(
+  match: ChallongeMatch,
+  names: Record<number, string>,
+): string {
+  const player1 = names[match.player1Id ?? 0] || 'TBD';
+  const player2 = names[match.player2Id ?? 0] || 'TBD';
+  const score = aggregateSeriesScore(match.scoresCsv);
+  const scoreText = score ? `${score[0]}–${score[1]}` : 'completed';
+  const winner = match.winnerId === match.player1Id ? player1 : player2;
+  return `${player1} **${scoreText}** ${player2} → **${winner}**`;
+}
+
+/** Best-effort standings for old completed brackets without final_rank. */
+export function deriveStandingsFromMatches(
+  participants: ChallongeParticipant[],
+  matches: ChallongeMatch[],
+): Array<{ rank: number; name: string; id: number }> {
+  const complete = matches.filter(
+    (match) =>
+      match.state === 'complete' &&
+      match.player1Id != null &&
+      match.player2Id != null &&
+      match.winnerId != null,
+  );
+  if (complete.length === 0) return [];
+  const final = [...complete].sort(
+    (a, b) => (b.round ?? Number.MIN_SAFE_INTEGER) - (a.round ?? Number.MIN_SAFE_INTEGER) || b.id - a.id,
+  )[0];
+  const championId = final.winnerId!;
+  const runnerUpId = final.player1Id === championId ? final.player2Id! : final.player1Id!;
+
+  const losses = new Map<number, number>();
+  const wins = new Map<number, number>();
+  for (const match of complete) {
+    const loserId = match.player1Id === match.winnerId ? match.player2Id! : match.player1Id!;
+    losses.set(loserId, Math.max(losses.get(loserId) ?? Number.MIN_SAFE_INTEGER, match.round ?? 0));
+    wins.set(match.winnerId!, (wins.get(match.winnerId!) ?? 0) + 1);
+  }
+
+  const byId = new Map(participants.map((participant) => [participant.id, participant]));
+  const orderedIds = [championId, runnerUpId];
+  const remaining = participants
+    .filter((participant) => !orderedIds.includes(participant.id))
+    .sort(
+      (a, b) =>
+        (losses.get(b.id) ?? Number.MIN_SAFE_INTEGER) -
+          (losses.get(a.id) ?? Number.MIN_SAFE_INTEGER) ||
+        (wins.get(b.id) ?? 0) - (wins.get(a.id) ?? 0) ||
+        a.name.localeCompare(b.name),
+    );
+  orderedIds.push(...remaining.map((participant) => participant.id));
+  return orderedIds
+    .map((id, index) => ({ rank: index + 1, name: byId.get(id)?.name ?? 'Unknown', id }))
+    .filter((entry) => entry.name !== 'Unknown');
 }
 
 const FORUM_ID_OFFSET = 1_000_000;
@@ -162,10 +240,11 @@ export async function renderResultsPage(
   const embed = new EmbedBuilder().setColor(0xffd700);
 
   if (entry.kind === 'challonge' && entry.challongeId) {
-    const [tournament, rankings, matches] = await Promise.all([
+    const [tournament, storedRankings, matches, participants] = await Promise.all([
       challongeService.getTournament(entry.challongeId!).catch(() => null),
       challongeService.getFinalRankings(entry.challongeId!).catch(() => []),
       challongeService.getMatches(entry.challongeId!).catch(() => []),
+      challongeService.getParticipants(entry.challongeId!).catch(() => []),
     ]);
 
     embed
@@ -184,11 +263,18 @@ export async function renderResultsPage(
     if (tournament?.participants_count) infoBits.push(`${tournament.participants_count} players`);
     if (infoBits.length) embed.setDescription(infoBits.join(' • '));
 
+    const bracketEnded = ['complete', 'awaiting_review'].includes(String(tournament?.state));
+    const rankings =
+      storedRankings.length > 0
+        ? storedRankings
+        : bracketEnded || (matches.length > 0 && matches.every((match) => match.state === 'complete'))
+          ? deriveStandingsFromMatches(participants, matches)
+          : [];
+
     if (rankings.length > 0) {
       embed.addFields(...buildStandingsFields(rankings));
     } else if (matches.length > 0) {
       // Bracket in progress: show the latest completed scores.
-      const participants = await challongeService.getParticipants(entry.challongeId!).catch(() => []);
       const names: Record<number, string> = {};
       for (const p of participants) names[p.id] = p.name;
       const done = matches.filter((m) => m.state === 'complete').slice(-5).reverse();
@@ -196,15 +282,13 @@ export async function renderResultsPage(
         embed.addFields({
           name: 'Recent Matches',
           value: done
-            .map(
-              (m) => `${names[m.player1Id ?? 0] || '?'} ${m.scoresCsv || '-'} ${names[m.player2Id ?? 0] || '?'}`,
-            )
+            .map((match) => formatCompletedMatch(match, names))
             .join('\n')
             .slice(0, 1024),
           inline: false,
         });
       }
-    } else if (rankings.length === 0) {
+    } else {
       embed.addFields({
         name: 'Standings',
         value: 'No final rankings recorded on Challonge for this tournament.',

@@ -12,6 +12,13 @@ import { up as up010, down as down010 } from './migrations/010_tournament_bracke
 import { up as up011, down as down011 } from './migrations/011_ra3b_persona_id';
 import { up as up012, down as down012 } from './migrations/012_seen_players';
 import { up as up013, down as down013 } from './migrations/013_panel_charts_message';
+import { up as up014, down as down014 } from './migrations/014_stats_quality';
+import { up as up015, down as down015 } from './migrations/015_tournament_workflow';
+import { up as up016, down as down016 } from './migrations/016_app_settings_and_deliveries';
+import { up as up017, down as down017 } from './migrations/017_tournament_winner_history';
+import { up as up018, down as down018 } from './migrations/018_winner_name_cleanup';
+import { up as up019, down as down019 } from './migrations/019_challonge_reserved_paths';
+import { up as up020, down as down020 } from './migrations/020_forum_winner_rescan';
 import { logger } from '../utils/logger';
 
 interface Migration {
@@ -36,6 +43,13 @@ const migrations: Migration[] = [
   { version: 11, name: '011_ra3b_persona_id', up: up011, down: down011 },
   { version: 12, name: '012_seen_players', up: up012, down: down012 },
   { version: 13, name: '013_panel_charts_message', up: up013, down: down013 },
+  { version: 14, name: '014_stats_quality', up: up014, down: down014 },
+  { version: 15, name: '015_tournament_workflow', up: up015, down: down015 },
+  { version: 16, name: '016_app_settings_and_deliveries', up: up016, down: down016 },
+  { version: 17, name: '017_tournament_winner_history', up: up017, down: down017 },
+  { version: 18, name: '018_winner_name_cleanup', up: up018, down: down018 },
+  { version: 19, name: '019_challonge_reserved_paths', up: up019, down: down019 },
+  { version: 20, name: '020_forum_winner_rescan', up: up020, down: down020 },
 ];
 
 function ensureMigrationsTable(): void {

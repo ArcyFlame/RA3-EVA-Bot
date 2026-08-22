@@ -12,6 +12,7 @@ import { tournamentRepository } from '../../repositories/tournament.repository';
 import { guildRepository } from '../../repositories/guild.repository';
 import { matchesGuildGame, buildStandingsFields } from './results.utils';
 import { logger } from '../../utils/logger';
+import { getCurrentTournament } from '../../services/tournament-context.service';
 
 export const data = new SlashCommandBuilder()
   .setName('matches')
@@ -118,6 +119,24 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
               const winner = m.winnerId === m.player1Id ? p1 : p2;
               return `\`R${m.round ?? '?'}\` ${p1} vs ${p2} → **${winner}**`;
             })
+            .join('\n')
+            .slice(0, 1024),
+          inline: false,
+        });
+      }
+    }
+
+    const reportEventId = discovered?.id ?? getCurrentTournament(guildGame)?.id;
+    if (reportEventId) {
+      const reports = tournamentRepository.getApprovedReports(reportEventId, 5);
+      if (reports.length > 0) {
+        embed.addFields({
+          name: 'Referee-approved score reports',
+          value: reports
+            .map(
+              (report) =>
+                `${report.reporterName ?? 'Player 1'} **${report.player1Score}–${report.player2Score}** ${report.opponentName ?? 'Player 2'}${report.factionMatchup ? ` · ${report.factionMatchup}` : ''}`,
+            )
             .join('\n')
             .slice(0, 1024),
           inline: false,

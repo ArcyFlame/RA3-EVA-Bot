@@ -1,4 +1,5 @@
 import { BaseRepository } from './base.repository';
+import { normalizeTournamentWinnerNames } from '../utils/winner-names';
 
 export interface TournamentEvent {
   id: number;
@@ -17,6 +18,7 @@ export interface TournamentEvent {
   checkinsUrl?: string;
   registrationUrl?: string;
   topicUrl?: string;
+  status?: 'unknown' | 'registration' | 'checkin' | 'in_progress' | 'ended';
 }
 
 /** A registered (and optionally checked-in) tournament participant. */
@@ -40,6 +42,27 @@ export interface MatchReportInput {
   winnerId: string | null;
   reportedBy: string;
   proofUrl: string | null;
+  eventId?: number;
+  reporterParticipantId?: number;
+  opponentParticipantId?: number;
+  factionMatchup?: string;
+}
+
+export interface MatchReport {
+  id: number;
+  eventId?: number;
+  tournamentId: string;
+  challongeMatchId: string;
+  player1Id: string;
+  player2Id: string;
+  player1Score: number;
+  player2Score: number;
+  winnerId: string | null;
+  reportedBy: string;
+  status: string;
+  factionMatchup?: string;
+  reporterName?: string;
+  opponentName?: string;
 }
 
 export class TournamentRepository extends BaseRepository {
@@ -172,8 +195,9 @@ export class TournamentRepository extends BaseRepository {
       checkins_url: string | null;
       registration_url: string | null;
       topic_url: string | null;
+      status: string | null;
     }>(
-      'SELECT title, event_url, description, format, prize_pool, maps, start_date, challonge_url, checkins_url, registration_url, topic_url FROM tournament_events WHERE id = ?',
+      'SELECT title, event_url, description, format, prize_pool, maps, start_date, challonge_url, checkins_url, registration_url, topic_url, status FROM tournament_events WHERE id = ?',
       [eventId],
     );
     if (!row) return undefined;
@@ -189,6 +213,7 @@ export class TournamentRepository extends BaseRepository {
       checkinsUrl: row.checkins_url,
       registrationUrl: row.registration_url,
       topicUrl: row.topic_url,
+      status: row.status ?? 'unknown',
     };
   }
 
@@ -208,17 +233,55 @@ export class TournamentRepository extends BaseRepository {
   }
 
   /** Caches a completed bracket's champion (feeds Tournament Wins Top 10). */
-  recordWinner(tournamentUrl: string, winnerName: string): void {
-    this.run('INSERT OR IGNORE INTO tournament_winners (tournament_url, winner_name) VALUES (?, ?)', [
-      tournamentUrl,
-      winnerName,
-    ]);
+  recordWinner(
+    tournamentUrl: string,
+    winnerName: string,
+    eventTitle?: string,
+    game: 'ra3' | 'kw' | 'genevo' = 'ra3',
+  ): void {
+    const canonicalUrl = tournamentUrl.trim().toLowerCase();
+    if (!canonicalUrl) return;
+    const teamEvent = !!eventTitle && /\b[2-4]v(?:s)?[2-4]\b/i.test(eventTitle);
+    for (const cleanName of normalizeTournamentWinnerNames(winnerName, teamEvent)) {
+      const winnerKey = cleanName.toLocaleLowerCase('en-US');
+      this.run(
+        `INSERT OR IGNORE INTO tournament_winners
+           (tournament_url, winner_name, winner_key, event_title, game)
+         VALUES (?, ?, ?, ?, ?)`,
+        [canonicalUrl, cleanName, winnerKey, eventTitle?.slice(0, 160) ?? null, game],
+      );
+    }
   }
 
   hasWinnerFor(tournamentUrl: string): boolean {
     return !!this.query<{ id: number }>('SELECT id FROM tournament_winners WHERE tournament_url = ?', [
-      tournamentUrl,
+      tournamentUrl.trim().toLowerCase(),
     ]);
+  }
+
+  setEventStatus(
+    eventId: number,
+    status: 'unknown' | 'registration' | 'checkin' | 'in_progress' | 'ended',
+  ): void {
+    this.run('UPDATE tournament_events SET status = ? WHERE id = ?', [status, eventId]);
+  }
+
+  getHistoricalScanState(): { nextOffset: number; completed: boolean } {
+    const row = this.query<{ next_offset: number; completed_at: string | null }>(
+      "SELECT next_offset, completed_at FROM tournament_scan_state WHERE scan_name = 'forum_history'",
+    );
+    return { nextOffset: row?.next_offset ?? 0, completed: !!row?.completed_at };
+  }
+
+  setHistoricalScanOffset(nextOffset: number, completed = false): void {
+    this.run(
+      `INSERT INTO tournament_scan_state (scan_name, next_offset, completed_at)
+       VALUES ('forum_history', ?, CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END)
+       ON CONFLICT(scan_name) DO UPDATE SET
+         next_offset = excluded.next_offset,
+         completed_at = excluded.completed_at`,
+      [Math.max(0, nextOffset), completed ? 1 : 0],
+    );
   }
 
   // ── Brackets (one event may run several Challonge brackets) ────────────
@@ -266,10 +329,12 @@ export class TournamentRepository extends BaseRepository {
   }
 
   /** Every discovered bracket across all events (for the winner sync pass). */
-  getAllBrackets(): Array<{ eventId: number; challongeUrl: string }> {
-    return this.queryAll<{ event_id: number; challonge_url: string }>(
-      'SELECT event_id, challonge_url FROM tournament_brackets',
-    ).map((r) => ({ eventId: r.event_id, challongeUrl: r.challonge_url }));
+  getAllBrackets(): Array<{ eventId: number; eventTitle: string; challongeUrl: string }> {
+    return this.queryAll<{ event_id: number; title: string; challonge_url: string }>(
+      `SELECT b.event_id, e.title, b.challonge_url
+       FROM tournament_brackets b
+       JOIN tournament_events e ON e.id = b.event_id`,
+    ).map((r) => ({ eventId: r.event_id, eventTitle: r.title, challongeUrl: r.challonge_url }));
   }
 
   /** Stores forum-discovered links (challonge/check-ins/registration) on an event. */
@@ -404,6 +469,20 @@ export class TournamentRepository extends BaseRepository {
     return result.changes > 0;
   }
 
+  linkParticipantDiscord(eventId: number, participantId: number, discordId: string): boolean {
+    const result = this.run(
+      `UPDATE tournament_participants
+       SET discord_id = ?
+       WHERE id = ? AND event_id = ? AND (discord_id IS NULL OR discord_id = ?)`,
+      [discordId, participantId, eventId, discordId],
+    );
+    return result.changes > 0;
+  }
+
+  findParticipantByDiscord(eventId: number, discordId: string): TournamentParticipant | undefined {
+    return this.getParticipants(eventId).find((participant) => participant.discordId === discordId);
+  }
+
   getEventRegistrationIds(eventId: number, limit = 21): string[] {
     return this.queryAll<{ user_id: string }>(
       'SELECT user_id FROM tournament_registrations WHERE event_id = ? ORDER BY registered_at LIMIT ?',
@@ -480,8 +559,10 @@ export class TournamentRepository extends BaseRepository {
   insertMatch(data: MatchReportInput): number {
     const result = this.run(
       `INSERT INTO tournament_matches
-         (tournament_id, challonge_match_id, player1_id, player2_id, player1_score, player2_score, winner_id, reported_by, proof_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (tournament_id, challonge_match_id, player1_id, player2_id, player1_score, player2_score,
+          winner_id, reported_by, proof_url, event_id, reporter_participant_id,
+          opponent_participant_id, faction_matchup)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.tournamentId,
         data.challongeMatchId,
@@ -492,9 +573,80 @@ export class TournamentRepository extends BaseRepository {
         data.winnerId,
         data.reportedBy,
         data.proofUrl,
+        data.eventId ?? null,
+        data.reporterParticipantId ?? null,
+        data.opponentParticipantId ?? null,
+        data.factionMatchup ?? null,
       ],
     );
     return result.lastInsertRowid;
+  }
+
+  getMatchReport(reportId: number): MatchReport | undefined {
+    const row = this.query<{
+      id: number;
+      event_id: number | null;
+      tournament_id: string;
+      challonge_match_id: string | null;
+      player1_id: string;
+      player2_id: string;
+      player1_score: number;
+      player2_score: number;
+      winner_id: string | null;
+      reported_by: string;
+      status: string;
+      faction_matchup: string | null;
+      reporter_name: string | null;
+      opponent_name: string | null;
+    }>(
+      `SELECT m.id, m.event_id, m.tournament_id, m.challonge_match_id,
+              m.player1_id, m.player2_id, m.player1_score, m.player2_score,
+              m.winner_id, m.reported_by, m.status, m.faction_matchup,
+              reporter.name AS reporter_name, opponent.name AS opponent_name
+       FROM tournament_matches m
+       LEFT JOIN tournament_participants reporter ON reporter.id = m.reporter_participant_id
+       LEFT JOIN tournament_participants opponent ON opponent.id = m.opponent_participant_id
+       WHERE m.id = ?`,
+      [reportId],
+    );
+    if (!row) return undefined;
+    return {
+      id: row.id,
+      eventId: row.event_id ?? undefined,
+      tournamentId: row.tournament_id,
+      challongeMatchId: row.challonge_match_id ?? '',
+      player1Id: row.player1_id,
+      player2Id: row.player2_id,
+      player1Score: row.player1_score,
+      player2Score: row.player2_score,
+      winnerId: row.winner_id,
+      reportedBy: row.reported_by,
+      status: row.status,
+      factionMatchup: row.faction_matchup ?? undefined,
+      reporterName: row.reporter_name ?? undefined,
+      opponentName: row.opponent_name ?? undefined,
+    };
+  }
+
+  reviewMatchReport(reportId: number, status: 'approved' | 'rejected', reviewedBy: string): boolean {
+    const result = this.run(
+      `UPDATE tournament_matches
+       SET status = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND status = 'pending'`,
+      [status, reviewedBy, reportId],
+    );
+    return result.changes > 0;
+  }
+
+  getApprovedReports(eventId: number, limit = 10): MatchReport[] {
+    return this.queryAll<{ id: number }>(
+      `SELECT id FROM tournament_matches
+       WHERE event_id = ? AND status = 'approved'
+       ORDER BY reported_at DESC LIMIT ?`,
+      [eventId, limit],
+    )
+      .map((row) => this.getMatchReport(row.id))
+      .filter((row): row is MatchReport => !!row);
   }
 
   linkTournament(guildId: string, tournamentId: string, tournamentUrl: string): void {

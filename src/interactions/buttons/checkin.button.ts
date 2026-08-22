@@ -1,4 +1,4 @@
-import { ButtonInteraction, PermissionFlagsBits } from 'discord.js';
+import { ButtonInteraction } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { tournamentRepository } from '../../repositories/tournament.repository';
 import { buildCheckinBoard } from '../../commands/tournaments/checkin.utils';
@@ -6,6 +6,8 @@ import { forumScanner } from '../../services/forum-scanner.service';
 import { guildRepository } from '../../repositories/guild.repository';
 import { parseIntSafe } from '../../utils/parse';
 import { audit } from '../../utils/logger';
+import { isAdminOrReferee } from '../../utils/permissions';
+import { resolveTournamentStatus } from '../../utils/tournament-status';
 
 /**
  * Check-in board buttons:
@@ -21,7 +23,7 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
   const parts = interaction.customId.split('_'); // ['checkin', action, id, ...]
   const action = parts[1];
   const eventId = parseIntSafe(parts[2]);
-  if (!eventId || !['yes', 'no', 'refresh', 'pingref'].includes(action)) {
+  if (!eventId || !['yes', 'no', 'post', 'refresh', 'pingref'].includes(action)) {
     await interaction.reply({ content: 'Invalid button.', ephemeral: true });
     return;
   }
@@ -31,6 +33,17 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     const detail = tournamentRepository.getEventDetail(eventId);
     if (!detail) {
       await interaction.reply({ content: 'This event no longer exists.', ephemeral: true });
+      return;
+    }
+    if (
+      resolveTournamentStatus({
+        storedStatus: detail.status,
+        startDate: detail.startDate,
+        registrationUrl: detail.registrationUrl,
+        checkinsUrl: detail.checkinsUrl,
+      }) === 'ended'
+    ) {
+      await interaction.reply({ content: 'Check-in is closed for this tournament.', ephemeral: true });
       return;
     }
     // Register the Discord user (by display name) if not already on the list,
@@ -46,9 +59,18 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     if (!known) {
       tournamentRepository.addParticipant(eventId, displayName, 'discord', interaction.user.id);
     } else if (!known.discordId) {
-      tournamentRepository.addParticipant(eventId, known.name, 'discord', interaction.user.id);
+      tournamentRepository.linkParticipantDiscord(eventId, known.id, interaction.user.id);
+    } else if (known.discordId !== interaction.user.id) {
+      await interaction.reply({
+        content: 'That tournament name is already linked to another Discord account. Ask a referee for help.',
+        ephemeral: true,
+      });
+      return;
     }
-    const ok = tournamentRepository.setCheckedIn(eventId, displayName, action === 'yes');
+    const linked = tournamentRepository.findParticipantByDiscord(eventId, interaction.user.id);
+    const ok = linked
+      ? tournamentRepository.setCheckedInByDiscord(eventId, interaction.user.id, action === 'yes')
+      : tournamentRepository.setCheckedIn(eventId, known?.name ?? displayName, action === 'yes');
     if (!ok) {
       await interaction.reply({
         content: 'Could not update your check-in. Ask a referee to add you manually.',
@@ -57,20 +79,30 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
       return;
     }
     audit('checkin_toggle', { eventId, userId: interaction.user.id, action });
-    await interaction.update(buildCheckinBoard(eventId, interaction.guild.id));
+    const includeStaffControls = parts[3] !== 'player';
+    await interaction.update(
+      buildCheckinBoard(eventId, interaction.guild.id, includeStaffControls),
+    );
     return;
   }
 
   // ── Staff actions ──────────────────────────────────────────────────────
   const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-  const staff =
-    member &&
-    (member.permissions.has(PermissionFlagsBits.Administrator) ||
-      member.permissions.has(PermissionFlagsBits.ModerateMembers) ||
-      member.permissions.has(PermissionFlagsBits.ManageGuild) ||
-      isReferee(member, interaction.guild.id));
+  const staff = member && isAdminOrReferee(member);
   if (!staff) {
     await interaction.reply({ content: 'Referees and admins only.', ephemeral: true });
+    return;
+  }
+
+  if (action === 'post') {
+    await interaction.deferReply({ ephemeral: true });
+    const channel = interaction.channel;
+    if (!channel || !('send' in channel)) {
+      await interaction.editReply('I cannot post a check-in board in this channel.');
+      return;
+    }
+    await channel.send(buildCheckinBoard(eventId, interaction.guild.id, true));
+    await interaction.editReply('✅ Public check-in board posted.');
     return;
   }
 
@@ -93,14 +125,8 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
   const refMention = guildData?.refereeRoleId ? `<@&${guildData.refereeRoleId}>` : 'Referees';
   const summary = [
     `${refMention} check-in summary:`,
-    `✅ Checked in (${checked.length}): ${checked.map((p) => p.name).join(', ') || 'none'}`,
-    `⏳ Missing (${missing.length}): ${missing.map((p) => p.name).join(', ') || 'none'}`,
+    `✅ Checked in (${checked.length}):\n${checked.map((p, i) => `${i + 1}. ${p.name}`).join('\n') || 'none'}`,
+    `⏳ Missing (${missing.length}):\n${missing.map((p, i) => `${i + 1}. ${p.name}`).join('\n') || 'none'}`,
   ].join('\n');
   await interaction.followUp({ content: summary.slice(0, 1900), allowedMentions: { roles: guildData?.refereeRoleId ? [guildData.refereeRoleId] : [] } });
-}
-
-function isReferee(member: { roles: { cache: Map<string, unknown> } }, guildId: string): boolean {
-  const guildData = guildRepository.findByDiscordId(guildId);
-  if (!guildData?.refereeRoleId) return false;
-  return member.roles.cache.has(guildData.refereeRoleId);
 }

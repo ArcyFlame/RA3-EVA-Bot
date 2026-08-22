@@ -5,21 +5,17 @@ import {
   ButtonStyle,
 } from 'discord.js';
 import { tournamentRepository } from '../../repositories/tournament.repository';
-import { baseName } from '../../services/forum-scanner.service';
+import { findTournament } from '../../services/tournament-context.service';
 
 /** Finds an event by fuzzy title (distinctive-words match against stored events). */
 export function findEventByOption(title: string): { id: number; title: string } | null {
-  const want = baseName(title);
-  if (!want) return null;
-  const events = tournamentRepository.getAnnouncements();
-  // Newest first for ties.
-  for (let i = events.length - 1; i >= 0; i--) {
-    const base = baseName(events[i].title);
-    if (base.includes(want.slice(0, 10)) || want.includes(base.slice(0, 10))) {
-      return { id: events[i].id, title: events[i].title };
-    }
-  }
-  return null;
+  const event = findTournament(title);
+  return event ? { id: event.id, title: event.title } : null;
+}
+
+function numbered(names: string[], empty: string): string {
+  if (names.length === 0) return empty;
+  return names.map((name, index) => `${index + 1}. ${name}`).join('\n').slice(0, 1024);
 }
 
 /**
@@ -27,7 +23,7 @@ export function findEventByOption(title: string): { id: number; title: string } 
  * Registered (N) + Checked in (N) lists, check-in/cancel buttons for players,
  * refresh + ping-referee buttons for staff.
  */
-export function buildCheckinBoard(eventId: number, guildId: string): {
+export function buildCheckinBoard(eventId: number, guildId: string, includeStaffControls = true): {
   embeds: [EmbedBuilder];
   components: ActionRowBuilder<ButtonBuilder>[];
 } {
@@ -44,32 +40,36 @@ export function buildCheckinBoard(eventId: number, guildId: string): {
     )
     .addFields({
       name: `👥 Registered (${participants.length})`,
-      value: participants.map((p) => p.name).join(', ').slice(0, 1024) || 'Nobody yet.',
+      value: numbered(participants.map((p) => p.name), 'Nobody yet.'),
       inline: false,
     })
     .addFields({
       name: `✅ Checked in (${checked.length}/${participants.length})`,
-      value: checked.map((p) => p.name).join(', ').slice(0, 1024) || 'None yet.',
+      value: numbered(checked.map((p) => p.name), 'None yet.'),
       inline: false,
     })
     .addFields({
       name: `⏳ Not checked in (${missing.length})`,
-      value: missing.map((p) => p.name).join(', ').slice(0, 1024) || 'Everyone checked in. 🎉',
+      value: numbered(missing.map((p) => p.name), 'Everyone checked in. 🎉'),
       inline: false,
     })
     .setFooter({ text: 'Lists merge forum registrations and Discord sign-ups.' });
 
   const playerRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(`checkin_yes_${eventId}`)
+      .setCustomId(`checkin_yes_${eventId}_${includeStaffControls ? 'staff' : 'player'}`)
       .setLabel('✅ Check In')
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
-      .setCustomId(`checkin_no_${eventId}`)
+      .setCustomId(`checkin_no_${eventId}_${includeStaffControls ? 'staff' : 'player'}`)
       .setLabel('❌ Can\'t play')
       .setStyle(ButtonStyle.Danger),
   );
   const staffRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`checkin_post_${eventId}_${guildId}`)
+      .setLabel('Post Check-in Board')
+      .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId(`checkin_refresh_${eventId}`)
       .setLabel('⟳ Refresh')
@@ -79,5 +79,8 @@ export function buildCheckinBoard(eventId: number, guildId: string): {
       .setLabel('📢 Ping referee with summary')
       .setStyle(ButtonStyle.Primary),
   );
-  return { embeds: [embed], components: [playerRow, staffRow] };
+  return {
+    embeds: [embed],
+    components: includeStaffControls ? [playerRow, staffRow] : [playerRow],
+  };
 }

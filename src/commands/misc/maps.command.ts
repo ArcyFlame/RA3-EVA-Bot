@@ -13,6 +13,8 @@ export const data = new SlashCommandBuilder()
   .setName('maps')
   .setDescription('Where to download custom RA3 maps');
 
+export const guildOnly = false;
+
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   const embed = new EmbedBuilder()
     .setTitle('🗺️ Custom Map Downloads')

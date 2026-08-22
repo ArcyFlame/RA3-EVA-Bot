@@ -6,6 +6,8 @@ export const data = new SlashCommandBuilder()
   .setName('tips')
   .setDescription('Get a random helpful tip or piece of trivia about Red Alert 3');
 
+export const guildOnly = false;
+
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   const tips = getTips();
   const tip = tips[Math.floor(Math.random() * tips.length)];

@@ -2,7 +2,7 @@ import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { ra3StatsService } from '../../services/ra3-stats.service';
 import { guildRepository } from '../../repositories/guild.repository';
-import { generateBarChart } from '../../utils/charts';
+import { chartTrackingNote, generateBarChart } from '../../utils/charts';
 import { StatsView } from './stats.view';
 import { logger } from '../../utils/logger';
 
@@ -17,6 +17,8 @@ export const data = new SlashCommandBuilder()
       .setMinValue(2)
       .setMaxValue(10),
   );
+
+export const guildOnly = false;
 
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   // Ephemeral: stats are for the person who asked. Content is identical to
@@ -44,7 +46,12 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   const files: Array<{ attachment: Buffer; name: string }> = [];
   try {
     files.push({
-      attachment: await generateBarChart(stats.online_last_24h, 'Online Players (Last 24 Hours)', 'Reds_r'),
+      attachment: await generateBarChart(
+        stats.online_last_24h,
+        'Online Players (Last 24 Hours)',
+        'Reds_r',
+        chartTrackingNote(stats.history_started_at),
+      ),
       name: 'online_players_last_24_hours.png',
     });
   } catch (err) {
@@ -52,7 +59,12 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   }
   try {
     files.push({
-      attachment: await generateBarChart(stats.new_players_last_30d, 'New Players (Last 30 Days)', 'Blues_r'),
+      attachment: await generateBarChart(
+        stats.new_players_last_30d,
+        'New Players (Last 30 Days)',
+        'Blues_r',
+        chartTrackingNote(stats.new_player_tracking_started_at),
+      ),
       name: 'new_players_last_30_days.png',
     });
   } catch (err) {
@@ -60,7 +72,12 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   }
   try {
     files.push({
-      attachment: await generateBarChart(stats.online_last_30d, 'Online Players (Last 30 Days)', 'YlOrBr_r'),
+      attachment: await generateBarChart(
+        stats.online_last_30d,
+        'Online Players (Last 30 Days)',
+        'YlOrBr_r',
+        chartTrackingNote(stats.history_started_at),
+      ),
       name: 'online_players_last_30_days.png',
     });
   } catch (err) {

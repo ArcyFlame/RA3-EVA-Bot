@@ -11,9 +11,7 @@ import { env } from '../config/env';
  *  referee    — per-guild referee role (tournament officials), or admin
  *  moderator  — Discord moderation permissions (kick/ban/timeout/manage messages), or admin
  *
- * All checks are synchronous: better-sqlite3 is synchronous, so the previous
- * async signatures only pretended to be non-blocking. `await fn()` keeps
- * working for legacy callers.
+ * All checks are synchronous because better-sqlite3 is synchronous.
  */
 
 export function isOwner(userId: string): boolean {

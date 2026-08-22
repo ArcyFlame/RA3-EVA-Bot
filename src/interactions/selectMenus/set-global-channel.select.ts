@@ -3,10 +3,11 @@ import { RA3Bot } from '../../bot';
 import { guildRepository } from '../../repositories/guild.repository';
 import { statsPanelRepository } from '../../repositories/stats-panel.repository';
 import { wizardViews } from '../../commands/notifications/views';
+import { postRecentIfChannelEmpty } from '../../services/content-bootstrap.service';
 
 export const customIdPrefix = 'set_global_channel_';
 
-export async function execute(_bot: RA3Bot, interaction: ChannelSelectMenuInteraction) {
+export async function execute(bot: RA3Bot, interaction: ChannelSelectMenuInteraction) {
   if (!interaction.message) return;
   const view = wizardViews.get(interaction.message.id);
   if (!view) {
@@ -43,8 +44,16 @@ export async function execute(_bot: RA3Bot, interaction: ChannelSelectMenuIntera
     guildRepository.updateNotifyChannel(interaction.guild.id, category, channel.id);
   }
 
+  const bootstrap = await postRecentIfChannelEmpty(
+    bot.client,
+    interaction.guild.id,
+    category,
+    channel.id,
+  ).catch(() => 'unavailable' as const);
   await interaction.editReply({
-    content: `✅ **${category}** channel set to ${channel}.`,
+    content:
+      `✅ **${category}** channel set to ${channel}.` +
+      (bootstrap === 'posted' ? ' The newest available post was added because the channel was empty.' : ''),
     components: [],
   });
 

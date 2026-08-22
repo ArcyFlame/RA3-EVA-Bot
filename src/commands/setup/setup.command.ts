@@ -13,6 +13,8 @@ export const data = new SlashCommandBuilder()
   .setName('setup')
   .setDescription('How to install C&C Online or RA3BattleNet to play RA3 online');
 
+export const guildOnly = false;
+
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   const embed = new EmbedBuilder()
     .setTitle('🎮 Play Red Alert 3 Online')

@@ -66,20 +66,28 @@
 
     <h2>Check-ins &amp; referees</h2>
     <p>
-      Before a tournament starts, staff run <code>/checkin start &lt;event&gt;</code>.
-      The board lists registered players, who has checked in (✅ / ❌ buttons),
-      and can ping the referee role. Referees are configured in
-      <code>/bot_setup</code>. Players who registered through the forum thread
-      are matched by name — the bot never impersonates anyone.
+      Run <code>/checkin [event]</code> to open the current tournament board.
+      Players see numbered registered, checked-in and missing lists. Referees
+      get the management menu for opening the board, refreshing registrations
+      and posting it to the tournament channel. The referee role is configured
+      in <code>/bot_setup</code>.
+    </p>
+
+    <h2>Score reports</h2>
+    <p>
+      <code>/report_score &lt;opponent&gt; &lt;factions&gt; &lt;score&gt;</code> uses the
+      checked-in player list for opponent suggestions. Reports go to a referee
+      for approval and can update the current Challonge match when it is an
+      exact match for the two players.
     </p>
 
     <h2>Winners &amp; Hall of Fame</h2>
     <p>
-      When a bracket finishes, the champion is recorded (from Challonge
-      rankings, or inferred from the final match when the organizer hasn't
-      finalized). Wins feed the <strong>Tournament Wins (Top 10)</strong> stats
-      page above the community-maintained <strong>Hall of Fame</strong>
-      (<code>/add_master</code>).
+      Champions are recorded from Challonge rankings, final-match results and
+      explicitly labelled forum finals for older events without a bracket.
+      A resumable scan covers the full GameReplays esports forum history. Wins
+      feed the <strong>Tournament Wins (Top 10)</strong> stats page above the
+      community-maintained <strong>Hall of Fame</strong> (<code>/add_master</code>).
     </p>
 
     <div class="footer">

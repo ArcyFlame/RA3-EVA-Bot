@@ -9,18 +9,10 @@ export const data = new SlashCommandBuilder()
   .setName('help')
   .setDescription('Show interactive help menu');
 
+export const guildOnly = false;
+
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
-  if (!interaction.guild) {
-    // In DMs, treat as non-staff (show only public categories)
-    const view = new HelpView(false);
-    await interaction.reply({
-      embeds: [view.getEmbed()],
-      components: view.getComponents(),
-      ephemeral: true,
-    });
-    return;
-  }
-  const member = await resolveMember(interaction);
+  const member = interaction.guild ? await resolveMember(interaction) : null;
   // Admin Tools + Moderation tabs are visible to admins AND moderators.
   const staff =
     member !== null &&
@@ -32,7 +24,9 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
         PermissionFlagsBits.ManageMessages,
         PermissionFlagsBits.ManageGuild,
       ]));
-  const hidden = guildRepository.getHiddenHelpCategories(interaction.guild.id);
+  const hidden = interaction.guild
+    ? guildRepository.getHiddenHelpCategories(interaction.guild.id)
+    : [];
   const view = new HelpView(staff, undefined, hidden);
   const reply = await interaction.reply({
     embeds: [view.getEmbed()],

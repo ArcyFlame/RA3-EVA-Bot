@@ -4,6 +4,7 @@ import { logger } from '../utils/logger';
 import { newsRepository } from '../repositories/news.repository';
 import { guildRepository } from '../repositories/guild.repository';
 import { safeGetText } from '../utils/safe-fetch';
+import { contentDeliveryRepository } from '../repositories/content-delivery.repository';
 
 /**
  * GameReplays publishes per-game news RSS feeds — the RA3-only feed (id=35)
@@ -122,28 +123,57 @@ export class NewsScannerService {
     }
   }
 
+  private buildEmbed(latest: { title: string; newsUrl?: string; url: string; excerpt?: string }): EmbedBuilder {
+    const link = latest.newsUrl || latest.url;
+    return new EmbedBuilder()
+      .setTitle(`📰 ${latest.title}`)
+      .setURL(link)
+      .setColor(0x5865f2)
+      .setDescription(latest.excerpt?.slice(0, 300) || 'New Red Alert 3 news.');
+  }
+
+  private async announceItemToGuild(
+    guildId: string,
+    latest: { title: string; newsUrl?: string; url: string; excerpt?: string },
+  ): Promise<boolean> {
+    const link = latest.newsUrl || latest.url;
+    if (!link) return false;
+    const guildData = guildRepository.findByDiscordId(guildId);
+    if (guildData?.newsEnabled === 0 || !guildData?.newsChannelId) return false;
+    const guild = this.client?.guilds.cache.get(guildId);
+    const channel = guild?.channels.cache.get(guildData.newsChannelId);
+    if (!(channel instanceof TextChannel)) return false;
+    if (contentDeliveryRepository.wasDelivered(guildId, 'news', link, channel.id)) return false;
+
+    try {
+      await channel.send({ embeds: [this.buildEmbed(latest)] });
+      contentDeliveryRepository.markDelivered(guildId, 'news', link, channel.id);
+      return true;
+    } catch (error) {
+      logger.warn(`News scanner: failed to post to guild ${guildId}:`, error);
+      return false;
+    }
+  }
+
+  /** Posts the newest relevant item to one server, used for a newly selected empty channel. */
+  async postLatestToGuild(guildId: string): Promise<boolean> {
+    const guildData = guildRepository.findByDiscordId(guildId);
+    const feed = GAME_NEWS_FEEDS[guildData?.game ?? 'ra3'];
+    let latest: { title: string; newsUrl?: string; url: string; excerpt?: string } | undefined;
+    if (feed) latest = (await fetchFeedItems(feed.url, feed.filter).catch(() => []))[0];
+    if (!latest) {
+      const stored = newsRepository.getLatest(1)[0];
+      if (stored) latest = { ...stored, url: stored.newsUrl };
+    }
+    return latest ? this.announceItemToGuild(guildId, latest) : false;
+  }
+
   /** Posts one news item to every guild with a bound news channel. */
   private async announceItem(latest: { title: string; newsUrl?: string; url: string; excerpt?: string }): Promise<void> {
-    const link = latest.newsUrl || latest.url;
-    if (!link) return;
+    if (!(latest.newsUrl || latest.url)) return;
 
     for (const guildData of guildRepository.getAllGuilds()) {
-      if (guildData.newsEnabled === 0 || !guildData.newsChannelId) continue;
-      const guild = this.client?.guilds.cache.get(guildData.discordId);
-      if (!guild) continue;
-      const channel = guild.channels.cache.get(guildData.newsChannelId);
-      if (!(channel instanceof TextChannel)) continue;
-
-      const embed = new EmbedBuilder()
-        .setTitle(`📰 ${latest.title}`)
-        .setURL(link)
-        .setColor(0x5865f2)
-        .setDescription(latest.excerpt?.slice(0, 300) || 'New Red Alert 3 news.');
-      try {
-        await channel.send({ embeds: [embed] });
-      } catch (error) {
-        logger.warn(`News scanner: failed to post to guild ${guildData.discordId}:`, error);
-      }
+      await this.announceItemToGuild(guildData.discordId, latest);
     }
   }
 }

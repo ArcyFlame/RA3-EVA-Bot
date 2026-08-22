@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { up as up001 } from '../../src/database/migrations/001_initial_schema';
 import { up as up004 } from '../../src/database/migrations/004_clans_guild_id';
+import { up as up015 } from '../../src/database/migrations/015_tournament_workflow';
 import { TournamentRepository } from '../../src/repositories/tournament.repository';
 import { ClanRepository } from '../../src/repositories/clan.repository';
 
@@ -10,6 +11,7 @@ const clanRepo = new ClanRepository();
 beforeAll(() => {
   up001();
   up004();
+  up015();
 });
 
 describe('TournamentRepository', () => {

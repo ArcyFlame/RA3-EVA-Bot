@@ -58,7 +58,7 @@ export function extractPrizeValue(text: string, title = ''): number | undefined 
   let tableTotal = 0;
   let tableEntries = 0;
   for (const m of text.matchAll(
-    /((?:\d{1,2}(?:st|nd|rd|th))(?:\s*(?:&|and|,)\s*\d{1,2}(?:st|nd|rd|th))*)(?:\s+place)?s?\s*[:\-]?\s*(\d{1,4})(?:\.\d{1,2})?\s?[$€£](?=\s|$|[^0-9]|\d{1,2}(?:st|nd|rd|th)\b|\d\s)/gi,
+    /((?:\d{1,2}(?:st|nd|rd|th))(?:\s*(?:&|and|,)\s*\d{1,2}(?:st|nd|rd|th))*)(?:\s+place)?s?\s*[:-]?\s*(\d{1,4})(?:\.\d{1,2})?\s?[$€£](?=\s|$|[^0-9]|\d{1,2}(?:st|nd|rd|th)\b|\d\s)/gi,
   )) {
     const places = m[1].split(/&|and|,/).length;
     tableTotal += parseFloat(m[2]) * places;
