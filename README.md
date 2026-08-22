@@ -32,6 +32,9 @@ E.V.A, the Allied command voice.
 
 ## Quick start
 
+Requires **Node.js 20.18.1 or newer** and a Discord bot token. Optional API
+credentials are documented in `.env.example`.
+
 ```bash
 npm install
 cp .env.example .env   # fill in DISCORD_TOKEN (everything else is optional)
