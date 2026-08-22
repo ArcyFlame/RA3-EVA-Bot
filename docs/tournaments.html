@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tournaments — E.V.A Docs</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="logo">E.V.A<span>.</span></div>
+    <div class="tagline">RA3 Community Bot</div>
+    <nav>
+      <h3>Getting Started</h3>
+      <a href="index.html">Introduction</a>
+      <a href="setup.html">Setup</a>
+      <h3>Features</h3>
+      <a class="active" href="tournaments.html">Tournaments</a>
+      <a href="stats.html">Stats &amp; Profiles</a>
+      <a href="notifications.html">News &amp; Feeds</a>
+      <h3>Reference</h3>
+      <a href="commands.html">Commands</a>
+      <a href="self-hosting.html">Self-Hosting</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <h1>Tournaments</h1>
+    <p>
+      E.V.A runs a full tournament pipeline. It scans the GameReplays.org RA3
+      esports portal and the events forum on its own — new tournaments,
+      sign-up threads, brackets and results show up in your channels without
+      anyone doing anything.
+    </p>
+
+    <h2>How discovery works</h2>
+    <ol>
+      <li><strong>Portal scan</strong> — new tournament announcements are stored and posted to your tournament channel with a Sign Up button.</li>
+      <li><strong>Forum scan</strong> — the bot pairs forum topics with announcements by name: <em>"FTW 91 Registration"</em> (sign-up thread) and <em>"FTW 91 Brackets, Results and Replays"</em> (results thread). Edition numbers are respected — FTW 91 never pairs with FTW 90.</li>
+      <li><strong>Challonge links</strong> are extracted from results threads. A tournament can run several brackets (qualifiers per server, group stage, playoffs) — all are tracked, the playoff bracket is the primary one.</li>
+      <li><strong>Facts</strong> — prize pool, format, map pool and the player list are extracted from the threads (prize tables, donations, team rosters) and from Challonge as a fallback.</li>
+    </ol>
+
+    <h2>What you can browse</h2>
+    <div class="card">
+      <h3>/events</h3>
+      <p>An interactive browser: Date, Status, Format, Prize, Map Pool, with
+      Sign Up / Results buttons and Previous / Refresh / Next navigation.</p>
+    </div>
+    <div class="card">
+      <h3>/results</h3>
+      <p>Podium and numbered standings from each event's Challonge brackets —
+      one entry per bracket for multi-bracket events (e.g. Gathering Storm's
+      CCO qualifier, RA3BattleNet qualifier and playoffs).</p>
+    </div>
+    <div class="card">
+      <h3>/matches</h3>
+      <p>The current bracket: header with players/format/state, the same podium
+      and standings view once it finishes, upcoming matches while it runs.</p>
+    </div>
+    <div class="card">
+      <h3>/tournaments_scan</h3>
+      <p>Admins can trigger an immediate portal + forum scan instead of waiting
+      for the next automatic one.</p>
+    </div>
+
+    <h2>Check-ins &amp; referees</h2>
+    <p>
+      Before a tournament starts, staff run <code>/checkin start &lt;event&gt;</code>.
+      The board lists registered players, who has checked in (✅ / ❌ buttons),
+      and can ping the referee role. Referees are configured in
+      <code>/bot_setup</code>. Players who registered through the forum thread
+      are matched by name — the bot never impersonates anyone.
+    </p>
+
+    <h2>Winners &amp; Hall of Fame</h2>
+    <p>
+      When a bracket finishes, the champion is recorded (from Challonge
+      rankings, or inferred from the final match when the organizer hasn't
+      finalized). Wins feed the <strong>Tournament Wins (Top 10)</strong> stats
+      page above the community-maintained <strong>Hall of Fame</strong>
+      (<code>/add_master</code>).
+    </p>
+
+    <div class="footer">
+      E.V.A — built for the Red Alert 3 community by Arcy. Not affiliated with EA.
+    </div>
+  </main>
+</body>
+</html>

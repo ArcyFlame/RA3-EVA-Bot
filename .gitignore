@@ -1,0 +1,21 @@
+node_modules/
+dist/
+data/
+logs/
+.env
+*.env
+.env.*
+!.env.example
+
+# Game image assets (faction icons are no longer used; map minimaps are
+# dropped in per server at runtime)
+images/
+
+# Local tooling state (security scanner ledger, agent plans)
+.mimosa/
+.zcode/
+
+# OS / editor noise
+Thumbs.db
+.DS_Store
+*.log

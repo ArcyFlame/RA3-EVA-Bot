@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stats &amp; Profiles — E.V.A Docs</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="logo">E.V.A<span>.</span></div>
+    <div class="tagline">RA3 Community Bot</div>
+    <nav>
+      <h3>Getting Started</h3>
+      <a href="index.html">Introduction</a>
+      <a href="setup.html">Setup</a>
+      <h3>Features</h3>
+      <a href="tournaments.html">Tournaments</a>
+      <a class="active" href="stats.html">Stats &amp; Profiles</a>
+      <a href="notifications.html">News &amp; Feeds</a>
+      <h3>Reference</h3>
+      <a href="commands.html">Commands</a>
+      <a href="self-hosting.html">Self-Hosting</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <h1>Stats &amp; Profiles</h1>
+    <p>
+      All statistics come from live sources — nothing is invented. The two
+      platforms are shown side by side and never mixed: C&amp;C Online
+      (with Shatabrick as its ladder site) and RA3BattleNet.
+    </p>
+
+    <h2>The stats panel</h2>
+    <p>
+      <code>/stats</code> opens an interactive view for you (the reply is
+      private); <code>/stats_panel set &lt;channel&gt;</code> puts a persistent
+      panel in a channel. The panel refreshes every 10 minutes and carries the
+      classic charts below it, one chart per message:
+    </p>
+    <ul>
+      <li><strong>Online Players (Last 24 Hours)</strong> — from tracked snapshots</li>
+      <li><strong>New Players (Last 30 Days)</strong> — players appearing on the ladders for the first time</li>
+      <li><strong>Online Players (Last 30 Days)</strong> — daily peaks from tracked history</li>
+    </ul>
+
+    <h2>Pages</h2>
+    <table>
+      <tr><th>Page</th><th>Content</th></tr>
+      <tr><td>Live Stats</td><td>Online now, peak 24h, per-platform players and active games, current RA3BattleNet season</td></tr>
+      <tr><td>Recent Matches &amp; Factions</td><td>Live matches per platform, most played maps, faction popularity (with chart)</td></tr>
+      <tr><td>Top 10 Players</td><td>Leaderboards 1v1 / 2v2 / 3v3 (faction, elo, name)</td></tr>
+      <tr><td>Tournament Wins &amp; Masters</td><td>Winners of tracked tournaments + the Hall of Fame</td></tr>
+    </table>
+    <blockquote>
+      KW / GenEvo servers show C&amp;C Online numbers only — RA3BattleNet
+      sections and the faction chart belong to RA3 servers.
+    </blockquote>
+
+    <h2>Player profiles</h2>
+    <p>
+      <code>/profile</code> works two ways:
+    </p>
+    <ul>
+      <li>
+        <code>/profile user:&lt;member&gt;</code> — the linked accounts of a
+        Discord member (link yours with <code>/link_ra3battlenet</code> and
+        <code>/link_shatabrick</code>).
+      </li>
+      <li>
+        <code>/profile player:&lt;name or id&gt;</code> — any player on the
+        RA3BattleNet ladders, Discord account or not.
+      </li>
+    </ul>
+    <p>The RA3BattleNet section shows, per mode:</p>
+    <pre><code>1v1: 1234 elo · #12 · 15W/4L (79%) · 🇺🇸
+2v2: Placement (4 left) · 1W/1L · 🇷🇺
+Seasons: S9 Amphoreus 1v1: 963 (#111) · S9 2v2: 965 (#322)</code></pre>
+    <blockquote>
+      Not on this season's ladders? Link (or look up) with your numeric persona
+      id — the number in your ra3battle.cn profile URL.
+    </blockquote>
+
+    <div class="footer">
+      E.V.A — built for the Red Alert 3 community by Arcy. Not affiliated with EA.
+    </div>
+  </main>
+</body>
+</html>

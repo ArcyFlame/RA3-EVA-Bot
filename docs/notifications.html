@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>News &amp; Feeds — E.V.A Docs</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="logo">E.V.A<span>.</span></div>
+    <div class="tagline">RA3 Community Bot</div>
+    <nav>
+      <h3>Getting Started</h3>
+      <a href="index.html">Introduction</a>
+      <a href="setup.html">Setup</a>
+      <h3>Features</h3>
+      <a href="tournaments.html">Tournaments</a>
+      <a href="stats.html">Stats &amp; Profiles</a>
+      <a class="active" href="notifications.html">News &amp; Feeds</a>
+      <h3>Reference</h3>
+      <a href="commands.html">Commands</a>
+      <a href="self-hosting.html">Self-Hosting</a>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <h1>News &amp; Feeds</h1>
+    <p>
+      Every feed remembers what it already posted — each item is posted exactly
+      once, and only genuinely new content reaches your channels. On a fresh
+      install the history is seeded silently and just the newest item is shown.
+    </p>
+
+    <h2>Game news</h2>
+    <p>
+      GameReplays' per-game news feeds (RA3, Kane's Wrath, Generals Evolution
+      — matching your server's game). New items are posted to the news channel
+      as they appear; <code>/news</code> browses the archive.
+    </p>
+
+    <h2>ModDB</h2>
+    <p>
+      RA3 mods, articles and news from ModDB. Posting is rate-limited (at most
+      one post per 6 hours, newest first) so bursts never flood the channel.
+      <code>/mods</code> lists the newest entries on demand.
+    </p>
+
+    <h2>Twitch</h2>
+    <p>
+      The notifier polls the whole Red Alert 3 category — every live RA3 stream
+      gets announced, including Sybert's. Servers can additionally track
+      specific streamers via <code>/notifications</code>.
+    </p>
+
+    <h2>YouTube</h2>
+    <p>
+      Uploads are tracked through YouTube's free RSS feeds — no API key, no
+      quota. Community channels are followed for every server automatically
+      (Sybert's BattleCast channel); servers can add their own via
+      <code>/notifications</code>.
+    </p>
+
+    <h2>Managing feeds</h2>
+    <ul>
+      <li><code>/notifications</code> — per-guild channels, tracked streamers, and admin <em>Test Post</em> buttons.</li>
+      <li><code>/toggle</code> — enable/disable each feed per server.</li>
+      <li><code>/test_channels</code> — verify the bot can actually post in every configured channel.</li>
+    </ul>
+
+    <div class="footer">
+      E.V.A — built for the Red Alert 3 community by Arcy. Not affiliated with EA.
+    </div>
+  </main>
+</body>
+</html>
