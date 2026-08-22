@@ -80,3 +80,8 @@ Built for the Red Alert 3 community by **Arcy**. Data from
 [GameReplays.org](https://www.gamereplays.org), [RA3BattleNet](https://ra3battle.cn),
 [C&C Online](https://cnc-online.net), Shatabrick and
 [Challonge](https://challonge.com).
+
+## License
+
+Copyright © 2026 ArcyFlame. Released under the
+[GNU General Public License v3.0 or later](LICENSE).
