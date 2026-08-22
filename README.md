@@ -1,4 +1,4 @@
-# E.V.A — Red Alert 3 Community Bot
+# E.V.A - Red Alert 3 Community Bot
 
 A Discord bot for the **Command & Conquer: Red Alert 3** community, built with
 discord.js v14, TypeScript, better-sqlite3 and chartjs-node-canvas. Named after
