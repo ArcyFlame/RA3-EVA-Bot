@@ -81,6 +81,8 @@ Built for the Red Alert 3 community by **Arcy**. Data from
 [C&C Online](https://cnc-online.net), Shatabrick and
 [Challonge](https://challonge.com).
 
+## Code was generated + fixed by AI such as Z.ai, Claude & ChatGPT Sol.
+
 ## License
 
 Copyright © 2026 ArcyFlame. Released under the
