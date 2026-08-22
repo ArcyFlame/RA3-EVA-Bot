@@ -76,7 +76,7 @@ Permissions are layered: `owner` (`OWNER_ID`, gates `/kill` and `/restart`) →
 
 ## Credits
 
-Built for the Red Alert 3 community by **Arcy**. Data from
+Built for the Red Alert 3 community by **Arcy + AI**. Data from
 [GameReplays.org](https://www.gamereplays.org), [RA3BattleNet](https://ra3battle.cn),
 [C&C Online](https://cnc-online.net), Shatabrick and
 [Challonge](https://challonge.com).
