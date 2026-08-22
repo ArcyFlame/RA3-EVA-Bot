@@ -19,6 +19,9 @@ import { up as up017, down as down017 } from './migrations/017_tournament_winner
 import { up as up018, down as down018 } from './migrations/018_winner_name_cleanup';
 import { up as up019, down as down019 } from './migrations/019_challonge_reserved_paths';
 import { up as up020, down as down020 } from './migrations/020_forum_winner_rescan';
+import { up as up021, down as down021 } from './migrations/021_ftw90_bracket_cleanup';
+import { up as up022, down as down022 } from './migrations/022_referee_checkin_alerts';
+import { up as up023, down as down023 } from './migrations/023_winner_marker_cleanup';
 import { logger } from '../utils/logger';
 
 interface Migration {
@@ -50,6 +53,9 @@ const migrations: Migration[] = [
   { version: 18, name: '018_winner_name_cleanup', up: up018, down: down018 },
   { version: 19, name: '019_challonge_reserved_paths', up: up019, down: down019 },
   { version: 20, name: '020_forum_winner_rescan', up: up020, down: down020 },
+  { version: 21, name: '021_ftw90_bracket_cleanup', up: up021, down: down021 },
+  { version: 22, name: '022_referee_checkin_alerts', up: up022, down: down022 },
+  { version: 23, name: '023_winner_marker_cleanup', up: up023, down: down023 },
 ];
 
 function ensureMigrationsTable(): void {

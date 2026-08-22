@@ -13,7 +13,7 @@ import { logger } from '../../utils/logger';
 
 export const data = new SlashCommandBuilder()
   .setName('mods')
-  .setDescription('Newest RA3 mods, articles and news from ModDB')
+  .setDescription('Newest RA3 mod updates and articles from ModDB')
   .addIntegerOption((opt) =>
     opt
       .setName('limit')
@@ -37,7 +37,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     }
 
     const embed = new EmbedBuilder()
-      .setTitle(`${MODDB} RA3 Mods & Articles on ModDB`)
+      .setTitle(`${MODDB} Latest RA3 Articles on ModDB`)
       .setColor(0xff6600)
       .setAuthor({ name: 'ModDB', iconURL: 'https://www.moddb.com/favicon.ico' })
       .setDescription(
@@ -52,7 +52,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
           .join('\n')
           .slice(0, 4000),
       )
-      .setFooter({ text: 'New items are posted to the ModDB channel automatically' })
+      .setFooter({ text: 'Source: ModDB RA3 Articles • newest first' })
       .setTimestamp();
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(

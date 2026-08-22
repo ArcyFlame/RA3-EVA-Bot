@@ -7,6 +7,7 @@ import { challongeService } from './challonge.service';
 import { isKnownSkirmishMap } from './ra3-stats.service';
 import { extractPrizeValue, truncateSentences } from '../utils/text';
 import { statusFromChallonge } from '../utils/tournament-status';
+import { checkinNotificationService } from './checkin-notification.service';
 
 export { truncateSentences };
 
@@ -367,6 +368,7 @@ export class ForumScannerService {
           const parsed = parseTopicPage(html);
           let hadChallonge = false;
           let primaryUrl: string | undefined;
+          const validChallonge: string[] = [];
           if (parsed.challonge.length > 0) {
             hadChallonge = !!tournamentRepository.getEventDetail(match.id)?.challongeUrl;
             // One tournament can run SEVERAL brackets (group stage + playoffs,
@@ -377,17 +379,30 @@ export class ForumScannerService {
               if (!ref) continue;
               const bracket = await challongeService.getTournament(ref).catch(() => null);
               const name = bracket?.name ? String(bracket.name) : undefined;
+              if (name && !editionsCompatible(name, match.title)) {
+                logger.warn(
+                  `Forum scanner: ignored bracket "${name}" for "${match.title}" (edition mismatch)`,
+                );
+                continue;
+              }
               tournamentRepository.addBracket(match.id, link, name);
+              validChallonge.push(link);
             }
-            const brackets = tournamentRepository.getBrackets(match.id);
+            const brackets = tournamentRepository
+              .getBrackets(match.id)
+              .filter((bracket) =>
+                bracket.bracketName
+                  ? editionsCompatible(bracket.bracketName, match.title)
+                  : true,
+              );
             primaryUrl = (brackets.find((b) => b.isPrimary) ?? brackets[0])?.challongeUrl;
-            tournamentRepository.updateEventLinks(match.id, {
-              challongeUrl: primaryUrl,
-              checkinsUrl: parsed.checkins,
-              registrationUrl: parsed.registration,
-              topicUrl: topic.url,
-            });
           }
+          tournamentRepository.updateEventLinks(match.id, {
+            challongeUrl: primaryUrl,
+            checkinsUrl: parsed.checkins,
+            registrationUrl: parsed.registration,
+            topicUrl: topic.url,
+          });
           // Results topics usually carry the real prize + map pool list.
           const prize = extractPrize(parsed.bodyText, topic.title);
           const pool = extractMapPool(html);
@@ -395,11 +410,11 @@ export class ForumScannerService {
             prizePool: prize,
             maps: pool.length >= 3 ? pool.join(', ') : undefined,
           });
-          if (parsed.challonge.length > 0) {
+          if (validChallonge.length > 0) {
             // Enrich format/participants/winner from the live brackets — after
             // the facts refresh, because Challonge is the most reliable source
             // for the format. Only the primary bracket sets the format.
-            for (const link of parsed.challonge) {
+            for (const link of validChallonge) {
               await this.enrichFromChallonge(match.id, link, match.title, link === primaryUrl);
             }
             if (!hadChallonge) {
@@ -426,13 +441,23 @@ export class ForumScannerService {
           });
           // Ingest "in" replies AND the organizer's roster list (XMAS-style
           // "Registered for 2vs2: A and B (team name - X)") as participants.
+          const newRegistrations: string[] = [];
           for (const name of parseRegistrationRoster(pages[0])) {
-            if (tournamentRepository.addParticipant(match.id, name, 'forum')) registrations++;
+            if (tournamentRepository.addParticipant(match.id, name, 'forum')) {
+              registrations++;
+              newRegistrations.push(name);
+            }
           }
           for (const page of pages) {
             for (const name of parseRegistrations(page)) {
-              if (tournamentRepository.addParticipant(match.id, name, 'forum')) registrations++;
+              if (tournamentRepository.addParticipant(match.id, name, 'forum')) {
+                registrations++;
+                newRegistrations.push(name);
+              }
             }
+          }
+          if (newRegistrations.length > 0) {
+            void checkinNotificationService.notify(match.id, 'registered', newRegistrations);
           }
         }
       }
@@ -470,6 +495,12 @@ export class ForumScannerService {
         if (tournamentRepository.hasWinnerFor(canonicalUrl)) continue;
         const tournament = await challongeService.getTournament(ref).catch(() => null);
         if (!tournament || !['complete', 'awaiting_review'].includes(tournament.state)) continue;
+        if (tournament.name && !editionsCompatible(String(tournament.name), bracket.eventTitle)) {
+          logger.warn(
+            `Winner sync: ignored bracket "${tournament.name}" for "${bracket.eventTitle}"`,
+          );
+          continue;
+        }
         const rankings = await challongeService.getFinalRankings(ref).catch(() => []);
         let winner: string | undefined =
           rankings.find((r) => r.rank === 1)?.name ?? rankings[0]?.name;
@@ -498,13 +529,23 @@ export class ForumScannerService {
     const pages = await this.fetchRegistrationPages(detail.registrationUrl);
     if (pages.length === 0) return -1;
     let added = 0;
+    const newRegistrations: string[] = [];
     for (const name of parseRegistrationRoster(pages[0])) {
-      if (tournamentRepository.addParticipant(eventId, name, 'forum')) added++;
+      if (tournamentRepository.addParticipant(eventId, name, 'forum')) {
+        added++;
+        newRegistrations.push(name);
+      }
     }
     for (const page of pages) {
       for (const name of parseRegistrations(page)) {
-        if (tournamentRepository.addParticipant(eventId, name, 'forum')) added++;
+        if (tournamentRepository.addParticipant(eventId, name, 'forum')) {
+          added++;
+          newRegistrations.push(name);
+        }
       }
+    }
+    if (newRegistrations.length > 0) {
+      void checkinNotificationService.notify(eventId, 'registered', newRegistrations);
     }
     return added;
   }
@@ -525,6 +566,10 @@ export class ForumScannerService {
     if (!ref) return;
     const tournament = await challongeService.getTournament(ref).catch(() => null);
     if (!tournament) return;
+    if (tournament.name && !editionsCompatible(String(tournament.name), eventTitle)) {
+      logger.warn(`Challonge enrichment: ignored "${tournament.name}" for "${eventTitle}"`);
+      return;
+    }
     const status = statusFromChallonge(tournament.state);
     if (status !== 'unknown') tournamentRepository.setEventStatus(eventId, status);
 
@@ -589,6 +634,7 @@ export class ForumScannerService {
       if (tournamentRepository.hasWinnerFor(canonicalUrl)) continue;
       const tournament = await challongeService.getTournament(ref).catch(() => null);
       if (!tournament || !['complete', 'awaiting_review'].includes(tournament.state)) continue;
+      if (tournament.name && !editionsCompatible(String(tournament.name), topicTitle)) continue;
       const rankings = await challongeService.getFinalRankings(ref).catch(() => []);
       let winner: string | undefined =
         rankings.find((r) => r.rank === 1)?.name ?? rankings[0]?.name;

@@ -15,6 +15,7 @@ export interface User {
   youtubeDmEnabled: number;
   tournamentMatchDmEnabled: number;
   clanInviteDmEnabled: number;
+  refereeCheckinDmEnabled: number;
   language: string;
   createdAt: string;
   updatedAt: string;
@@ -25,15 +26,45 @@ export type Language = (typeof SUPPORTED_LANGUAGES)[number];
 
 export class UserRepository extends BaseRepository {
   findByDiscordId(discordId: string): User | undefined {
-    return this.query<User>(
-      'SELECT discord_id, username, global_name, avatar, shatabrick_username, rank, ' +
+    const row = this.query<{
+      discordId: string;
+      username: string;
+      globalName: string | null;
+      avatar: string | null;
+      shatabrickUsername: string | null;
+      rank: string;
+      clanDmEnabled: number;
+      tournamentDmEnabled: number;
+      twitchDmEnabled: number;
+      youtubeDmEnabled: number;
+      tournamentMatchDmEnabled: number;
+      clanInviteDmEnabled: number;
+      refereeCheckinDmEnabled: number;
+      ra3bUsername: string | null;
+      ra3bPersonaId: number | null;
+      language: string;
+      createdAt: string;
+      updatedAt: string;
+    }>(
+      'SELECT discord_id as discordId, username, global_name as globalName, avatar, ' +
+        'shatabrick_username as shatabrickUsername, rank, ' +
         'clan_dm_enabled as clanDmEnabled, tournament_dm_enabled as tournamentDmEnabled, ' +
         'twitch_dm_enabled as twitchDmEnabled, youtube_dm_enabled as youtubeDmEnabled, ' +
         'tournament_match_dm_enabled as tournamentMatchDmEnabled, clan_invite_dm_enabled as clanInviteDmEnabled, ' +
+        'referee_checkin_dm_enabled as refereeCheckinDmEnabled, ' +
         'ra3b_username as ra3bUsername, ra3b_persona_id as ra3bPersonaId, ' +
-        'language, created_at, updated_at FROM users WHERE discord_id = ?',
+        'language, created_at as createdAt, updated_at as updatedAt FROM users WHERE discord_id = ?',
       [discordId],
     );
+    if (!row) return undefined;
+    return {
+      ...row,
+      globalName: row.globalName ?? undefined,
+      avatar: row.avatar ?? undefined,
+      shatabrickUsername: row.shatabrickUsername ?? undefined,
+      ra3bUsername: row.ra3bUsername ?? undefined,
+      ra3bPersonaId: row.ra3bPersonaId ?? undefined,
+    };
   }
 
   upsertFromMember(
@@ -120,6 +151,33 @@ export class UserRepository extends BaseRepository {
       'UPDATE users SET ra3b_username = NULL, ra3b_persona_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ?',
       [discordId],
     );
+  }
+
+  /** Clears linked game identities while preserving language and DM settings. */
+  clearLinkedProfile(discordId: string): void {
+    this.ensureUser(discordId);
+    this.run(
+      `UPDATE users
+       SET shatabrick_username = NULL,
+           ra3b_username = NULL,
+           ra3b_persona_id = NULL,
+           rank = 'Unranked',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE discord_id = ?`,
+      [discordId],
+    );
+  }
+
+  setRefereeCheckinDmEnabled(discordId: string, enabled: boolean): void {
+    this.ensureUser(discordId);
+    this.run(
+      'UPDATE users SET referee_checkin_dm_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ?',
+      [enabled ? 1 : 0, discordId],
+    );
+  }
+
+  isRefereeCheckinDmEnabled(discordId: string): boolean {
+    return (this.findByDiscordId(discordId)?.refereeCheckinDmEnabled ?? 1) !== 0;
   }
 
   /** Resolves a user's language, defaulting to English for unknown users. */

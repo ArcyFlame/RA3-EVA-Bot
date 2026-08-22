@@ -19,7 +19,7 @@ E.V.A, the Allied command voice.
 - **Player profiles** — `/link` manages Shatabrick and RA3BattleNet identities.
   `/profile` keeps both platforms separate and shows live rank, Elo and W/L
   wherever the platform currently exposes that data.
-- **News & content feeds** — GameReplays RA3 news, ModDB RA3 mods and articles
+- **News & content feeds** — current GameReplays RA3 portal news and ModDB RA3 articles
   (`/mods`), Twitch streams and YouTube uploads (RSS-based, no API key),
   posted to the channels you choose, always deduplicated.
 - **Community tools** — `/pickmap` with verified tournament map pools, clan

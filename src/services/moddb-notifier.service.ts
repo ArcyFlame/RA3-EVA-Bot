@@ -19,15 +19,10 @@ interface RSSItem {
 export class ModDBNotifierService {
   private pollInterval: NodeJS.Timeout | null = null;
   private client: Client | null = null;
-  /**
-   * RA3 mod coverage only: articles + news (+ mods/addons). The downloads
-   * and site-wide global feeds flooded channels with maps and other games'
-   * content — those are gone. See https://www.moddb.com/games/cc-red-alert-3/articles.
-   */
+  /** ModDB's RA3 articles page carries the current mod updates. Other feeds
+   * are older or map-heavy, so they are deliberately not mixed into /mods. */
   private readonly rssFeeds = [
     'https://rss.moddb.com/games/cc-red-alert-3/articles/feed/rss.xml',
-    'https://rss.moddb.com/games/cc-red-alert-3/news/feed/rss.xml',
-    'https://rss.moddb.com/games/cc-red-alert-3/addons/feed/rss.xml',
   ];
   private readonly pollIntervalMinutes = 15;
   /** At most one channel post per 6 hours — ModDB bursts must not spam. */
@@ -82,7 +77,6 @@ export class ModDBNotifierService {
       try {
         const items = await this.fetchFeed(feedUrl);
         for (const item of items) {
-          if (!this.isRA3Related(item)) continue;
           if (seen.has(item.guid)) continue;
           seen.add(item.guid);
           if (await this.isAlreadyNotified(item.guid)) continue;
@@ -134,7 +128,7 @@ export class ModDBNotifierService {
     for (const feedUrl of this.rssFeeds) {
       try {
         for (const item of await this.fetchFeed(feedUrl)) {
-          if (!this.isRA3Related(item) || seen.has(item.guid)) continue;
+          if (seen.has(item.guid)) continue;
           seen.add(item.guid);
           candidates.push({ item, feedUrl });
         }
@@ -149,7 +143,7 @@ export class ModDBNotifierService {
     });
   }
 
-  /** Newest RA3 articles/news/mods for the /mods command (no dedup logic). */
+  /** Newest RA3 articles and mod updates for the /mods command. */
   async fetchLatestRa3Items(limit = 10): Promise<RSSItem[]> {
     return (await this.fetchLatestCandidates()).slice(0, limit).map(({ item }) => item);
   }
@@ -202,30 +196,6 @@ export class ModDBNotifierService {
     }));
   }
 
-  private isRA3Related(item: RSSItem): boolean {
-    const lowerTitle = item.title.toLowerCase();
-    const lowerLink = item.link.toLowerCase();
-    const lowerDesc = (item.description || '').toLowerCase();
-
-    const ra3Keywords = [
-      'red alert 3',
-      'ra3',
-      'command & conquer: red alert 3',
-      'command and conquer: red alert 3',
-      'c&c: red alert 3',
-      'cc red alert 3',
-    ];
-
-    const hasKeyword = ra3Keywords.some(
-      (keyword) =>
-        lowerTitle.includes(keyword) || lowerLink.includes(keyword) || lowerDesc.includes(keyword),
-    );
-
-    const isInRa3Section = lowerLink.includes('/cc-red-alert-3/');
-
-    return hasKeyword || isInRa3Section;
-  }
-
   private async isAlreadyNotified(guid: string): Promise<boolean> {
     if (!guid) return true; // no stable id → never post rather than crash
     return !!db.prepare('SELECT 1 FROM moddb_notified WHERE url = ?').get(guid);
@@ -260,7 +230,7 @@ export class ModDBNotifierService {
       .setDescription(this.cleanDescription(item.description))
       .setColor(this.getTypeColor(type))
       .setAuthor({ name: 'ModDB', iconURL: 'https://www.moddb.com/favicon.ico' })
-      .setFooter({ text: 'ModDB RSS • New content' });
+      .setFooter({ text: 'ModDB • RA3 Articles' });
     const timestamp = new Date(item.pubDate);
     if (!Number.isNaN(timestamp.getTime())) embed.setTimestamp(timestamp);
     return embed;

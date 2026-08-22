@@ -2,7 +2,9 @@ import { ModalSubmitInteraction } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { challongeService } from '../../services/challonge.service';
 import { tournamentRepository } from '../../repositories/tournament.repository';
-import { baseName } from '../../services/forum-scanner.service';
+import { editionsCompatible } from '../../services/forum-scanner.service';
+import { findTournament, getCurrentTournament } from '../../services/tournament-context.service';
+import { guildRepository } from '../../repositories/guild.repository';
 import { logger } from '../../utils/logger';
 
 /** /tournament_link modal: parses any Challonge URL/ID form, validates, stores. */
@@ -40,18 +42,29 @@ export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction)
     return;
   }
 
-  // Guild link (used by /matches fallback and match reminders).
+  // Attach to the selected/current event only when the edition agrees with
+  // Challonge's own name. This catches copied old links in forum posts too.
+  const wanted = interaction.fields.getTextInputValue('event_title').trim();
+  const game = guildRepository.findByDiscordId(interaction.guild.id)?.game ?? 'ra3';
+  const match = wanted ? findTournament(wanted, game) : getCurrentTournament(game);
+  if (wanted && !match) {
+    await interaction.editReply(`❌ No stored tournament matches **${wanted}**.`);
+    return;
+  }
+  if (match && name && !editionsCompatible(name, match.title)) {
+    await interaction.editReply(
+      `❌ Challonge calls this bracket **${name}**, which does not match **${match.title}**. Nothing was linked.`,
+    );
+    return;
+  }
+
+  // Guild link (used by /matches and match reminders).
   tournamentRepository.linkTournament(interaction.guild.id, ref, challongeService.bracketUrl(ref));
 
-  // Attach to the newest event whose title matches, when provided/found.
-  const wanted = interaction.fields.getTextInputValue('event_title').trim();
   let attachedTo: string | undefined;
-  const events = tournamentRepository.getAnnouncements();
-  const match = wanted
-    ? events.find((e) => baseName(e.title).includes(baseName(wanted)))
-    : events[events.length - 1];
   if (match) {
     tournamentRepository.setEventChallongeUrl(match.id, challongeService.bracketUrl(ref));
+    tournamentRepository.addBracket(match.id, challongeService.bracketUrl(ref), name ?? undefined);
     attachedTo = match.title;
   }
 

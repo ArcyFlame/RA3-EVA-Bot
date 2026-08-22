@@ -120,7 +120,7 @@ export function buildCommunityEmbed(): EmbedBuilder {
       {
         name: `${MODDB} ModDB Updates`,
         value:
-          '`/mods` - Browse the newest RA3 mods, articles and news from ModDB.\nNew items are posted automatically when enabled by admins.',
+          '`/mods` - Browse the newest RA3 mod updates and articles from ModDB.\nNew articles are posted automatically when enabled by admins.',
         inline: false,
       },
     );
@@ -197,8 +197,15 @@ export function buildAdminEmbed(): EmbedBuilder {
         inline: false,
       },
     {
+      name: '👤 Player Profiles',
+      value:
+        '`/profile_admin view <user>` - Inspect a member profile\n`/profile_admin unlink <user> <platform>` - Remove one link\n`/profile_admin clear <user> <confirm>` - Clear linked identities',
+      inline: false,
+    },
+    {
       name: '✅ Tournament Check-ins',
-      value: '`/checkin [event]` - Open the current tournament management board (referee)',
+      value:
+        '`/checkin [event]` - Open the current tournament management board (referee)\nIncludes clear numbered lists and personal referee DM alert controls.',
       inline: false,
     },
     {

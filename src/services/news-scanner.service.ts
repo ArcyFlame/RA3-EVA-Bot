@@ -1,19 +1,17 @@
 import { Client, TextChannel, EmbedBuilder } from 'discord.js';
 import xml2js from 'xml2js';
+import * as cheerio from 'cheerio';
 import { logger } from '../utils/logger';
 import { newsRepository } from '../repositories/news.repository';
 import { guildRepository } from '../repositories/guild.repository';
 import { safeGetText } from '../utils/safe-fetch';
 import { contentDeliveryRepository } from '../repositories/content-delivery.repository';
 
-/**
- * GameReplays publishes per-game news RSS feeds — the RA3-only feed (id=35)
- * is what /news shows, so items about other C&C games never appear.
- * Feeds per configured server game; GenEvo has no dedicated feed yet, so it
- * reads the site-wide feed filtered to GenEvo keywords.
- */
+const RA3_PORTAL_URL = 'https://www.gamereplays.org/redalert3/';
+
+/** Older games still use their forum feeds. RA3 uses the maintained portal:
+ * its old RSS feed stopped updating years ago. */
 const GAME_NEWS_FEEDS: Record<string, { url: string; filter?: RegExp }> = {
-  ra3: { url: 'https://www.gamereplays.org/community/index.php?act=rssout&id=35' },
   kw: { url: 'https://www.gamereplays.org/community/index.php?act=rssout&id=32' },
   genevo: {
     url: 'https://www.gamereplays.org/community/index.php?act=rssout&id=1',
@@ -27,6 +25,46 @@ export interface ParsedNews {
   title: string;
   url: string;
   excerpt: string;
+}
+
+function absolutePortalUrl(href: string): string {
+  try {
+    const parsed = new URL(href, RA3_PORTAL_URL);
+    if (parsed.hostname.endsWith('gamereplays.org')) parsed.protocol = 'https:';
+    return parsed.toString();
+  } catch {
+    return '';
+  }
+}
+
+/** Parses the current RA3 portal cards (newest first). */
+export function parseRa3PortalNews(html: string): ParsedNews[] {
+  const $ = cheerio.load(html);
+  const items: ParsedNews[] = [];
+  const seen = new Set<string>();
+
+  $('.content_list_item').each((_, element) => {
+    const card = $(element);
+    const type = card.find('.content_type').first().text().replace(/\s+/g, ' ').trim();
+    if (!/^(article|news)$/i.test(type)) return;
+
+    const link = card.find('.content_list_title a').first();
+    const title = link.text().replace(/\s+/g, ' ').trim();
+    const url = absolutePortalUrl(link.attr('href') || '');
+    if (!title || !url || seen.has(url)) return;
+
+    const copy = card.clone();
+    copy
+      .find(
+        '.content_list_title, .content_list_infobar, .content_type, .portal_news_preview_footer, script, style',
+      )
+      .remove();
+    const excerpt = copy.text().replace(/\s+/g, ' ').trim().slice(0, 300);
+    items.push({ title, url, excerpt });
+    seen.add(url);
+  });
+
+  return items;
 }
 
 async function fetchFeedItems(url: string, filter?: RegExp): Promise<ParsedNews[]> {
@@ -49,6 +87,15 @@ async function fetchFeedItems(url: string, filter?: RegExp): Promise<ParsedNews[
     }))
     .filter((item: ParsedNews) => item.title && item.url)
     .filter((item: ParsedNews) => (filter ? filter.test(`${item.title} ${item.excerpt}`) : true));
+}
+
+async function fetchGameItems(game: string): Promise<ParsedNews[]> {
+  if (game === 'ra3') {
+    const html = await safeGetText(RA3_PORTAL_URL);
+    return html ? parseRa3PortalNews(html) : [];
+  }
+  const feed = GAME_NEWS_FEEDS[game];
+  return feed ? fetchFeedItems(feed.url, feed.filter) : [];
 }
 
 /**
@@ -83,36 +130,25 @@ export class NewsScannerService {
       );
       if (games.size === 0) games.add('ra3');
 
-      // First run (empty table): ingest the feed history WITHOUT flooding the
-      // channels — only the single newest item gets posted, everything after
-      // is genuinely new.
-      const wasEmpty = !newsRepository.getLatest(1)[0];
-
       let newCount = 0;
-      const fresh: ParsedNews[] = [];
       for (const game of games) {
-        const feed = GAME_NEWS_FEEDS[game];
-        if (!feed) continue;
-        const items = await fetchFeedItems(feed.url, feed.filter);
-        for (const item of items) {
+        const fresh: ParsedNews[] = [];
+        const items = await fetchGameItems(game);
+        // Sources are newest-first. Insert oldest-first so the newest item has
+        // the highest local id and /news opens on it.
+        for (const item of [...items].reverse()) {
           if (newsRepository.hasNewsUrl(item.url)) continue;
           newsRepository.create({ newsUrl: item.url, title: item.title, excerpt: item.excerpt });
           fresh.push(item);
           newCount++;
         }
+        // A source change or a long outage can produce a backlog. Store the
+        // archive, but announce only the newest item so channels never flood.
+        const newest = fresh[fresh.length - 1];
+        if (newest) await this.announceItem(newest, game);
       }
       if (newCount > 0) {
         logger.info(`News scanner: ${newCount} new item(s)`);
-        if (wasEmpty) {
-          // Fresh install: present the latest item once.
-          await this.announceItem(fresh[0]);
-        } else {
-          // Post EVERY new item, oldest first so the channel ends on the
-          // newest (dedup table guarantees each is posted exactly once).
-          for (const item of fresh.reverse()) {
-            await this.announceItem(item);
-          }
-        }
       }
       return newCount;
     } catch (error) {
@@ -158,9 +194,8 @@ export class NewsScannerService {
   /** Posts the newest relevant item to one server, used for a newly selected empty channel. */
   async postLatestToGuild(guildId: string): Promise<boolean> {
     const guildData = guildRepository.findByDiscordId(guildId);
-    const feed = GAME_NEWS_FEEDS[guildData?.game ?? 'ra3'];
     let latest: { title: string; newsUrl?: string; url: string; excerpt?: string } | undefined;
-    if (feed) latest = (await fetchFeedItems(feed.url, feed.filter).catch(() => []))[0];
+    latest = (await fetchGameItems(guildData?.game ?? 'ra3').catch(() => []))[0];
     if (!latest) {
       const stored = newsRepository.getLatest(1)[0];
       if (stored) latest = { ...stored, url: stored.newsUrl };
@@ -169,10 +204,14 @@ export class NewsScannerService {
   }
 
   /** Posts one news item to every guild with a bound news channel. */
-  private async announceItem(latest: { title: string; newsUrl?: string; url: string; excerpt?: string }): Promise<void> {
+  private async announceItem(
+    latest: { title: string; newsUrl?: string; url: string; excerpt?: string },
+    game: string,
+  ): Promise<void> {
     if (!(latest.newsUrl || latest.url)) return;
 
     for (const guildData of guildRepository.getAllGuilds()) {
+      if ((guildData.game ?? 'ra3') !== game) continue;
       await this.announceItemToGuild(guildData.discordId, latest);
     }
   }

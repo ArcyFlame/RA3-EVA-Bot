@@ -8,6 +8,8 @@ import { parseIntSafe } from '../../utils/parse';
 import { audit } from '../../utils/logger';
 import { isAdminOrReferee } from '../../utils/permissions';
 import { resolveTournamentStatus } from '../../utils/tournament-status';
+import { userRepository } from '../../repositories/user.repository';
+import { checkinNotificationService } from '../../services/checkin-notification.service';
 
 /**
  * Check-in board buttons:
@@ -15,6 +17,7 @@ import { resolveTournamentStatus } from '../../utils/tournament-status';
  *   checkin_no_{eventId}         — player cancels their check-in
  *   checkin_refresh_{eventId}    — staff: re-scan forum + re-render
  *   checkin_pingref_{eventId}_{guildId} — staff: ping the referee role
+ *   checkin_alerts_{eventId}_{guildId}  — referee: toggle personal DM alerts
  */
 export const customIdPrefix = 'checkin_';
 
@@ -23,7 +26,7 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
   const parts = interaction.customId.split('_'); // ['checkin', action, id, ...]
   const action = parts[1];
   const eventId = parseIntSafe(parts[2]);
-  if (!eventId || !['yes', 'no', 'post', 'refresh', 'pingref'].includes(action)) {
+  if (!eventId || !['yes', 'no', 'post', 'refresh', 'pingref', 'alerts'].includes(action)) {
     await interaction.reply({ content: 'Invalid button.', ephemeral: true });
     return;
   }
@@ -56,6 +59,13 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
         p.discordId === interaction.user.id ||
         p.name.toLowerCase() === displayName.toLowerCase(),
     );
+    if (!known && action === 'no') {
+      await interaction.reply({
+        content: 'You are not on this tournament registration list yet.',
+        ephemeral: true,
+      });
+      return;
+    }
     if (!known) {
       tournamentRepository.addParticipant(eventId, displayName, 'discord', interaction.user.id);
     } else if (!known.discordId) {
@@ -83,6 +93,12 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     await interaction.update(
       buildCheckinBoard(eventId, interaction.guild.id, includeStaffControls),
     );
+    const activity = !known
+      ? 'registered_and_checked_in'
+      : action === 'yes'
+        ? 'checked_in'
+        : 'cancelled';
+    void checkinNotificationService.notify(eventId, activity, [displayName]);
     return;
   }
 
@@ -112,6 +128,18 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     await interaction.editReply({
       ...buildCheckinBoard(eventId, interaction.guild.id),
       content: added >= 0 ? `⟳ Refreshed (+${added} from the forum).` : undefined,
+    });
+    return;
+  }
+
+  if (action === 'alerts') {
+    const enabled = !userRepository.isRefereeCheckinDmEnabled(interaction.user.id);
+    userRepository.setRefereeCheckinDmEnabled(interaction.user.id, enabled);
+    await interaction.reply({
+      content: enabled
+        ? '✅ Referee registration and check-in DM alerts are now on.'
+        : '🔕 Referee registration and check-in DM alerts are now off.',
+      ephemeral: true,
     });
     return;
   }

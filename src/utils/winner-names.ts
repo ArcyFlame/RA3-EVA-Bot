@@ -2,6 +2,9 @@
 export function normalizeTournamentWinnerNames(value: string, teamEvent = false): string[] {
   const stripStatus = (name: string) =>
     name
+      // Old replay tables mark the winner with a leading asterisk. It is not
+      // part of the player's nickname and must not create a second identity.
+      .replace(/^\*+\s*/u, '')
       .replace(/\s+(?:d\/?q|disqualified)$/i, '')
       .replace(/\s+\([^()]{2,40}\)$/u, '')
       .replace(/\s+/g, ' ')

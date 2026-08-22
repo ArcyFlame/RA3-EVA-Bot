@@ -19,6 +19,7 @@ import { startMatchPanelUpdater } from '../commands/admin/match-panel.command';
 import { wizardViews } from '../commands/notifications/views';
 import { setStartTime } from '../commands/info/uptime.command';
 import { bootstrapConfiguredContent } from '../services/content-bootstrap.service';
+import { checkinNotificationService } from '../services/checkin-notification.service';
 
 export const name = Events.ClientReady;
 export const once = true;
@@ -119,6 +120,7 @@ export async function execute(bot: RA3Bot): Promise<void> {
   tournamentScanner.start();
 
   // ── Forum scanner (brackets/challonge links + registrations) ───────────
+  checkinNotificationService.setClient(bot.client);
   forumScanner.start();
 
   // ── News scanner (GameReplays news portal) ─────────────────────────────

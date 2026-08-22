@@ -12,6 +12,7 @@ import {
 import { tournamentRepository } from '../../repositories/tournament.repository';
 import { parseForumTopics, RESULTS_FORUM_URL } from '../../services/tournament-scanner.service';
 import { safeGetText } from '../../utils/safe-fetch';
+import { editionsCompatible } from '../../services/forum-scanner.service';
 
 /**
  * Shared renderer for the /results browser (also used by the Results button
@@ -159,6 +160,7 @@ export async function fetchResultsList(game = 'ra3'): Promise<ResultsList> {
     const brackets = tournamentRepository.getBrackets(a.id);
     const seen = new Set<string>();
     for (const bracket of brackets) {
+      if (bracket.bracketName && !editionsCompatible(bracket.bracketName, a.title)) continue;
       const ref = challongeService.parseTournamentRef(bracket.challongeUrl);
       if (!ref || seen.has(bracket.challongeUrl)) continue;
       seen.add(bracket.challongeUrl);

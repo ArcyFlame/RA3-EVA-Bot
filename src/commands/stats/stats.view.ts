@@ -5,6 +5,7 @@ import {
   ButtonStyle,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  escapeMarkdown,
 } from 'discord.js';
 import { RA3Stats } from '../../services/ra3-stats.service';
 import {
@@ -68,12 +69,12 @@ export class StatsView {
       const cncMatches =
         this._stats.cnc_recent_matches
           .slice(0, this.recentMatchCount)
-          .map((m) => `${m.players} · *${m.map}*`)
+          .map((m) => `${this._formatPlayers(m.players)} · *${m.map}*`)
           .join('\n') || 'No active games';
       const ra3bMatches =
         this._stats.ra3battle_recent_matches
           .slice(0, this.recentMatchCount)
-          .map((m) => `${m.players} · *${m.map}*`)
+          .map((m) => `${this._formatPlayers(m.players)} · *${m.map}*`)
           .join('\n') || 'No active games';
       embed.addFields(
         { name: `${CNC_ONLINE} C&C Online`, value: cncMatches, inline: false },
@@ -181,6 +182,15 @@ export class StatsView {
     if (f.includes('soviet')) return FACTION_SOVIET;
     if (f.includes('empire')) return FACTION_EMPIRE;
     return FACTION_RANDOM;
+  }
+
+  private _formatPlayers(players: string): string {
+    return players
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .map((name) => `**${escapeMarkdown(name)}**`)
+      .join(' vs ');
   }
 
   private _getMastersText(): string {

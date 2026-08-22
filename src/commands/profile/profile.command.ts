@@ -1,4 +1,9 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
+import {
+  SlashCommandBuilder,
+  ChatInputCommandInteraction,
+  EmbedBuilder,
+  User as DiscordUser,
+} from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { userRepository } from '../../repositories/user.repository';
 import { guildRepository } from '../../repositories/guild.repository';
@@ -77,6 +82,95 @@ function formatLadder(ladder: Ra3bPersonaLadder, lang: Language): string {
   return `${t(lang, 'profile.noGames')} · ${faction}`;
 }
 
+function tournamentWinCount(wins: Record<string, number>, names: Array<string | undefined>): number {
+  const wanted = new Set(names.filter(Boolean).map((name) => name!.toLocaleLowerCase('en-US')));
+  return Object.entries(wins).reduce(
+    (total, [name, count]) =>
+      wanted.has(name.toLocaleLowerCase('en-US')) ? total + Number(count || 0) : total,
+    0,
+  );
+}
+
+/** Shared profile card used by /profile and the admin profile manager. */
+export async function buildDiscordProfileEmbed(
+  target: DiscordUser,
+  lang: Language,
+): Promise<EmbedBuilder> {
+  const user = userRepository.findByDiscordId(target.id);
+  const embed = new EmbedBuilder()
+    .setTitle(`🎖️ ${target.displayName}${t(lang, 'profile.title')}`)
+    .setColor(0xffb900)
+    .setThumbnail(target.displayAvatarURL())
+    .setDescription(
+      `**Discord:** <@${target.id}>\n${t(lang, 'profile.discordDescription')}`,
+    );
+
+  if (user?.shatabrickUsername) {
+    embed.addFields({
+      name: `🌐 ${t(lang, 'profile.shatabrick')}`,
+      value:
+        `🔗 **${user.shatabrickUsername}**\n` +
+        `${t(lang, 'profile.rank')}: **${user.rank || 'Unranked'}**\n` +
+        `_${t(lang, 'profile.apiPending')}_`,
+      inline: false,
+    });
+  } else {
+    embed.addFields({
+      name: `🌐 ${t(lang, 'profile.shatabrick')}`,
+      value: `⚪ ${t(lang, 'profile.noLink')}`,
+      inline: false,
+    });
+  }
+
+  const ra3bLinked = user?.ra3bUsername;
+  if (ra3bLinked) {
+    const personaId =
+      user?.ra3bPersonaId ??
+      (await ra3StatsService.findRa3bPersonaId(ra3bLinked).catch(() => null));
+    if (personaId) {
+      const [stats, history] = await Promise.all([
+        ra3StatsService.getRa3bPersonaStats(personaId).catch(() => null),
+        ra3StatsService.getRa3bPersonaHistory(personaId).catch(() => []),
+      ]);
+      embed.addFields({
+        name: `⚔️ ${t(lang, 'profile.ra3b')}`,
+        value: (await buildRa3bLines(stats, history, ra3bLinked, lang)).join('\n').slice(0, 1024),
+        inline: false,
+      });
+    } else {
+      const ra3b = await ra3StatsService.findRA3BattleNetPlayer(ra3bLinked).catch(() => null);
+      embed.addFields({
+        name: `⚔️ ${t(lang, 'profile.ra3b')}`,
+        value: ra3b
+          ? `**${ra3b.personaName}**\n${t(lang, 'profile.elo')}: \`${ra3b.elo}\` · ${ra3b.mode}`
+          : `**${ra3bLinked}**\n${t(lang, 'profile.notFound')}`,
+        inline: false,
+      });
+    }
+  } else {
+    embed.addFields({
+      name: `⚔️ ${t(lang, 'profile.ra3b')}`,
+      value: `⚪ ${t(lang, 'profile.ra3bNoLink')}`,
+      inline: false,
+    });
+  }
+
+  const wins = (await ra3StatsService.fetch().catch(() => null))?.tournament_wins ?? {};
+  const winCount = tournamentWinCount(wins, [
+    user?.shatabrickUsername,
+    user?.ra3bUsername,
+    target.displayName,
+    target.username,
+  ]);
+  embed.addFields({
+    name: `🏆 ${t(lang, 'profile.tournamentWins')}`,
+    value: winCount > 0 ? `**${winCount}**` : '—',
+    inline: true,
+  });
+  embed.setFooter({ text: t(lang, 'profile.footer') });
+  return embed;
+}
+
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   const guildData = interaction.guildId
     ? await guildRepository.findByDiscordId(interaction.guildId)
@@ -114,9 +208,9 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       return;
     }
     const embed = new EmbedBuilder()
-      .setTitle(`🏅 ${stats.personaName} — ${t(lang, 'profile.playerProfile')}`)
-      .setColor(0xffd700)
-      .setDescription(t(lang, 'profile.communityPlayer'));
+      .setTitle(`🎖️ ${stats.personaName} — ${t(lang, 'profile.playerProfile')}`)
+      .setColor(0xffb900)
+      .setDescription(`${t(lang, 'profile.communityPlayer')}\n${t(lang, 'profile.liveRecord')}`);
     embed.addFields({
       name: t(lang, 'profile.ra3b'),
       value: (await buildRa3bLines(stats, history, playerQuery, lang)).join('\n').slice(0, 1024),
@@ -124,84 +218,16 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     });
     // Tournament Wins leaderboard, when this name has recorded titles.
     const wins = (await ra3StatsService.fetch().catch(() => null))?.tournament_wins ?? {};
-    const winCount =
-      wins[stats.personaName] ??
-      Object.entries(wins).find(([n]) => n.toLowerCase() === stats.personaName.toLowerCase())?.[1];
+    const winCount = tournamentWinCount(wins, [stats.personaName]);
     if (winCount) {
-      embed.addFields({ name: `🏆 ${t(lang, 'profile.tournamentWins')}`, value: `${winCount}`, inline: true });
+      embed.addFields({ name: `🏆 ${t(lang, 'profile.tournamentWins')}`, value: `**${winCount}**`, inline: true });
     }
+    embed.setFooter({ text: t(lang, 'profile.ra3bFooter') });
     await interaction.editReply({ embeds: [embed] });
     return;
   }
 
   const target = interaction.options.getUser('user') || interaction.user;
-  const user = userRepository.findByDiscordId(target.id);
-
-  const embed = new EmbedBuilder()
-    .setTitle(`🏅 ${target.displayName}${t(lang, 'profile.title')}`)
-    .setColor(0xffd700)
-    .setThumbnail(target.displayAvatarURL());
-
-  // Shatabrick (C&C Online ladder) — linked account + community rank.
-  // RA3BattleNet is looked up live below: the two platforms use different
-  // rating systems, so each gets its own label.
-  if (user?.shatabrickUsername) {
-    embed.addFields({
-      name: t(lang, 'profile.shatabrick'),
-      value:
-        `**${user.shatabrickUsername}**\n` +
-        `${t(lang, 'profile.rank')}: ${user.rank || '—'}\n` +
-        t(lang, 'profile.apiPending'),
-      inline: true,
-    });
-  } else {
-    embed.setDescription(t(lang, 'profile.noLink'));
-    embed.addFields({
-      name: t(lang, 'profile.shatabrick'),
-      value:
-        `${t(lang, 'profile.notFound')}\n${t(lang, 'profile.rank')}: ${user?.rank || '—'}\n` +
-        t(lang, 'profile.noLink'),
-      inline: true,
-    });
-  }
-
-  // RA3BattleNet is separate from Shatabrick, so only query it with the
-  // persona the user explicitly linked through /link. The
-  // stored numeric persona id works even off-season; otherwise resolve by
-  // name through the current ladders.
-  const ra3bLinked = user?.ra3bUsername;
-  if (ra3bLinked) {
-    const personaId =
-      user?.ra3bPersonaId ??
-      (await ra3StatsService.findRa3bPersonaId(ra3bLinked).catch(() => null));
-    if (personaId) {
-      const [stats, history] = await Promise.all([
-        ra3StatsService.getRa3bPersonaStats(personaId).catch(() => null),
-        ra3StatsService.getRa3bPersonaHistory(personaId).catch(() => []),
-      ]);
-      embed.addFields({
-        name: t(lang, 'profile.ra3b'),
-        value: (await buildRa3bLines(stats, history, ra3bLinked, lang)).join('\n').slice(0, 1024),
-        inline: false,
-      });
-    } else {
-      // Not on this season's ladders — fall back to the cached top-10 view.
-      const ra3b = await ra3StatsService.findRA3BattleNetPlayer(ra3bLinked).catch(() => null);
-      embed.addFields({
-        name: t(lang, 'profile.ra3b'),
-        value: ra3b
-          ? `${ra3b.personaName}\n${t(lang, 'profile.elo')}: \`${ra3b.elo}\` (${ra3b.mode})`
-          : t(lang, 'profile.notFound'),
-        inline: false,
-      });
-    }
-  } else {
-    embed.addFields({
-      name: t(lang, 'profile.ra3b'),
-      value: t(lang, 'profile.ra3bNoLink'),
-      inline: true,
-    });
-  }
-
+  const embed = await buildDiscordProfileEmbed(target, lang);
   await interaction.reply({ embeds: [embed], ephemeral: true });
 }

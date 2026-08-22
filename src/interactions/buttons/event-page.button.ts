@@ -3,7 +3,11 @@ import { RA3Bot } from '../../bot';
 import { tournamentRepository } from '../../repositories/tournament.repository';
 import { getSortedAnnouncements, renderEventPage } from '../../commands/tournaments/events.utils';
 import { renderResultsPage, matchesGuildGame } from '../../commands/tournaments/results.utils';
-import { baseName, forumScanner } from '../../services/forum-scanner.service';
+import {
+  baseName,
+  editionsCompatible,
+  forumScanner,
+} from '../../services/forum-scanner.service';
 import { challongeService } from '../../services/challonge.service';
 import { parseIntSafe } from '../../utils/parse';
 import { logger } from '../../utils/logger';
@@ -23,8 +27,20 @@ export const customIdPrefix = 'eventpg_';
  * the bracket link even when this event's own row has none.
  */
 function resolveChallongeUrl(eventId: number, title: string, game: string): string | null {
+  const brackets = tournamentRepository.getBrackets(eventId);
+  const validBracket = brackets.find(
+    (bracket) =>
+      (!bracket.bracketName || editionsCompatible(bracket.bracketName, title)) &&
+      bracket.isPrimary,
+  ) ?? brackets.find(
+    (bracket) => !bracket.bracketName || editionsCompatible(bracket.bracketName, title),
+  );
+  if (validBracket) return validBracket.challongeUrl;
+
   const own = tournamentRepository.getEventDetail(eventId)?.challongeUrl;
-  if (own) return own;
+  // A known bracket row with a conflicting edition invalidates the legacy
+  // event-level URL as well (for example FTW 90 pointing at FTW #88).
+  if (own && !brackets.some((bracket) => bracket.challongeUrl === own)) return own;
   const prefix = baseName(title).slice(0, 12);
   if (!prefix) return null;
   const sibling = tournamentRepository
@@ -33,6 +49,7 @@ function resolveChallongeUrl(eventId: number, title: string, game: string): stri
       (e) =>
         e.id !== eventId &&
         matchesGuildGame(e.title, game) &&
+        editionsCompatible(e.title, title) &&
         (baseName(e.title).startsWith(prefix) || baseName(title).startsWith(baseName(e.title).slice(0, 12))),
     );
   if (sibling) {
@@ -98,7 +115,7 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
       if (detail?.topicUrl) {
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
-            .setLabel('Open Results Thread')
+            .setLabel('Open Tournament Post')
             .setStyle(ButtonStyle.Link)
             .setURL(detail.topicUrl),
         );
@@ -107,7 +124,7 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
             new EmbedBuilder()
               .setTitle(`📊 ${current.title}`)
               .setURL(detail.topicUrl)
-              .setDescription('Brackets, results and replays for this tournament.')
+              .setDescription('The tournament post is available, but no verified results bracket was found.')
               .setColor(0x5865f2),
           ],
           components: [row],

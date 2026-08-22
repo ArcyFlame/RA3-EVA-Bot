@@ -19,9 +19,13 @@ describe('normalizeTournamentWinnerNames', () => {
 
   it('splits slash-separated winners for a team event', () => {
     expect(normalizeTournamentWinnerNames('*s-A-w / *TehPunch', true)).toEqual([
-      '*s-A-w',
-      '*TehPunch',
+      's-A-w',
+      'TehPunch',
     ]);
+  });
+
+  it('removes the old replay-table winner marker from a solo nickname', () => {
+    expect(normalizeTournamentWinnerNames('*DutchArmy')).toEqual(['DutchArmy']);
   });
 
   it('removes a trailing alternate forum account name', () => {

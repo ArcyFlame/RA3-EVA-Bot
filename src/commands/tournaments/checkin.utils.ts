@@ -3,6 +3,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  escapeMarkdown,
 } from 'discord.js';
 import { tournamentRepository } from '../../repositories/tournament.repository';
 import { findTournament } from '../../services/tournament-context.service';
@@ -15,7 +16,19 @@ export function findEventByOption(title: string): { id: number; title: string } 
 
 function numbered(names: string[], empty: string): string {
   if (names.length === 0) return empty;
-  return names.map((name, index) => `${index + 1}. ${name}`).join('\n').slice(0, 1024);
+  const lines = names.map((name, index) => `${index + 1}. ${escapeMarkdown(name)}`);
+  const visible: string[] = [];
+  for (const line of lines) {
+    if ([...visible, line].join('\n').length > 980) break;
+    visible.push(line);
+  }
+  if (visible.length < lines.length) visible.push(`…and ${lines.length - visible.length} more`);
+  return visible.join('\n');
+}
+
+function progressBar(checked: number, total: number): string {
+  const filled = total > 0 ? Math.round((checked / total) * 10) : 0;
+  return `${'▰'.repeat(filled)}${'▱'.repeat(10 - filled)}  **${checked}/${total} ready**`;
 }
 
 /**
@@ -36,7 +49,7 @@ export function buildCheckinBoard(eventId: number, guildId: string, includeStaff
     .setTitle(`✅ Check-ins: ${detail?.title || `Event #${eventId}`}`)
     .setColor(0x57f287)
     .setDescription(
-      'Registered players: press **Check In** so the referee knows you are ready.',
+      `${progressBar(checked.length, participants.length)}\n\nPress **Check In** so the referee knows you are ready.`,
     )
     .addFields({
       name: `👥 Registered (${participants.length})`,
@@ -76,8 +89,12 @@ export function buildCheckinBoard(eventId: number, guildId: string, includeStaff
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId(`checkin_pingref_${eventId}_${guildId}`)
-      .setLabel('📢 Ping referee with summary')
+      .setLabel('📢 Post Summary')
       .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`checkin_alerts_${eventId}_${guildId}`)
+      .setLabel('🔔 Referee DM Alerts')
+      .setStyle(ButtonStyle.Secondary),
   );
   return {
     embeds: [embed],

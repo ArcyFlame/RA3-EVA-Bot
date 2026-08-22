@@ -72,35 +72,39 @@ function renderEventEmbed(
     .setDescription(shortDesc)
     .setURL(a.eventUrl)
     .setColor(isActive ? 0x57f287 : 0xed4245);
-  if (a.startDate) embed.addFields({ name: '📅 Date', value: a.startDate, inline: true });
-  embed.addFields({
-    name: 'Status',
-    value: tournamentStatusLabel(status),
-    inline: true,
-  });
-  if (detail?.format)
-    embed.addFields({ name: '⚔️ Format', value: detail.format.slice(0, 100), inline: true });
-  // Prize renders for real amounts (currency marker) or a named sponsor.
-  if (
+  const validPrize =
     detail?.prizePool &&
     (/\d/.test(detail.prizePool) && /[$€£]|USD/i.test(detail.prizePool) ||
       /^sponsored by/i.test(detail.prizePool.trim()))
-  ) {
-    embed.addFields({ name: '🎁 Prize', value: detail.prizePool.slice(0, 100), inline: true });
-  }
-  if (detail?.maps && detail.maps.length >= 3) {
-    embed.addFields({
-      name: '🗺️ Map Pool',
-      value: detail.maps
+      ? detail.prizePool.slice(0, 100)
+      : 'Not announced';
+  const mapPool = detail?.maps?.trim()
+    ? detail.maps
         .split(/,\s*/)
         .filter(Boolean)
         .slice(0, 12)
         .map((m) => `• ${m}`)
         .join('\n')
-        .slice(0, 1024),
+        .slice(0, 1024)
+    : `[Not published — open the tournament post](${actionUrl})`;
+
+  // Keep the same five facts, in the same order, on every event card. Missing
+  // details stay visible instead of making otherwise similar cards jump around.
+  embed.addFields(
+    { name: '📅 Date', value: a.startDate || 'Not announced', inline: true },
+    { name: '🚦 Status', value: tournamentStatusLabel(status), inline: true },
+    { name: '🎁 Prize', value: validPrize, inline: true },
+    {
+      name: '⚔️ Format',
+      value: detail?.format?.trim().slice(0, 100) || 'Not announced',
       inline: false,
-    });
-  }
+    },
+    {
+      name: '🗺️ Map Pool',
+      value: mapPool,
+      inline: false,
+    },
+  );
   embed.setFooter({ text: `RA3 Esports • GameReplays.org • ${index + 1}/${announcements.length}` });
   return { embed, index, actionUrl, isActive };
 }

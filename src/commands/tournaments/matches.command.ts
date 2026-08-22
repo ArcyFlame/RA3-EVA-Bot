@@ -10,9 +10,10 @@ import { RA3Bot } from '../../bot';
 import { challongeService } from '../../services/challonge.service';
 import { tournamentRepository } from '../../repositories/tournament.repository';
 import { guildRepository } from '../../repositories/guild.repository';
-import { matchesGuildGame, buildStandingsFields } from './results.utils';
+import { buildStandingsFields } from './results.utils';
 import { logger } from '../../utils/logger';
 import { getCurrentTournament } from '../../services/tournament-context.service';
+import { ESPORTS_FALLBACK_URL } from '../../utils/tournament-status';
 
 export const data = new SlashCommandBuilder()
   .setName('matches')
@@ -35,21 +36,27 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
 
   await interaction.deferReply({ ephemeral: true });
 
-  // Prefer the newest bracket discovered from the GameReplays forum that
-  // belongs to this server's game (RA3 servers never get the GenEvo bracket);
-  // fall back to the guild-linked Challonge tournament.
   const guildGame = guildData?.game ?? 'ra3';
-  const discovered = tournamentRepository
-    .getEventsWithChallonge()
-    .find((e) => matchesGuildGame(e.title, guildGame));
+  const current = getCurrentTournament(guildGame);
+  const currentRef = current?.challongeUrl
+    ? challongeService.parseTournamentRef(current.challongeUrl)
+    : null;
   const linkedId = tournamentRepository.getLinkedTournamentId(interaction.guild.id);
-  const challongeId = discovered
-    ? challongeService.parseTournamentRef(discovered.challongeUrl)
-    : linkedId || null;
+  const linkedRef = linkedId ? challongeService.parseTournamentRef(linkedId) : null;
+  // Never pick an arbitrary historical bracket. A manually linked bracket is
+  // only a fallback when no current portal event exists.
+  const challongeId = currentRef ?? (!current ? linkedRef : null);
   if (!challongeId) {
     await interaction.editReply({
-      content:
-        'No Challonge bracket found yet. Run `/tournaments_scan` to discover brackets, or link one with `/tournament_link`.',
+      content: 'No verified bracket is available for the current tournament.',
+      components: [
+        new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setLabel('View RA3 Tournaments')
+            .setStyle(ButtonStyle.Link)
+            .setURL(ESPORTS_FALLBACK_URL),
+        ),
+      ],
     });
     return;
   }
@@ -61,6 +68,20 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       challongeService.getParticipants(challongeId),
       challongeService.getFinalRankings(challongeId).catch(() => []),
     ]);
+    if (!current && tournament.state === 'complete') {
+      await interaction.editReply({
+        content: 'The linked bracket has ended, and no current tournament was found.',
+        components: [
+          new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+              .setLabel('View RA3 Tournaments')
+              .setStyle(ButtonStyle.Link)
+              .setURL(ESPORTS_FALLBACK_URL),
+          ),
+        ],
+      });
+      return;
+    }
     const names: Record<number, string> = {};
     for (const p of participants) names[p.id] = p.name;
 
@@ -126,7 +147,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       }
     }
 
-    const reportEventId = discovered?.id ?? getCurrentTournament(guildGame)?.id;
+    const reportEventId = currentRef ? current?.id : undefined;
     if (reportEventId) {
       const reports = tournamentRepository.getApprovedReports(reportEventId, 5);
       if (reports.length > 0) {
