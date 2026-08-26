@@ -40,7 +40,12 @@ export function extractAmounts(text: string): number[] {
 export function extractPrizeValue(text: string, title = ''): number | undefined {
   const sources = `${title} ${text}`;
   for (const m of sources.matchAll(
-    /(?:[$€£]\s?(\d{1,5})(?:\.\d{1,2})?|(\d{1,5})(?:\.\d{1,2})?\s?[$€£])\s*(?:total\s+)?prize\s*(?:pool|money|fund)/gi,
+    /total\s+(?:cash\s+)?prize\s*(?:pool|money|fund)?(?:\s+for\s+(?:this|the)\s+event)?[^$€£\d]{0,30}(?:[$€£]\s?(\d{1,5})(?:\.\d{1,2})?|(\d{1,5})(?:\.\d{1,2})?\s?[$€£])/gi,
+  )) {
+    return parseFloat(m[1] ?? m[2]);
+  }
+  for (const m of sources.matchAll(
+    /(?:[$€£]\s?(\d{1,5})(?:\.\d{1,2})?|(\d{1,5})(?:\.\d{1,2})?\s?[$€£])\s*(?:total\s+)?(?:cash\s+)?prize\s*(?:pool|money|fund)/gi,
   )) {
     return parseFloat(m[1] ?? m[2]);
   }
@@ -49,9 +54,9 @@ export function extractPrizeValue(text: string, title = ''): number | undefined 
   )) {
     return parseFloat(m[1]);
   }
-  const donations = [...text.matchAll(/\b(\d{1,4})\s?[$€£]?\s*(?:donated|contribut(?:ed|ions?))\s+by/gi)].map(
-    (m) => parseFloat(m[1]),
-  );
+  const donations = [
+    ...text.matchAll(/\b(\d{1,4})\s?[$€£]?\s*(?:donated|contribut(?:ed|ions?))\s+by/gi),
+  ].map((m) => parseFloat(m[1]));
   if (donations.length > 0) return donations.reduce((a, b) => a + b, 0);
   // Prize TABLE ("1st Place: 20$2nd Place: 10$" → 30$, "3rd & 4th Place:
   // 60$" counts 60 per place, "2 Random draws: 30$" counts 2×30).

@@ -1,6 +1,7 @@
 import { BaseRepository } from './base.repository';
 import { normalizeTournamentWinnerNames } from '../utils/winner-names';
 import { GameId } from '../config/games';
+import { TournamentStatus } from '../utils/tournament-status';
 
 export interface TournamentEvent {
   id: number;
@@ -86,7 +87,7 @@ export class TournamentRepository extends BaseRepository {
     eventUrl: string,
     signUpUrl: string | null,
     description: string | null,
-    facts?: { format?: string; prizePool?: string; maps?: string } | null,
+    facts?: { format?: string; prizePool?: string; maps?: string; startDate?: string } | null,
   ): void {
     if (facts === undefined) {
       this.run(
@@ -98,7 +99,13 @@ export class TournamentRepository extends BaseRepository {
     this.run(
       `UPDATE tournament_events
        SET sign_up_url = ?, description = ?,
-           format = ?, prize_pool = ?, maps = ?
+           format = CASE WHEN manual_format = 1 THEN format ELSE ? END,
+           prize_pool = CASE WHEN manual_prize_pool = 1 THEN prize_pool ELSE ? END,
+           maps = CASE WHEN manual_maps = 1 THEN maps ELSE ? END,
+           start_date = CASE
+             WHEN manual_start_date = 1 OR ? IS NULL THEN start_date
+             ELSE ?
+           END
        WHERE event_url = ?`,
       [
         signUpUrl,
@@ -106,6 +113,8 @@ export class TournamentRepository extends BaseRepository {
         facts?.format ?? null,
         facts?.prizePool ?? null,
         facts?.maps ?? null,
+        facts?.startDate ?? null,
+        facts?.startDate ?? null,
         eventUrl,
       ],
     );
@@ -275,11 +284,11 @@ export class TournamentRepository extends BaseRepository {
     );
   }
 
-  setEventStatus(
-    eventId: number,
-    status: 'unknown' | 'registration' | 'checkin' | 'in_progress' | 'ended',
-  ): void {
-    this.run('UPDATE tournament_events SET status = ? WHERE id = ?', [status, eventId]);
+  setEventStatus(eventId: number, status: TournamentStatus): void {
+    this.run(
+      'UPDATE tournament_events SET status = CASE WHEN manual_status = 1 THEN status ELSE ? END WHERE id = ?',
+      [status, eventId],
+    );
   }
 
   getHistoricalScanState(): { nextOffset: number; completed: boolean } {
@@ -391,7 +400,10 @@ export class TournamentRepository extends BaseRepository {
 
   /** Single-field format setter (Challonge enrichment after facts refresh). */
   setEventFormat(eventId: number, format: string | null): void {
-    this.run('UPDATE tournament_events SET format = ? WHERE id = ?', [format, eventId]);
+    this.run(
+      'UPDATE tournament_events SET format = CASE WHEN manual_format = 1 THEN format ELSE ? END WHERE id = ?',
+      [format, eventId],
+    );
   }
 
   /**
@@ -406,11 +418,56 @@ export class TournamentRepository extends BaseRepository {
   ): void {
     this.run(
       `UPDATE tournament_events
-       SET format = ?,
-           prize_pool = ?,
-           maps = COALESCE(?, maps)
+       SET format = CASE WHEN manual_format = 1 THEN format ELSE ? END,
+           prize_pool = CASE WHEN manual_prize_pool = 1 THEN prize_pool ELSE ? END,
+           maps = CASE WHEN manual_maps = 1 THEN maps ELSE COALESCE(?, maps) END
        WHERE id = ?`,
       [facts.format ?? null, facts.prizePool ?? null, facts.maps ?? null, eventId],
+    );
+  }
+
+  /** Saves staff-entered facts and protects those fields from later scanner refreshes. */
+  updateManualMetadata(
+    eventId: number,
+    values: {
+      startDate?: string;
+      status?: TournamentStatus;
+      prizePool?: string;
+      format?: string;
+      maps?: string;
+    },
+  ): void {
+    const startDate = values.startDate ?? null;
+    const status = values.status ?? null;
+    const prizePool = values.prizePool ?? null;
+    const format = values.format ?? null;
+    const maps = values.maps ?? null;
+    this.run(
+      `UPDATE tournament_events
+       SET start_date = COALESCE(?, start_date),
+           manual_start_date = CASE WHEN ? IS NULL THEN manual_start_date ELSE 1 END,
+           status = COALESCE(?, status),
+           manual_status = CASE WHEN ? IS NULL THEN manual_status ELSE 1 END,
+           prize_pool = COALESCE(?, prize_pool),
+           manual_prize_pool = CASE WHEN ? IS NULL THEN manual_prize_pool ELSE 1 END,
+           format = COALESCE(?, format),
+           manual_format = CASE WHEN ? IS NULL THEN manual_format ELSE 1 END,
+           maps = COALESCE(?, maps),
+           manual_maps = CASE WHEN ? IS NULL THEN manual_maps ELSE 1 END
+       WHERE id = ?`,
+      [
+        startDate,
+        startDate,
+        status,
+        status,
+        prizePool,
+        prizePool,
+        format,
+        format,
+        maps,
+        maps,
+        eventId,
+      ],
     );
   }
 

@@ -19,3 +19,6 @@ images/
 Thumbs.db
 .DS_Store
 *.log
+
+# Optional licensed font used by the local Generals Evolution chart theme.
+fonts/Miedinger Medium W00 Regular.ttf

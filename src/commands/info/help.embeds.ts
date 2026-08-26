@@ -217,7 +217,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
             {
               name: '🏆 Masters & Tournaments',
               value:
-                '`/add_master <name> <year> [patch]` - Add a master\n`/remove_master <name>` - Remove a master\n`/list_masters` - List all masters\n`/tournament_link` - Link a Challonge bracket (paste URL)\n`/tournaments_scan` - Scan the portal + forum for tournaments, brackets and sign-ups',
+                '`/add_master <name> <year> [patch]` - Add a master\n`/remove_master <name>` - Remove a master\n`/list_masters` - List all masters\n`/tournament_link` - Link a Challonge bracket (paste URL)\n`/tournaments_scan` - Scan the portal + forum for tournaments, brackets and sign-ups\n`/events` - Edit missing tournament details from the private event browser',
               inline: false,
             },
           ]
@@ -225,7 +225,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
             {
               name: '🏆 Tournaments',
               value:
-                '`/tournament_link` - Link or create a tournament from a Challonge bracket\n`/checkin [event]` - Open the referee check-in board',
+                '`/tournament_link` - Link or create a tournament from a Challonge bracket\n`/checkin [event]` - Open the referee check-in board\n`/events` - Edit missing tournament details from the private event browser',
               inline: false,
             },
           ]),

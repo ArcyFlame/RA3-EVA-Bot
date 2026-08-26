@@ -45,6 +45,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
           stats.online_last_24h,
           'Online Players (Last 24 Hours)',
           'Reds_r',
+          context.game,
         ),
         name: 'online_players_last_24_hours.png',
       });
@@ -58,6 +59,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
           stats.new_players_last_30d,
           'New Players (Last 30 Days)',
           'Blues_r',
+          context.game,
         ),
         name: 'new_players_last_30_days.png',
       });
@@ -71,6 +73,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
           stats.online_last_30d,
           'Online Players (Last 30 Days)',
           'YlOrBr_r',
+          context.game,
         ),
         name: 'online_players_last_30_days.png',
       });

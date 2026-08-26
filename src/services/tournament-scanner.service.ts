@@ -87,9 +87,14 @@ export async function parseGenevoTournaments(xml: string): Promise<FeedTournamen
  * recap ("… Bracket, Results and Replays").
  */
 const EXCLUDE_TITLE_PATTERN = /generals|bracket|results|replays|streams/i;
+const GENEVO_TITLE_PATTERN = /\b(?:generals\s*(?::\s*|\s+)evolution|gen\s*evo|genevo)\b/i;
 
 export function isTournamentRelevant(title: string): boolean {
   return !EXCLUDE_TITLE_PATTERN.test(title);
+}
+
+export function isGenevoTournamentTitle(title: string): boolean {
+  return GENEVO_TITLE_PATTERN.test(title) && !/bracket|results|replays|streams/i.test(title);
 }
 
 /** Parses the GameReplays esports portal HTML into tournament announcements. */
@@ -140,7 +145,7 @@ export function extractArticleDescription(html: string): string | undefined {
 }
 
 /**
- * Extracts the key tournament facts (prize, format, map pool) from the article
+ * Extracts the key tournament facts (date, prize, format, map pool) from the article
  * body so /events can show them as compact fields instead of a wall of text.
  * Only patterns that identify complete facts are accepted. Challonge supplies
  * format and prize details when an article does not contain them.
@@ -148,32 +153,39 @@ export function extractArticleDescription(html: string): string | undefined {
 export function extractEventFacts(
   description: string | undefined,
   game: GameId = 'ra3',
+  referenceDate?: string,
 ): {
   prizePool?: string;
   format?: string;
   maps?: string;
+  startDate?: string;
 } {
   if (!description) return {};
-  const facts: { prizePool?: string; format?: string; maps?: string } = {};
+  const facts: { prizePool?: string; format?: string; maps?: string; startDate?: string } = {};
 
   // Prize: explicit total first, then donation sums, then largest amount
   // (extractPrizeValue). Bare numbers are never prizes.
   const prizeValue = extractPrizeValue(description);
   if (prizeValue !== undefined) {
-    const sponsorMatch = description.match(
-      /sponsored by ([A-Za-z0-9 .&'-]{2,40}?)(?=\s*[.,;:!)]|$)/i,
-    );
-    const sponsor = sponsorMatch ? sponsorMatch[1].trim() : undefined;
+    const sponsorMatch = description.match(/\bsponsored by\s+([^.!?]{2,180})/i);
+    const sponsor = sponsorMatch
+      ? sponsorMatch[1]
+          .replace(/\s+/g, ' ')
+          .replace(/[;,\s]+$/, '')
+          .trim()
+      : undefined;
     facts.prizePool = sponsor
       ? `${prizeValue}$ - sponsored by ${sponsor}`.slice(0, 100)
       : `${prizeValue}$`;
   } else {
     // Sponsor without an amount is still real information.
-    const sponsorOnly = description.match(
-      /sponsored by ([A-Za-z0-9 .&'-]{2,40}?)(?=\s*[.,;:!)]|$)/i,
-    );
-    if (sponsorOnly) facts.prizePool = `Sponsored by ${sponsorOnly[1].trim()}`.slice(0, 100);
+    const sponsorOnly = description.match(/\bsponsored by\s+([^.!?]{2,180})/i);
+    if (sponsorOnly) {
+      facts.prizePool = `Sponsored by ${sponsorOnly[1].replace(/\s+/g, ' ').trim()}`.slice(0, 100);
+    }
   }
+
+  facts.startDate = extractEventStartDate(description, referenceDate);
 
   // Format: only recognized keywords, ALL of them ("Single Elimination 1v1
   // and Double elimination 2v2" → both). \b[1-4]v(?:s)?[1-4]\b can't match
@@ -218,6 +230,44 @@ export function extractEventFacts(
   }
 
   return facts;
+}
+
+const MONTHS: Record<string, string> = {
+  january: 'Jan',
+  february: 'Feb',
+  march: 'Mar',
+  april: 'Apr',
+  may: 'May',
+  june: 'Jun',
+  july: 'Jul',
+  august: 'Aug',
+  september: 'Sep',
+  october: 'Oct',
+  november: 'Nov',
+  december: 'Dec',
+};
+
+/** Extracts an announced event date rather than the article publication date. */
+export function extractEventStartDate(
+  description: string,
+  referenceDate?: string,
+): string | undefined {
+  const match = description.match(
+    /\b(?:taking\s+place|takes\s+place|starts?|scheduled(?:\s+for)?|event\s+date(?:\s+is)?)\s+(?:on\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?(?:\s+at\s+(\d{1,2}:\d{2})\s*(GMT|UTC)?)?/i,
+  );
+  if (!match) return undefined;
+  const referenceTimestamp = referenceDate
+    ? (parsePortalDate(referenceDate) ?? Date.parse(referenceDate))
+    : NaN;
+  const year =
+    match[3] ||
+    (Number.isFinite(referenceTimestamp)
+      ? String(new Date(referenceTimestamp).getUTCFullYear())
+      : String(new Date().getUTCFullYear()));
+  const month = MONTHS[match[1].toLowerCase()];
+  if (!month) return undefined;
+  const time = match[4] ? `, ${match[4]} ${match[5]?.toUpperCase() || 'UTC'}` : '';
+  return `${Number(match[2])} ${month} ${year}${time}`;
 }
 
 // ── Post-tournament results threads ─────────────────────────────────────
@@ -382,7 +432,7 @@ export class TournamentScannerService {
       const signUpUrl = articleHtml ? extractSignUpUrl(articleHtml) : undefined;
       const description =
         (articleHtml ? extractArticleDescription(articleHtml) : undefined) || t.excerpt;
-      const facts = extractEventFacts(description, 'ra3');
+      const facts = extractEventFacts(description, 'ra3', t.dateText);
 
       if (tournamentRepository.hasEventUrl(t.url)) {
         // Already known — refresh the sign-up URL, description and facts.
@@ -404,7 +454,7 @@ export class TournamentScannerService {
         title: t.title,
         description,
         announcedAt: new Date().toISOString(),
-        startDate: t.dateText || undefined,
+        startDate: (facts.startDate ?? t.dateText) || undefined,
         signUpUrl,
         format: facts.format,
         prizePool: facts.prizePool,
@@ -417,11 +467,19 @@ export class TournamentScannerService {
   }
 
   private async scanGenevo(): Promise<number> {
+    const [feedCount, portalCount] = await Promise.all([
+      this.scanGenevoFeed(),
+      this.scanGenevoPortal(),
+    ]);
+    return feedCount + portalCount;
+  }
+
+  private async scanGenevoFeed(): Promise<number> {
     const xml = await this.fetchHtml(GENEVO_EVENTS_FEED);
     if (!xml) return 0;
     let newCount = 0;
     for (const item of [...(await parseGenevoTournaments(xml))].reverse()) {
-      const facts = extractEventFacts(item.description, 'genevo');
+      const facts = extractEventFacts(item.description, 'genevo', item.publishedAt);
       if (tournamentRepository.hasEventUrl(item.url)) {
         tournamentRepository.updateEventDetails(item.url, item.url, item.description, facts);
         continue;
@@ -432,13 +490,56 @@ export class TournamentScannerService {
         title: item.title,
         description: item.description,
         announcedAt: item.publishedAt,
-        startDate: item.publishedAt,
+        startDate: facts.startDate ?? item.publishedAt,
         signUpUrl: item.url,
         format: facts.format,
         prizePool: facts.prizePool,
         maps: facts.maps,
       });
       tournamentRepository.setEventStatus(eventId, 'registration');
+      newCount++;
+    }
+    return newCount;
+  }
+
+  private async scanGenevoPortal(): Promise<number> {
+    const html = await this.fetchHtml(ESPORTS_URL);
+    if (!html) return 0;
+    let newCount = 0;
+    for (const item of parseTournaments(html)) {
+      if (!isGenevoTournamentTitle(item.title)) continue;
+      const published = parsePortalDate(item.dateText);
+      if (published !== null && published < Date.now() - RECENT_WINDOW_DAYS * 86_400_000) continue;
+
+      const articleHtml = await this.fetchHtml(item.url);
+      const signUpUrl = articleHtml ? extractSignUpUrl(articleHtml) : undefined;
+      const description =
+        (articleHtml ? extractArticleDescription(articleHtml) : undefined) || item.excerpt;
+      const facts = extractEventFacts(description, 'genevo', item.dateText);
+
+      if (tournamentRepository.hasEventUrl(item.url)) {
+        tournamentRepository.updateEventDetails(
+          item.url,
+          signUpUrl ?? null,
+          description,
+          articleHtml ? facts : undefined,
+        );
+        continue;
+      }
+
+      const eventId = tournamentRepository.createEvent({
+        game: 'genevo',
+        eventUrl: item.url,
+        title: item.title,
+        description,
+        announcedAt: new Date().toISOString(),
+        startDate: (facts.startDate ?? item.dateText) || undefined,
+        signUpUrl,
+        format: facts.format,
+        prizePool: facts.prizePool,
+        maps: facts.maps,
+      });
+      if (signUpUrl) tournamentRepository.setEventStatus(eventId, 'registration');
       newCount++;
     }
     return newCount;

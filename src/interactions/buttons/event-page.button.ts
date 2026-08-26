@@ -4,6 +4,9 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { tournamentRepository } from '../../repositories/tournament.repository';
@@ -15,13 +18,34 @@ import { parseIntSafe } from '../../utils/parse';
 import { logger } from '../../utils/logger';
 import { guildRepository } from '../../repositories/guild.repository';
 import { GameId } from '../../config/games';
+import { resolveMember } from '../../utils/members';
+import { isTournamentStaff } from '../../utils/permissions';
 
 /**
- * Stateless event-browser actions: `eventpg_{prev|next|results|refresh}_{eventId}`.
+ * Stateless event-browser actions: `eventpg_{prev|next|results|refresh|edit}_{eventId}`.
  * Works on both scanner channel announcements and /events ephemeral replies —
  * the event id in the customId identifies the current page.
  */
 export const customIdPrefix = 'eventpg_';
+
+function modalInput(
+  id: string,
+  label: string,
+  style: TextInputStyle,
+  maxLength: number,
+  value: string | null | undefined,
+  placeholder: string,
+): ActionRowBuilder<TextInputBuilder> {
+  const input = new TextInputBuilder()
+    .setCustomId(id)
+    .setLabel(label)
+    .setStyle(style)
+    .setMaxLength(maxLength)
+    .setRequired(false)
+    .setPlaceholder(placeholder);
+  if (value?.trim()) input.setValue(value.trim().slice(0, maxLength));
+  return new ActionRowBuilder<TextInputBuilder>().addComponents(input);
+}
 
 /**
  * Finds the Challonge bracket for an event. The portal often carries a twin
@@ -72,7 +96,11 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
   const eventId = parseIntSafe(parts[2]);
   if (
     !eventId ||
-    (action !== 'prev' && action !== 'next' && action !== 'results' && action !== 'refresh')
+    (action !== 'prev' &&
+      action !== 'next' &&
+      action !== 'results' &&
+      action !== 'refresh' &&
+      action !== 'edit')
   ) {
     await interaction.reply({ content: 'Invalid button.', ephemeral: true });
     return;
@@ -87,8 +115,69 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     await interaction.reply({ content: 'This event is no longer available.', ephemeral: true });
     return;
   }
+  const member = await resolveMember(interaction);
+  const tournamentStaff = !!member && isTournamentStaff(member);
 
   try {
+    if (action === 'edit') {
+      if (!tournamentStaff || !interaction.guildId) {
+        await interaction.reply({ content: 'Tournament staff only.', ephemeral: true });
+        return;
+      }
+      const detail = tournamentRepository.getEventDetail(eventId);
+      if (!detail || detail.game !== guildGame) {
+        await interaction.reply({ content: 'This event is not available here.', ephemeral: true });
+        return;
+      }
+      const modal = new ModalBuilder()
+        .setCustomId(`tournament_edit_modal_${eventId}`)
+        .setTitle('Edit Tournament Details')
+        .addComponents(
+          modalInput(
+            'date',
+            'Date',
+            TextInputStyle.Short,
+            100,
+            detail.startDate,
+            '14 Mar 2026, 14:00 GMT',
+          ),
+          modalInput(
+            'status',
+            'Status',
+            TextInputStyle.Short,
+            30,
+            detail.status === 'unknown' ? undefined : detail.status,
+            'registration, checkin, in progress, ended',
+          ),
+          modalInput(
+            'prize',
+            'Prize',
+            TextInputStyle.Short,
+            100,
+            detail.prizePool,
+            '250$ - sponsored by ...',
+          ),
+          modalInput(
+            'format',
+            'Format',
+            TextInputStyle.Short,
+            100,
+            detail.format,
+            '2v2 - Single Elimination',
+          ),
+          modalInput(
+            'maps',
+            'Map Pool',
+            TextInputStyle.Paragraph,
+            1000,
+            detail.maps,
+            'Comma-separated map names',
+          ),
+        );
+      await interaction.showModal(modal);
+      return;
+    }
+
     if (action === 'results') {
       await interaction.deferReply({ ephemeral: true });
       const current = announcements[index];
@@ -150,7 +239,7 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
       await interaction.deferUpdate();
       // Re-scan the registration topic for new sign-ups, then re-render.
       const added = await forumScanner.refreshRegistrations(eventId);
-      const rendered = renderEventPage(eventId, announcements);
+      const rendered = renderEventPage(eventId, announcements, tournamentStaff);
       if (rendered) {
         await interaction.editReply({
           ...rendered,
@@ -168,7 +257,7 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     const count = announcements.length;
     const nextIndex = action === 'prev' ? (index - 1 + count) % count : (index + 1) % count;
     const target = announcements[nextIndex];
-    const rendered = renderEventPage(target.id, announcements);
+    const rendered = renderEventPage(target.id, announcements, tournamentStaff);
     if (!rendered) {
       await interaction.reply({ content: 'Could not render this event.', ephemeral: true });
       return;

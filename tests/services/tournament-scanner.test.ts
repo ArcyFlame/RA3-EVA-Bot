@@ -8,6 +8,8 @@ import {
   extractEventFacts,
   findResultsTopic,
   parseGenevoTournaments,
+  extractEventStartDate,
+  isGenevoTournamentTitle,
 } from '../../src/services/tournament-scanner.service';
 
 const FIXTURE = `
@@ -67,6 +69,15 @@ describe('isTournamentRelevant', () => {
   });
 });
 
+describe('isGenevoTournamentTitle', () => {
+  it('keeps GenEvo announcements without mixing them into results posts', () => {
+    expect(isGenevoTournamentTitle('Generals Evolution tournament 2v2')).toBe(true);
+    expect(isGenevoTournamentTitle('Gen Evo Summer Cup Registration')).toBe(true);
+    expect(isGenevoTournamentTitle('Generals Evolution Bracket and Results')).toBe(false);
+    expect(isGenevoTournamentTitle('FTW 91 Registration')).toBe(false);
+  });
+});
+
 describe('extractSignUpUrl', () => {
   it('extracts the sign-up link and makes it absolute', () => {
     const html = '<a href="/community/index.php?showtopic=1083683">Sign up now!</a>';
@@ -118,6 +129,30 @@ describe('extractEventFacts', () => {
     );
     expect(facts.maps).toContain('GenEvo033 Aymcam Skrm 01');
     expect(facts.maps).toContain('GenEvo033 sgor00 Skrm 25');
+  });
+
+  it('extracts the full GenEvo 2v2 prize and sponsor list', () => {
+    const facts = extractEventFacts(
+      'The event will be taking place March 14th at 14:00 GMT. The total cash prize pool for this event is 250$ and is sponsored by SpamAltf4 (100$), Khay (100$), and Daytor (50$). The 1st place prize is worth 100$. This event will be a SINGLE ELIMINATION 2vs2.',
+      'genevo',
+      'Sunday, 1 Mar 2026',
+    );
+    expect(facts.prizePool).toBe(
+      '250$ - sponsored by SpamAltf4 (100$), Khay (100$), and Daytor (50$)',
+    );
+    expect(facts.format).toBe('2V2 - Single Elimination');
+    expect(facts.startDate).toBe('14 Mar 2026, 14:00 GMT');
+  });
+});
+
+describe('extractEventStartDate', () => {
+  it('uses the publication year when the announcement omits it', () => {
+    expect(
+      extractEventStartDate(
+        'The event will be taking place March 14th at 14:00 GMT.',
+        'Sunday, 1 Mar 2026',
+      ),
+    ).toBe('14 Mar 2026, 14:00 GMT');
   });
 });
 

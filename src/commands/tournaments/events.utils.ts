@@ -137,6 +137,7 @@ export function renderEventCard(
 export function renderEventPage(
   eventId: number,
   announcements?: ReturnType<typeof getSortedAnnouncements>,
+  showStaffControls = false,
 ): { embeds: [EmbedBuilder]; components: [ActionRowBuilder<ButtonBuilder>] } | null {
   const rendered = renderEventEmbed(eventId, announcements);
   if (!rendered) return null;
@@ -159,5 +160,13 @@ export function renderEventPage(
       .setLabel('Next ▶')
       .setStyle(ButtonStyle.Secondary),
   );
+  if (showStaffControls) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`eventpg_edit_${eventId}`)
+        .setLabel('Edit Details')
+        .setStyle(ButtonStyle.Secondary),
+    );
+  }
   return { embeds: [rendered.embed], components: [row] };
 }

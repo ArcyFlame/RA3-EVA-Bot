@@ -229,6 +229,7 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
           stats.online_last_24h,
           'Online Players (Last 24 Hours)',
           'Reds_r',
+          context.game,
         ),
         name: 'online_players_last_24_hours.png',
       });
@@ -238,6 +239,7 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
           stats.new_players_last_30d,
           'New Players (Last 30 Days)',
           'Blues_r',
+          context.game,
         ),
         name: 'new_players_last_30_days.png',
       });
@@ -247,6 +249,7 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
           stats.online_last_30d,
           'Online Players (Last 30 Days)',
           'YlOrBr_r',
+          context.game,
         ),
         name: 'online_players_last_30_days.png',
       });

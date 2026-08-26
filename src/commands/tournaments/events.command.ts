@@ -3,6 +3,8 @@ import { RA3Bot } from '../../bot';
 import { guildRepository } from '../../repositories/guild.repository';
 import { getSortedAnnouncements, renderEventPage } from './events.utils';
 import { getGameContext } from '../../utils/game-context';
+import { resolveMember } from '../../utils/members';
+import { isTournamentStaff } from '../../utils/permissions';
 
 export const data = new SlashCommandBuilder()
   .setName('events')
@@ -32,7 +34,12 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
 
   // Single message with Prev/Next + Sign Up/Results buttons; navigation is
   // handled globally by the eventpg_* button handler.
-  const rendered = renderEventPage(announcements[0].id, announcements);
+  const member = await resolveMember(interaction);
+  const rendered = renderEventPage(
+    announcements[0].id,
+    announcements,
+    !!member && isTournamentStaff(member),
+  );
   if (!rendered) {
     await interaction.editReply({ content: 'No tournament announcements found.' });
     return;

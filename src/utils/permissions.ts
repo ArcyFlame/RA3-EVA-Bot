@@ -52,6 +52,10 @@ export function isModerator(member: GuildMember): boolean {
   );
 }
 
+export function isTournamentStaff(member: GuildMember): boolean {
+  return isAdminOrReferee(member) || isModerator(member);
+}
+
 /** Returns an error message when the check fails, null when it passes. */
 export function denyUnlessAdmin(member: GuildMember | null): string | null {
   if (!member) return '❌ This command can only be used inside a server.';

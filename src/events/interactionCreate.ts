@@ -33,6 +33,7 @@ const TOURNAMENT_COMPONENT_PREFIXES = [
   'delay_match_',
   'delay_modal_',
   'tournament_link_modal',
+  'tournament_edit_modal_',
 ];
 
 function tournamentToolsDisabled(guildId?: string | null): boolean {

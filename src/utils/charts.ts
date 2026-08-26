@@ -1,6 +1,8 @@
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import { registerFont } from 'canvas';
+import { existsSync } from 'fs';
 import { join } from 'path';
+import { GameId } from '../config/games';
 import { logger } from './logger';
 
 // Stencil font. node-canvas only binds registerFont when it is called twice;
@@ -14,7 +16,18 @@ try {
   logger.warn('Red Alert font not found - using fallback font', error);
 }
 
+const miedingerPath = join(process.cwd(), 'fonts', 'Miedinger Medium W00 Regular.ttf');
+if (existsSync(miedingerPath)) {
+  try {
+    registerFont(miedingerPath, { family: 'Miedinger Medium W00 Regular' });
+    logger.info('Miedinger Medium font registered');
+  } catch (error) {
+    logger.warn('Miedinger Medium font could not be registered - using fallback font', error);
+  }
+}
+
 const RED_ALERT = '"Red Alert", sans-serif';
+const MIEDINGER = '"Miedinger Medium W00 Regular", Arial, sans-serif';
 
 // Classic style (from the original Python bot): transparent figure, peach
 // labels, gradient bars with value labels, dotted dark-red grid. Rendered at
@@ -35,31 +48,78 @@ const COLOR_TITLE_RED = '#FF0F0F';
 const COLOR_TITLE_BLUE = '#4682B4';
 const COLOR_TITLE_GOLD = '#FFD700';
 
+export type BarChartPalette = 'Reds_r' | 'Blues_r' | 'YlOrBr_r';
+
+export interface BarChartTheme {
+  titleColor: string;
+  deepColor: string;
+  lightColor: string;
+  textColor: string;
+  gridColor: string;
+  xGridColor: string;
+  fontFamily: string;
+}
+
+/** Keeps RA3's classic red style and gives Generals Evolution a military palette. */
+export function getBarChartTheme(game: GameId, palette: BarChartPalette): BarChartTheme {
+  if (game === 'genevo') {
+    const colors =
+      palette === 'YlOrBr_r'
+        ? { titleColor: '#D8B45B', deepColor: '#705621', lightColor: '#D9C27C' }
+        : palette === 'Blues_r'
+          ? { titleColor: '#B7C9A8', deepColor: '#3A5A40', lightColor: '#A3B18A' }
+          : { titleColor: '#A7C957', deepColor: '#31572C', lightColor: '#90A955' };
+    return {
+      ...colors,
+      textColor: '#EFE4C2',
+      gridColor: 'rgba(104, 124, 70, 0.55)',
+      xGridColor: 'rgba(83, 102, 55, 0.45)',
+      fontFamily: MIEDINGER,
+    };
+  }
+
+  const colors =
+    palette === 'Blues_r'
+      ? { titleColor: COLOR_TITLE_BLUE, deepColor: '#1E4E8C', lightColor: '#7EB3E0' }
+      : palette === 'YlOrBr_r'
+        ? { titleColor: COLOR_TITLE_GOLD, deepColor: '#C87810', lightColor: '#FFD873' }
+        : { titleColor: COLOR_TITLE_RED, deepColor: '#8B1A1A', lightColor: '#FF6A5A' };
+  return {
+    ...colors,
+    textColor: COLOR_TEXT,
+    gridColor: COLOR_GRID,
+    xGridColor: 'rgba(139, 0, 0, 0.5)',
+    fontFamily: RED_ALERT,
+  };
+}
+
 /** Draws each bar's value on top of it. */
-const valueLabelsPlugin = {
-  id: 'valueLabels',
-  afterDatasetsDraw(chart: any) {
-    const { ctx } = chart;
-    const meta = chart.getDatasetMeta(0);
-    if (!meta || chart.options.plugins.valueLabels?.display === false) return;
-    ctx.save();
-    ctx.font = `bold 28px ${RED_ALERT}`;
-    ctx.fillStyle = COLOR_TEXT;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    const values = (chart.data.datasets[0].data as Array<number | null>).filter(
-      (value): value is number => typeof value === 'number',
-    );
-    const maxVal = Math.max(...values, 1);
-    for (let i = 0; i < meta.data.length; i++) {
-      const bar = meta.data[i];
-      const value = chart.data.datasets[0].data[i];
-      if (value == null || bar?.x == null) continue;
-      ctx.fillText(String(value), bar.x, bar.y - maxVal * 0.015);
-    }
-    ctx.restore();
-  },
-};
+function createValueLabelsPlugin(theme: BarChartTheme) {
+  return {
+    id: 'valueLabels',
+    afterDatasetsDraw(chart: any) {
+      const { ctx } = chart;
+      const meta = chart.getDatasetMeta(0);
+      if (!meta || chart.options.plugins.valueLabels?.display === false) return;
+      ctx.save();
+      ctx.font = `bold 28px ${theme.fontFamily}`;
+      ctx.fillStyle = theme.textColor;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      const values = (chart.data.datasets[0].data as Array<number | null>).filter(
+        (value): value is number => typeof value === 'number',
+      );
+      const maxVal = Math.max(...values, 1);
+      for (let i = 0; i < meta.data.length; i++) {
+        const bar = meta.data[i];
+        const value = chart.data.datasets[0].data[i];
+        if (value == null || bar?.x == null) continue;
+        ctx.fillText(String(value), bar.x, bar.y - maxVal * 0.015);
+      }
+      ctx.restore();
+    },
+  };
+}
 
 /**
  * Bar chart in the classic Python-bot style: dark red plot area on a
@@ -70,23 +130,12 @@ const valueLabelsPlugin = {
 export async function generateBarChart(
   data: Array<number | null>,
   title: string,
-  cmap: 'Reds_r' | 'Blues_r' | 'YlOrBr_r' = 'Reds_r',
+  cmap: BarChartPalette = 'Reds_r',
+  game: GameId = 'ra3',
 ): Promise<Buffer> {
   const labels = title.includes('24 Hours') ? generateHourLabels() : generateDayLabels();
   const numericData = data.filter((value): value is number => typeof value === 'number');
-
-  let titleColor = COLOR_TITLE_RED;
-  let deepColor = '#8B1A1A'; // top of the bar gradient
-  let lightColor = '#FF6A5A'; // base of the bar gradient
-  if (cmap === 'Blues_r') {
-    titleColor = COLOR_TITLE_BLUE;
-    deepColor = '#1E4E8C';
-    lightColor = '#7EB3E0';
-  } else if (cmap === 'YlOrBr_r') {
-    titleColor = COLOR_TITLE_GOLD;
-    deepColor = '#C87810';
-    lightColor = '#FFD873';
-  }
+  const theme = getBarChartTheme(game, cmap);
 
   const configuration = {
     type: 'bar' as const,
@@ -109,11 +158,11 @@ export async function generateBarChart(
               height,
             );
             // Diagonal gradient, like matplotlib's _gradient_image.
-            gradient.addColorStop(0, lightColor);
-            gradient.addColorStop(1, deepColor);
+            gradient.addColorStop(0, theme.lightColor);
+            gradient.addColorStop(1, theme.deepColor);
             return gradient;
           },
-          borderColor: deepColor,
+          borderColor: theme.deepColor,
           borderWidth: 0,
           categoryPercentage: 1,
           barPercentage: 0.92,
@@ -129,8 +178,8 @@ export async function generateBarChart(
         title: {
           display: true,
           text: title,
-          color: titleColor,
-          font: { size: 62, weight: 'bold' as const, family: RED_ALERT },
+          color: theme.titleColor,
+          font: { size: 62, weight: 'bold' as const, family: theme.fontFamily },
           padding: { top: 12, bottom: 36 },
         },
         subtitle: { display: false },
@@ -142,29 +191,29 @@ export async function generateBarChart(
           beginAtZero: true,
           suggestedMax: Math.max(...numericData, 1) * 1.12,
           ticks: {
-            color: COLOR_TEXT,
+            color: theme.textColor,
             precision: 0,
             maxTicksLimit: 8,
-            font: { size: 26, family: RED_ALERT },
+            font: { size: 26, family: theme.fontFamily },
           },
-          grid: { color: COLOR_GRID, lineWidth: 1.2, borderDash: [4, 6] },
-          border: { color: titleColor, width: 3 },
+          grid: { color: theme.gridColor, lineWidth: 1.2, borderDash: [4, 6] },
+          border: { color: theme.titleColor, width: 3 },
         },
         x: {
           ticks: {
-            color: COLOR_TEXT,
+            color: theme.textColor,
             maxRotation: 45,
             minRotation: 45,
             autoSkip: true,
             maxTicksLimit: title.includes('24 Hours') ? 12 : 10,
-            font: { size: 26, family: RED_ALERT },
+            font: { size: 26, family: theme.fontFamily },
           },
-          grid: { color: 'rgba(139, 0, 0, 0.5)', lineWidth: 1, borderDash: [4, 6] },
-          border: { color: titleColor, width: 3 },
+          grid: { color: theme.xGridColor, lineWidth: 1, borderDash: [4, 6] },
+          border: { color: theme.titleColor, width: 3 },
         },
       },
     },
-    plugins: [valueLabelsPlugin],
+    plugins: [createValueLabelsPlugin(theme)],
   };
   return chartJSNodeCanvas.renderToBuffer(configuration);
 }
