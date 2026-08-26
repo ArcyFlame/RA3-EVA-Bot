@@ -14,6 +14,7 @@ import { lobbyService } from '../../services/lobby.service';
 import { guildRepository } from '../../repositories/guild.repository';
 import { CNC_ONLINE, RA3_BATTLE_NET } from '../../utils/emojis';
 import { logger } from '../../utils/logger';
+import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
   .setName('lobby_panel')
@@ -56,9 +57,10 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
       });
       return;
     }
+    const context = getGameContext(interaction.guild.id);
     const embed = new EmbedBuilder()
-      .setTitle('🎮 Live RA3 Lobbies')
-      .setColor(0x5865f2)
+      .setTitle(`🎮 Live ${context.config.shortLabel} Lobbies`)
+      .setColor(context.config.color)
       .setDescription('Loading lobbies...');
     const msg = await channel.send({ embeds: [embed] });
     lobbyPanelRepository.set(interaction.guild.id, channel.id, msg.id);
@@ -94,10 +96,12 @@ async function updateLobbyPanel(bot: RA3Bot, guildId: string) {
   }
   try {
     let msg = await channel.messages.fetch(panel.messageId).catch(() => null);
-    const lobbies = await lobbyService.fetchActiveLobbies();
+    const context = getGameContext(guildId);
+    const lobbies = await lobbyService.fetchActiveLobbies(context.game, context.sources);
     const embed = new EmbedBuilder()
-      .setTitle('🎮 Live RA3 Lobbies')
-      .setColor(0x5865f2)
+      .setTitle(`🎮 Live ${context.config.shortLabel} Lobbies`)
+      .setColor(context.config.color)
+      .setThumbnail(context.config.artworkUrl)
       .setTimestamp()
       .setFooter({ text: 'Updates every 3 minutes' });
     if (lobbies.length === 0) {
@@ -139,11 +143,12 @@ export function startLobbyPanelUpdater(bot: RA3Bot) {
       const channel = guild?.channels.cache.get(guildData.lobbyChannelId);
       if (!(channel instanceof TextChannel)) continue;
       try {
+        const context = getGameContext(guildData.discordId);
         const msg = await channel.send({
           embeds: [
             new EmbedBuilder()
-              .setTitle('🎮 Live RA3 Lobbies')
-              .setColor(0x5865f2)
+              .setTitle(`🎮 Live ${context.config.shortLabel} Lobbies`)
+              .setColor(context.config.color)
               .setDescription('Loading lobbies...'),
           ],
         });

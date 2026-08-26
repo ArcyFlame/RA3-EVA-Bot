@@ -11,7 +11,10 @@ export type CheckinActivity =
   | 'checked_in'
   | 'cancelled';
 
-const ACTIVITY_LABELS: Record<CheckinActivity, { title: string; description: string; color: number }> = {
+const ACTIVITY_LABELS: Record<
+  CheckinActivity,
+  { title: string; description: string; color: number }
+> = {
   registered: {
     title: '📝 Tournament registration',
     description: 'New player registration:',
@@ -33,14 +36,6 @@ const ACTIVITY_LABELS: Record<CheckinActivity, { title: string; description: str
     color: 0xfee75c,
   },
 };
-
-function titleMatchesGame(title: string, game: string): boolean {
-  const genevo = /generals evolution|genevo|gen evo|zero hour/i;
-  const kw = /kane'?s wrath|tiberi\w*|c&c ?3/i;
-  if (game === 'genevo') return genevo.test(title);
-  if (game === 'kw') return kw.test(title);
-  return !genevo.test(title) && !kw.test(title);
-}
 
 export class CheckinNotificationService {
   private client: Client | null = null;
@@ -76,11 +71,7 @@ export class CheckinNotificationService {
 
     let sent = 0;
     for (const config of guildRepository.getAllGuilds()) {
-      if (
-        config.tournamentsEnabled === 0 ||
-        !config.refereeRoleId ||
-        !titleMatchesGame(detail.title, config.game ?? 'ra3')
-      ) {
+      if (config.tournamentsEnabled === 0 || !config.refereeRoleId || detail.game !== config.game) {
         continue;
       }
       const guild = this.client.guilds.cache.get(config.discordId);

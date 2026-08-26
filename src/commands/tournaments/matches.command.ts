@@ -13,19 +13,18 @@ import { guildRepository } from '../../repositories/guild.repository';
 import { buildStandingsFields } from './results.utils';
 import { logger } from '../../utils/logger';
 import { getCurrentTournament } from '../../services/tournament-context.service';
-import { ESPORTS_FALLBACK_URL } from '../../utils/tournament-status';
+import { GAME_CONFIGS } from '../../config/games';
 
 export const data = new SlashCommandBuilder()
   .setName('matches')
   .setDescription('Current tournament bracket: results, scores and upcoming matches');
 
-export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
-  if (!interaction.guild) {
-    await interaction.reply({ content: 'Server only.', ephemeral: true });
-    return;
-  }
+export const guildOnly = false;
 
-  const guildData = guildRepository.findByDiscordId(interaction.guild.id);
+export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
+  const guildData = interaction.guildId
+    ? guildRepository.findByDiscordId(interaction.guildId)
+    : undefined;
   if (guildData?.tournamentsEnabled === 0) {
     await interaction.reply({
       content: '❌ Tournaments are disabled on this server.',
@@ -37,11 +36,14 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   await interaction.deferReply({ ephemeral: true });
 
   const guildGame = guildData?.game ?? 'ra3';
+  const gameConfig = GAME_CONFIGS[guildGame];
   const current = getCurrentTournament(guildGame);
   const currentRef = current?.challongeUrl
     ? challongeService.parseTournamentRef(current.challongeUrl)
     : null;
-  const linkedId = tournamentRepository.getLinkedTournamentId(interaction.guild.id);
+  const linkedId = interaction.guildId
+    ? tournamentRepository.getLinkedTournamentId(interaction.guildId)
+    : undefined;
   const linkedRef = linkedId ? challongeService.parseTournamentRef(linkedId) : null;
   // Never pick an arbitrary historical bracket. A manually linked bracket is
   // only a fallback when no current portal event exists.
@@ -52,9 +54,9 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       components: [
         new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
-            .setLabel('View RA3 Tournaments')
+            .setLabel(`View ${gameConfig.shortLabel}`)
             .setStyle(ButtonStyle.Link)
-            .setURL(ESPORTS_FALLBACK_URL),
+            .setURL(gameConfig.tournamentFallbackUrl),
         ),
       ],
     });
@@ -74,9 +76,9 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
         components: [
           new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
-              .setLabel('View RA3 Tournaments')
+              .setLabel(`View ${gameConfig.shortLabel}`)
               .setStyle(ButtonStyle.Link)
-              .setURL(ESPORTS_FALLBACK_URL),
+              .setURL(gameConfig.tournamentFallbackUrl),
           ),
         ],
       });
@@ -88,14 +90,13 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     const embed = new EmbedBuilder()
       .setTitle(`🏆 ${tournament.name}`)
       .setURL(challongeService.bracketUrl(challongeId))
-      .setColor(0x5865f2);
+      .setColor(gameConfig.color)
+      .setThumbnail(gameConfig.artworkUrl);
 
     const headerBits: string[] = [];
     if (tournament.participants_count) headerBits.push(`Players: ${tournament.participants_count}`);
     if (tournament.tournament_type) {
-      headerBits.push(
-        `Format: ${String(tournament.tournament_type).replace(/_/g, ' ')}`,
-      );
+      headerBits.push(`Format: ${String(tournament.tournament_type).replace(/_/g, ' ')}`);
     }
     if (tournament.game_name) headerBits.push(String(tournament.game_name));
     if (tournament.state) headerBits.push(`Status: ${String(tournament.state).toUpperCase()}`);

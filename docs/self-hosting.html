@@ -1,84 +1,101 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Self-Hosting — E.V.A Docs</title>
-  <link rel="stylesheet" href="assets/styles.css" />
-</head>
-<body>
-  <aside class="sidebar">
-    <div class="logo">E.V.A<span>.</span></div>
-    <div class="tagline">RA3 Community Bot</div>
-    <nav>
-      <h3>Getting Started</h3>
-      <a href="index.html">Introduction</a>
-      <a href="setup.html">Setup</a>
-      <h3>Features</h3>
-      <a href="tournaments.html">Tournaments</a>
-      <a href="stats.html">Stats &amp; Profiles</a>
-      <a href="notifications.html">News &amp; Feeds</a>
-      <h3>Reference</h3>
-      <a href="commands.html">Commands</a>
-      <a class="active" href="self-hosting.html">Self-Hosting</a>
-    </nav>
-  </aside>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Self-Hosting — E.V.A Docs</title>
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="logo">E.V.A<span>.</span></div>
+      <div class="tagline">C&amp;C Community Bot</div>
+      <nav>
+        <h3>Getting Started</h3>
+        <a href="index.html">Introduction</a>
+        <a href="setup.html">Setup</a>
+        <h3>Features</h3>
+        <a href="tournaments.html">Tournaments</a>
+        <a href="stats.html">Stats &amp; Profiles</a>
+        <a href="notifications.html">News &amp; Feeds</a>
+        <h3>Reference</h3>
+        <a href="commands.html">Commands</a>
+        <a class="active" href="self-hosting.html">Self-Hosting</a>
+      </nav>
+    </aside>
 
-  <main class="content">
-    <h1>Self-Hosting</h1>
-    <p>
-      E.V.A is a Node.js + TypeScript application with an SQLite database — one
-      process, no external services required.
-    </p>
+    <main class="content">
+      <h1>Self-Hosting</h1>
+      <p>
+        E.V.A is a Node.js + TypeScript application with an SQLite database — one process, no
+        external services required.
+      </p>
 
-    <h2>Requirements</h2>
-    <ul>
-      <li>Node.js 20.18.1 or newer</li>
-      <li>A Discord bot token (Developer Portal → Bot)</li>
-      <li>Optional: Challonge API key, Twitch app credentials</li>
-    </ul>
+      <h2>Requirements</h2>
+      <ul>
+        <li>Node.js 20.18.1 or newer</li>
+        <li>A Discord bot token (Developer Portal → Bot)</li>
+        <li>Optional: Challonge API key, Twitch app credentials</li>
+      </ul>
 
-    <h2>Install &amp; run</h2>
-    <pre><code>git clone &lt;repository&gt;
+      <h2>Install &amp; run</h2>
+      <pre><code>git clone &lt;repository&gt;
 cd ra3-eva-bot
 npm install
 cp .env.example .env    # fill in DISCORD_TOKEN
 npm run build
 node dist/index.js</code></pre>
 
-    <p>
-      <code>.env.example</code> documents every variable. Only
-      <code>DISCORD_TOKEN</code> is required — everything else degrades
-      gracefully. <code>npm run diagnose</code> checks the configuration and
-      reports anything missing.
-    </p>
+      <p>
+        <code>.env.example</code> documents every variable. Only <code>DISCORD_TOKEN</code> is
+        required — everything else degrades gracefully. <code>npm run diagnose</code> checks the
+        configuration and reports anything missing.
+      </p>
 
-    <h2>Useful scripts</h2>
-    <table>
-      <tr><th>Script</th><th>Purpose</th></tr>
-      <tr><td><code>npm run build</code></td><td>Compile to <code>dist/</code></td></tr>
-      <tr><td><code>npm run typecheck</code></td><td>TypeScript check</td></tr>
-      <tr><td><code>npm test</code></td><td>Test suite (vitest)</td></tr>
-      <tr><td><code>npm run diagnose</code></td><td>Configuration diagnostics</td></tr>
-      <tr><td><code>npm run seed:masters</code></td><td>Seed the Hall of Fame list</td></tr>
-    </table>
+      <h2>Useful scripts</h2>
+      <table>
+        <tr>
+          <th>Script</th>
+          <th>Purpose</th>
+        </tr>
+        <tr>
+          <td><code>npm run build</code></td>
+          <td>Compile to <code>dist/</code></td>
+        </tr>
+        <tr>
+          <td><code>npm run typecheck</code></td>
+          <td>TypeScript check</td>
+        </tr>
+        <tr>
+          <td><code>npm test</code></td>
+          <td>Test suite (vitest)</td>
+        </tr>
+        <tr>
+          <td><code>npm run diagnose</code></td>
+          <td>Configuration diagnostics</td>
+        </tr>
+        <tr>
+          <td><code>npm run seed:masters</code></td>
+          <td>Seed the Hall of Fame list</td>
+        </tr>
+      </table>
 
-    <h2>Data</h2>
-    <p>
-      Everything is stored in a single SQLite file (<code>data/bot.db</code>,
-      WAL mode). Migrations run automatically at boot. The Red Alert font for
-      the charts lives in <code>fonts/</code>.
-    </p>
+      <h2>Data</h2>
+      <p>
+        Everything is stored in a single SQLite file (<code>data/bot.db</code>, WAL mode).
+        Migrations run automatically at boot. The Red Alert font for the charts lives in
+        <code>fonts/</code>.
+      </p>
 
-    <blockquote>
-      YouTube notifications work key-free through RSS polling. The optional
-      PubSubHubbub push mode needs a public callback URL — see
-      <code>YOUTUBE_CALLBACK_BASE</code> in <code>.env.example</code>.
-    </blockquote>
+      <blockquote>
+        YouTube notifications work key-free through RSS polling. The optional PubSubHubbub push mode
+        needs a public callback URL — see
+        <code>YOUTUBE_CALLBACK_BASE</code> in <code>.env.example</code>.
+      </blockquote>
 
-    <div class="footer">
-      E.V.A — built for the Red Alert 3 community by Arcy. Not affiliated with EA.
-    </div>
-  </main>
-</body>
+      <div class="footer">
+        E.V.A — built for the Command &amp; Conquer community by Arcy. Not affiliated with EA.
+      </div>
+    </main>
+  </body>
 </html>

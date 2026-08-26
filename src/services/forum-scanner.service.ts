@@ -24,13 +24,7 @@ const FORUM_PAGE_SIZE = 25;
 const RECENT_FORUM_PAGES = 3;
 /** Sign-up threads paginate 20 posts per page; three pages cover any thread. */
 const REGISTRATION_PAGES = [0, 20, 40];
-const NON_RA3_TOURNAMENT = /generals evolution|genevo|gen evo|kane'?s wrath|tiberi\w*|c&c ?3|zero hour/i;
-
-function tournamentGame(title: string): 'ra3' | 'kw' | 'genevo' {
-  if (/generals evolution|genevo|gen evo|zero hour/i.test(title)) return 'genevo';
-  if (/kane'?s wrath|tiberi\w*|c&c ?3/i.test(title)) return 'kw';
-  return 'ra3';
-}
+const NON_RA3_TOURNAMENT = /generals evolution|genevo|gen evo|tiberi\w*|c&c ?3|zero hour/i;
 
 export interface ForumTopic {
   title: string;
@@ -118,10 +112,9 @@ export function parseTopicPage(html: string): TopicLinks {
       /(?:https?:\/\/)?(?:www\.)?(?:[a-z0-9-]+\.)?challonge\.com\/(?:[a-z]{2}(?:_[a-z]{2})?\/)?[a-z0-9][a-z0-9-]{0,60}/i,
     )?.[0];
     if (!directUrl) return;
-    const normalized = (/^https?:\/\//i.test(directUrl) ? directUrl : `https://${directUrl}`).replace(
-      /^http:\/\//i,
-      'https://',
-    );
+    const normalized = (
+      /^https?:\/\//i.test(directUrl) ? directUrl : `https://${directUrl}`
+    ).replace(/^http:\/\//i, 'https://');
     if (!challongeService.parseTournamentRef(normalized)) return;
     if (!links.challonge.includes(normalized)) links.challonge.push(normalized);
   };
@@ -176,9 +169,7 @@ export function parseExplicitForumWinner(html: string): string | undefined {
     const finalAt = text.search(/\b(?:grand\s+)?finals?\b/i);
     if (finalAt < 0) return;
 
-    const score = text
-      .slice(finalAt, finalAt + 400)
-      .match(/\b([0-9])\s*[-:]\s*([0-9])\b/);
+    const score = text.slice(finalAt, finalAt + 400).match(/\b([0-9])\s*[-:]\s*([0-9])\b/);
     if (!score || Number(score[1]) <= Number(score[2])) return;
 
     const escapedAuthor = author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -199,22 +190,13 @@ export function parseRegistrations(html: string): string[] {
   const names: string[] = [];
   $('.comment_wrapper').each((_, el) => {
     const $post = $(el);
-    const author = $post
-      .find('.member_name a')
-      .first()
-      .text()
-      .replace(/\s+/g, ' ')
-      .trim();
+    const author = $post.find('.member_name a').first().text().replace(/\s+/g, ' ').trim();
     if (!author || author.length < 2 || author.length > 40) return;
 
     // Body = comment text minus the header bits (author name, timestamps).
     const body =
-      $post
-        .find('.comment')
-        .first()
-        .text()
-        .replace(/\s+/g, ' ')
-        .trim() || $post.text().replace(/\s+/g, ' ').trim();
+      $post.find('.comment').first().text().replace(/\s+/g, ' ').trim() ||
+      $post.text().replace(/\s+/g, ' ').trim();
     const normalized = body
       .toLowerCase()
       .replace(/[^a-z0-9+\s]/g, ' ')
@@ -336,8 +318,8 @@ export class ForumScannerService {
       // posting a card per bracket would flood the channels. Suppress the
       // per-bracket cards; the portal scanner's announce() posts ONE card for
       // the newest tournament.
-      const hadEvents = tournamentRepository.getAnnouncements().length > 0;
-      const events = tournamentRepository.getAnnouncements();
+      const hadEvents = tournamentRepository.getAnnouncements('ra3').length > 0;
+      const events = tournamentRepository.getAnnouncements('ra3');
 
       // Pair topics with stored announcements by base name.
       for (const topic of topics) {
@@ -391,9 +373,7 @@ export class ForumScannerService {
             const brackets = tournamentRepository
               .getBrackets(match.id)
               .filter((bracket) =>
-                bracket.bracketName
-                  ? editionsCompatible(bracket.bracketName, match.title)
-                  : true,
+                bracket.bracketName ? editionsCompatible(bracket.bracketName, match.title) : true,
               );
             primaryUrl = (brackets.find((b) => b.isPrimary) ?? brackets[0])?.challongeUrl;
           }
@@ -433,7 +413,10 @@ export class ForumScannerService {
           }
           const pages = await this.fetchRegistrationPages(topic.url);
           if (pages.length === 0) continue;
-          const prize = extractPrize(pages.map((p) => cheerio.load(p).text()).join(' '), topic.title);
+          const prize = extractPrize(
+            pages.map((p) => cheerio.load(p).text()).join(' '),
+            topic.title,
+          );
           const pool = extractMapPool(pages[0]);
           tournamentRepository.updateEventFacts(match.id, {
             prizePool: prize,
@@ -484,10 +467,10 @@ export class ForumScannerService {
   /** Records the champion of every completed bracket that has none yet. */
   private async syncWinners(): Promise<void> {
     // Brackets discovered before the brackets table existed.
-    for (const e of tournamentRepository.getEventsWithChallonge()) {
+    for (const e of tournamentRepository.getEventsWithChallonge('ra3')) {
       tournamentRepository.addBracket(e.id, e.challongeUrl);
     }
-    for (const bracket of tournamentRepository.getAllBrackets()) {
+    for (const bracket of tournamentRepository.getAllBrackets('ra3')) {
       try {
         const ref = challongeService.parseTournamentRef(bracket.challongeUrl);
         if (!ref) continue;
@@ -505,15 +488,11 @@ export class ForumScannerService {
         let winner: string | undefined =
           rankings.find((r) => r.rank === 1)?.name ?? rankings[0]?.name;
         if (!winner) {
-          winner = (await challongeService.inferWinnerByMatches(ref).catch(() => null)) ?? undefined;
+          winner =
+            (await challongeService.inferWinnerByMatches(ref).catch(() => null)) ?? undefined;
         }
         if (winner) {
-          tournamentRepository.recordWinner(
-            canonicalUrl,
-            winner,
-            bracket.eventTitle,
-            tournamentGame(bracket.eventTitle),
-          );
+          tournamentRepository.recordWinner(canonicalUrl, winner, bracket.eventTitle, 'ra3');
           logger.info(`Forum scanner: recorded winner ${winner} for ${canonicalUrl}`);
         }
       } catch (error) {
@@ -611,7 +590,7 @@ export class ForumScannerService {
           challongeService.bracketUrl(ref),
           winner,
           eventTitle,
-          tournamentGame(eventTitle),
+          'ra3',
         );
       }
     }
@@ -679,7 +658,9 @@ export class ForumScannerService {
     while (pages < maxPages) {
       const html = await safeGetText(this.forumPageUrl(offset));
       if (!html) {
-        logger.warn(`Historical forum crawl could not fetch offset ${offset}; checkpoint preserved`);
+        logger.warn(
+          `Historical forum crawl could not fetch offset ${offset}; checkpoint preserved`,
+        );
         break;
       }
       if (!html.includes('showtopic=')) {
@@ -687,7 +668,10 @@ export class ForumScannerService {
         break;
       }
       const pageTopics = parseForumTopics(html);
-      const fingerprint = pageTopics.map((topic) => topic.url).sort().join('|');
+      const fingerprint = pageTopics
+        .map((topic) => topic.url)
+        .sort()
+        .join('|');
       if (fingerprint && fingerprint === previousFingerprint) {
         logger.warn(`Historical forum crawl repeated page at offset ${offset}; stopping safely`);
         completed = true;
@@ -731,13 +715,16 @@ export class ForumScannerService {
       if (!html) break;
       // The &st= offset is ignored by some routes (ads/timestamps change the
       // raw HTML) — fingerprint the first post to detect a repeated page.
-      const fingerprint = cheerio
-        .load(html)('.comment_wrapper')
-        .first()
-        .find('.member_name a')
-        .first()
-        .text()
-        .trim() + ':' + cheerio.load(html)('.comment_wrapper').length;
+      const fingerprint =
+        cheerio
+          .load(html)('.comment_wrapper')
+          .first()
+          .find('.member_name a')
+          .first()
+          .text()
+          .trim() +
+        ':' +
+        cheerio.load(html)('.comment_wrapper').length;
       if (fingerprint === lastFingerprint) break; // same page again → done
       lastFingerprint = fingerprint;
       pages.push(html);

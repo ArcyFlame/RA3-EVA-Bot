@@ -15,8 +15,8 @@ import {
 } from '../../services/tournament-context.service';
 import { resolveMember } from '../../utils/members';
 import { isAdminOrReferee } from '../../utils/permissions';
-import { ESPORTS_FALLBACK_URL } from '../../utils/tournament-status';
 import { buildCheckinBoard } from './checkin.utils';
+import { GameId, GAME_CONFIGS } from '../../config/games';
 
 export const data = new SlashCommandBuilder()
   .setName('checkin')
@@ -29,7 +29,7 @@ export const data = new SlashCommandBuilder()
       .setRequired(false),
   );
 
-function gameFor(interaction: ChatInputCommandInteraction | AutocompleteInteraction): string {
+function gameFor(interaction: ChatInputCommandInteraction | AutocompleteInteraction): GameId {
   if (!interaction.guildId) return 'ra3';
   return guildRepository.findByDiscordId(interaction.guildId)?.game ?? 'ra3';
 }
@@ -46,11 +46,15 @@ export async function autocomplete(_bot: RA3Bot, interaction: AutocompleteIntera
 
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   if (!interaction.guild) {
-    await interaction.reply({ content: 'Check-ins are available inside a server.', ephemeral: true });
+    await interaction.reply({
+      content: 'Check-ins are available inside a server.',
+      ephemeral: true,
+    });
     return;
   }
 
   const game = gameFor(interaction);
+  const config = GAME_CONFIGS[game];
   const query = interaction.options.getString('event')?.trim();
   const event = query ? findTournament(query, game) : getCurrentTournament(game);
   if (!event) {
@@ -61,9 +65,9 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       components: [
         new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
-            .setLabel('View RA3 Tournaments')
+            .setLabel(`View ${config.shortLabel}`)
             .setStyle(ButtonStyle.Link)
-            .setURL(ESPORTS_FALLBACK_URL),
+            .setURL(config.tournamentFallbackUrl),
         ),
       ],
       ephemeral: true,

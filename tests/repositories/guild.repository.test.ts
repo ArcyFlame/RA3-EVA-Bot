@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { up as up001 } from '../../src/database/migrations/001_initial_schema';
+import { connectDatabase } from '../../src/database/connection';
 import { GuildRepository } from '../../src/repositories/guild.repository';
 
 const repo = new GuildRepository();
 
-beforeAll(() => {
-  up001();
+beforeAll(async () => {
+  await connectDatabase();
 });
 
 describe('GuildRepository — column whitelists', () => {

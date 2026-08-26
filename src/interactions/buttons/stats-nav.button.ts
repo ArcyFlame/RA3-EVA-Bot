@@ -3,9 +3,9 @@ import { RA3Bot } from '../../bot';
 import { ra3StatsService } from '../../services/ra3-stats.service';
 import { StatsView, STATS_MODES, STATS_PAGES, StatsPage } from '../../commands/stats/stats.view';
 import { statsPanelRepository } from '../../repositories/stats-panel.repository';
-import { guildRepository } from '../../repositories/guild.repository';
 import { generatePieChartBuffer } from '../../utils/charts';
 import { logger } from '../../utils/logger';
+import { getGameContext } from '../../utils/game-context';
 
 const processing = new Map<string, boolean>();
 
@@ -46,28 +46,25 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
   // Wrap-around: Previous on page 0 loops to the last page and vice versa.
   const nextPage: StatsPage =
     action === 'next'
-      ? ((page + 1) % STATS_PAGES as StatsPage)
+      ? (((page + 1) % STATS_PAGES) as StatsPage)
       : action === 'prev'
-        ? ((page - 1 + STATS_PAGES) % STATS_PAGES as StatsPage)
+        ? (((page - 1 + STATS_PAGES) % STATS_PAGES) as StatsPage)
         : (page as StatsPage);
 
   try {
-    const stats = await ra3StatsService.fetch();
-    const view = new StatsView(stats);
+    const context = getGameContext(interaction.guildId);
+    const stats = await ra3StatsService.fetch(context.game, context.sources);
+    const view = new StatsView(stats, context.game, context.sources);
     view.setPage(nextPage);
     view.setMode(mode);
     // The faction data is RA3BattleNet's — hide it (and its pie) elsewhere.
-    const showRa3b = interaction.guildId
-      ? (guildRepository.findByDiscordId(interaction.guildId)?.game ?? 'ra3') === 'ra3'
-      : true;
-    view.setShowRa3b(showRa3b);
     const payload: any = { embeds: [view.getEmbed()], components: view.getComponents() };
 
     // The Recent Matches & Factions page carries the faction distribution pie
     // in a separate follow-up message (attachments would render ABOVE the
     // embed inside a single message).
     let pieFiles: Array<{ attachment: Buffer; name: string }> | null = null;
-    if (nextPage === 1 && showRa3b) {
+    if (nextPage === 1 && context.game === 'ra3' && context.sources.ra3BattleNet) {
       try {
         const pie = await generatePieChartBuffer(stats.faction_distribution);
         pieFiles = [{ attachment: pie, name: 'faction_distribution.png' }];

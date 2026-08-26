@@ -1,14 +1,14 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { ra3StatsService } from '../../services/ra3-stats.service';
-import { guildRepository } from '../../repositories/guild.repository';
-import { chartTrackingNote, generateBarChart } from '../../utils/charts';
+import { generateBarChart } from '../../utils/charts';
 import { StatsView } from './stats.view';
 import { logger } from '../../utils/logger';
+import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
   .setName('stats')
-  .setDescription('Show live RA3 community stats with interactive pages')
+  .setDescription('Show live community stats for this server game')
   .addIntegerOption((opt) =>
     opt
       .setName('matches')
@@ -24,17 +24,11 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   // Ephemeral: stats are for the person who asked. Content is identical to
   // the shared channel panel (same embed, same charts attached below).
   await interaction.deferReply({ ephemeral: true });
-  const stats = await ra3StatsService.fetch();
-  const view = new StatsView(stats);
+  const context = getGameContext(interaction.guildId);
+  const stats = await ra3StatsService.fetch(context.game, context.sources);
+  const view = new StatsView(stats, context.game, context.sources);
   const matchCount = interaction.options.getInteger('matches');
   if (matchCount) view.setRecentMatchCount(matchCount);
-  // KW/GenEvo servers hide the RA3BattleNet sections (C&C Online only).
-  let showRa3b = true;
-  if (interaction.guildId) {
-    const guildData = guildRepository.findByDiscordId(interaction.guildId);
-    showRa3b = (guildData?.game ?? 'ra3') === 'ra3';
-    view.setShowRa3b(showRa3b);
-  }
 
   // Embed first, charts in a follow-up message BELOW it (attachments would
   // render above the embed inside a single message).
@@ -44,45 +38,45 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   });
 
   const files: Array<{ attachment: Buffer; name: string }> = [];
-  try {
-    files.push({
-      attachment: await generateBarChart(
-        stats.online_last_24h,
-        'Online Players (Last 24 Hours)',
-        'Reds_r',
-        chartTrackingNote(stats.history_started_at),
-      ),
-      name: 'online_players_last_24_hours.png',
-    });
-  } catch (err) {
-    logger.error('24h bar chart failed:', err);
-  }
-  try {
-    files.push({
-      attachment: await generateBarChart(
-        stats.new_players_last_30d,
-        'New Players (Last 30 Days)',
-        'Blues_r',
-        chartTrackingNote(stats.new_player_tracking_started_at),
-      ),
-      name: 'new_players_last_30_days.png',
-    });
-  } catch (err) {
-    logger.error('30d new players chart failed:', err);
-  }
-  try {
-    files.push({
-      attachment: await generateBarChart(
-        stats.online_last_30d,
-        'Online Players (Last 30 Days)',
-        'YlOrBr_r',
-        chartTrackingNote(stats.history_started_at),
-      ),
-      name: 'online_players_last_30_days.png',
-    });
-  } catch (err) {
-    logger.error('30d online chart failed:', err);
-  }
+  if (context.sources.cncOnline || context.sources.ra3BattleNet)
+    try {
+      files.push({
+        attachment: await generateBarChart(
+          stats.online_last_24h,
+          'Online Players (Last 24 Hours)',
+          'Reds_r',
+        ),
+        name: 'online_players_last_24_hours.png',
+      });
+    } catch (err) {
+      logger.error('24h bar chart failed:', err);
+    }
+  if (context.game === 'ra3' && context.sources.ra3BattleNet)
+    try {
+      files.push({
+        attachment: await generateBarChart(
+          stats.new_players_last_30d,
+          'New Players (Last 30 Days)',
+          'Blues_r',
+        ),
+        name: 'new_players_last_30_days.png',
+      });
+    } catch (err) {
+      logger.error('30d new players chart failed:', err);
+    }
+  if (context.sources.cncOnline || context.sources.ra3BattleNet)
+    try {
+      files.push({
+        attachment: await generateBarChart(
+          stats.online_last_30d,
+          'Online Players (Last 30 Days)',
+          'YlOrBr_r',
+        ),
+        name: 'online_players_last_30_days.png',
+      });
+    } catch (err) {
+      logger.error('30d online chart failed:', err);
+    }
   // One chart per message, below the embed — grouped image attachments get
   // cropped into a gallery, which looked bad.
   for (const file of files) {

@@ -1,9 +1,4 @@
-import {
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-} from 'discord.js';
+import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import {
   challongeService,
   ChallongeMatch,
@@ -13,6 +8,7 @@ import { tournamentRepository } from '../../repositories/tournament.repository';
 import { parseForumTopics, RESULTS_FORUM_URL } from '../../services/tournament-scanner.service';
 import { safeGetText } from '../../utils/safe-fetch';
 import { editionsCompatible } from '../../services/forum-scanner.service';
+import { GameId, matchesGameContent } from '../../config/games';
 
 /**
  * Shared renderer for the /results browser (also used by the Results button
@@ -30,12 +26,9 @@ import { editionsCompatible } from '../../services/forum-scanner.service';
  * these brackets (e.g. "Generals Evolution tournament 2v2"); GenEvo servers
  * keep ONLY these.
  */
-const OTHER_GAME_TITLES = /generals evolution|genevo|gen evo|kane'?s wrath|tiberi\w*|c&c ?3|zero hour/i;
-
 /** True when an event title belongs to the guild's selected game scene. */
-export function matchesGuildGame(title: string, game: string): boolean {
-  if (game === 'genevo') return OTHER_GAME_TITLES.test(title) || /genevo/i.test(title);
-  return !OTHER_GAME_TITLES.test(title);
+export function matchesGuildGame(title: string, game: GameId): boolean {
+  return matchesGameContent(title, game);
 }
 
 export interface ResultsEntry {
@@ -70,10 +63,7 @@ export function aggregateSeriesScore(scoresCsv?: string): [number, number] | nul
   return [left, right];
 }
 
-export function formatCompletedMatch(
-  match: ChallongeMatch,
-  names: Record<number, string>,
-): string {
+export function formatCompletedMatch(match: ChallongeMatch, names: Record<number, string>): string {
   const player1 = names[match.player1Id ?? 0] || 'TBD';
   const player2 = names[match.player2Id ?? 0] || 'TBD';
   const score = aggregateSeriesScore(match.scoresCsv);
@@ -96,7 +86,8 @@ export function deriveStandingsFromMatches(
   );
   if (complete.length === 0) return [];
   const final = [...complete].sort(
-    (a, b) => (b.round ?? Number.MIN_SAFE_INTEGER) - (a.round ?? Number.MIN_SAFE_INTEGER) || b.id - a.id,
+    (a, b) =>
+      (b.round ?? Number.MIN_SAFE_INTEGER) - (a.round ?? Number.MIN_SAFE_INTEGER) || b.id - a.id,
   )[0];
   const championId = final.winnerId!;
   const runnerUpId = final.player1Id === championId ? final.player2Id! : final.player1Id!;
@@ -132,7 +123,7 @@ async function fetchForumHtml(): Promise<string | undefined> {
   return safeGetText(RESULTS_FORUM_URL);
 }
 
-function forumEntries(topics: Array<{ title: string; url: string }>, game: string): ResultsEntry[] {
+function forumEntries(topics: Array<{ title: string; url: string }>, game: GameId): ResultsEntry[] {
   return topics
     .filter((t) => /brackets?|results?|replays?/i.test(t.title))
     .filter((t) => matchesGuildGame(t.title, game))
@@ -147,16 +138,15 @@ function forumEntries(topics: Array<{ title: string; url: string }>, game: strin
 
 /**
  * Discovered event brackets first (real standings); forum threads otherwise.
- * `game` ('ra3' | 'kw' | 'genevo') keeps other games' brackets out. Events
+ * The game argument keeps each server's brackets isolated. Events
  * running SEVERAL brackets (group stage + playoffs, per-server qualifiers)
  * get one entry per bracket — negative entry ids address the extra brackets
  * by their tournament_brackets row id; the primary bracket keeps the event id
  * (that's what the event card's Results button links to).
  */
-export async function fetchResultsList(game = 'ra3'): Promise<ResultsList> {
+export async function fetchResultsList(game: GameId = 'ra3'): Promise<ResultsList> {
   const challongeEntries: ResultsEntry[] = [];
-  for (const a of tournamentRepository.getAnnouncements()) {
-    if (!matchesGuildGame(a.title, game)) continue;
+  for (const a of tournamentRepository.getAnnouncements(game)) {
     const brackets = tournamentRepository.getBrackets(a.id);
     const seen = new Set<string>();
     for (const bracket of brackets) {
@@ -199,6 +189,7 @@ export async function fetchResultsList(game = 'ra3'): Promise<ResultsList> {
     return { source: 'challonge', entries: challongeEntries.reverse() };
   }
 
+  if (game === 'genevo') return { source: 'forum', entries: [] };
   const html = await fetchForumHtml();
   if (!html) return { source: 'forum', entries: [] };
   return { source: 'forum', entries: forumEntries(parseForumTopics(html), game) };
@@ -269,7 +260,8 @@ export async function renderResultsPage(
     const rankings =
       storedRankings.length > 0
         ? storedRankings
-        : bracketEnded || (matches.length > 0 && matches.every((match) => match.state === 'complete'))
+        : bracketEnded ||
+            (matches.length > 0 && matches.every((match) => match.state === 'complete'))
           ? deriveStandingsFromMatches(participants, matches)
           : [];
 
@@ -279,7 +271,10 @@ export async function renderResultsPage(
       // Bracket in progress: show the latest completed scores.
       const names: Record<number, string> = {};
       for (const p of participants) names[p.id] = p.name;
-      const done = matches.filter((m) => m.state === 'complete').slice(-5).reverse();
+      const done = matches
+        .filter((m) => m.state === 'complete')
+        .slice(-5)
+        .reverse();
       if (done.length > 0) {
         embed.addFields({
           name: 'Recent Matches',
@@ -309,10 +304,7 @@ export async function renderResultsPage(
       .setCustomId(`resultspg_prev_${entry.id}`)
       .setLabel('◀ Previous')
       .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setLabel('Open')
-      .setStyle(ButtonStyle.Link)
-      .setURL(entry.url),
+    new ButtonBuilder().setLabel('Open').setStyle(ButtonStyle.Link).setURL(entry.url),
     new ButtonBuilder()
       .setCustomId(`resultspg_next_${entry.id}`)
       .setLabel('Next ▶')

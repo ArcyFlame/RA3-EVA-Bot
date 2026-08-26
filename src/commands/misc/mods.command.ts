@@ -10,10 +10,11 @@ import { RA3Bot } from '../../bot';
 import { moddbNotifier } from '../../services/moddb-notifier.service';
 import { MODDB } from '../../utils/emojis';
 import { logger } from '../../utils/logger';
+import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
   .setName('mods')
-  .setDescription('Newest RA3 mod updates and articles from ModDB')
+  .setDescription('Newest ModDB updates for this server game')
   .addIntegerOption((opt) =>
     opt
       .setName('limit')
@@ -28,17 +29,19 @@ export const guildOnly = false;
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   await interaction.deferReply({ ephemeral: true });
   const limit = interaction.options.getInteger('limit') ?? 8;
+  const context = getGameContext(interaction.guildId);
 
   try {
-    const items = await moddbNotifier.fetchLatestRa3Items(limit);
+    const items = await moddbNotifier.fetchLatestItems(context.game, limit);
     if (items.length === 0) {
       await interaction.editReply('Could not fetch ModDB right now - try again in a minute.');
       return;
     }
 
     const embed = new EmbedBuilder()
-      .setTitle(`${MODDB} Latest RA3 Articles on ModDB`)
-      .setColor(0xff6600)
+      .setTitle(`${MODDB} Latest ${context.config.shortLabel} Updates on ModDB`)
+      .setColor(context.config.color)
+      .setThumbnail(context.config.artworkUrl)
       .setAuthor({ name: 'ModDB', iconURL: 'https://www.moddb.com/favicon.ico' })
       .setDescription(
         items
@@ -52,18 +55,18 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
           .join('\n')
           .slice(0, 4000),
       )
-      .setFooter({ text: 'Source: ModDB RA3 Articles • newest first' })
+      .setFooter({ text: `Source: ModDB ${context.config.shortLabel} • newest first` })
       .setTimestamp();
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setLabel('All RA3 Articles')
+        .setLabel('All Articles')
         .setStyle(ButtonStyle.Link)
-        .setURL('https://www.moddb.com/games/cc-red-alert-3/articles'),
+        .setURL(context.config.moddbArticlesUrl),
       new ButtonBuilder()
-        .setLabel('All RA3 Mods')
+        .setLabel(context.game === 'ra3' ? 'All RA3 Mods' : 'Downloads & Addons')
         .setStyle(ButtonStyle.Link)
-        .setURL('https://www.moddb.com/games/cc-red-alert-3/mods'),
+        .setURL(context.config.moddbModsUrl),
     );
     await interaction.editReply({ embeds: [embed], components: [row] });
   } catch (error) {

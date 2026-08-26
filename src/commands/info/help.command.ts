@@ -1,9 +1,15 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, ComponentType, PermissionFlagsBits } from 'discord.js';
+import {
+  SlashCommandBuilder,
+  ChatInputCommandInteraction,
+  ComponentType,
+  PermissionFlagsBits,
+} from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { isAdmin } from '../../utils/permissions';
 import { resolveMember } from '../../utils/members';
 import { guildRepository } from '../../repositories/guild.repository';
 import { HelpView } from './help.view';
+import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
   .setName('help')
@@ -27,7 +33,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   const hidden = interaction.guild
     ? guildRepository.getHiddenHelpCategories(interaction.guild.id)
     : [];
-  const view = new HelpView(staff, undefined, hidden);
+  const view = new HelpView(staff, undefined, hidden, getGameContext(interaction.guildId).game);
   const reply = await interaction.reply({
     embeds: [view.getEmbed()],
     components: view.getComponents(),

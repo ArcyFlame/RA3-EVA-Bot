@@ -7,18 +7,38 @@ import {
   ButtonStyle,
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
+import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
   .setName('replays')
-  .setDescription('Browse RA3 replays on GameReplays');
+  .setDescription('Browse replay resources for this server game');
 
 export const guildOnly = false;
 
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
+  const context = getGameContext(interaction.guildId);
+  if (context.game === 'genevo') {
+    const embed = new EmbedBuilder()
+      .setTitle('🎮 Generals Evolution Replays')
+      .setDescription(
+        'Generals Evolution does not have a dedicated GameReplays replay index. Check the official project page and current tournament posts for replay packs.',
+      )
+      .setColor(context.config.color)
+      .setThumbnail(context.config.artworkUrl);
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setLabel('Official GenEvo Page')
+        .setStyle(ButtonStyle.Link)
+        .setURL(context.config.tournamentFallbackUrl),
+    );
+    await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+    return;
+  }
   const embed = new EmbedBuilder()
     .setTitle('🎮 RA3 Replays')
     .setDescription('Click the buttons below to browse replays on GameReplays.')
-    .setColor(0x00ae86);
+    .setColor(context.config.color)
+    .setThumbnail(context.config.artworkUrl);
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setLabel('Popular Replays')

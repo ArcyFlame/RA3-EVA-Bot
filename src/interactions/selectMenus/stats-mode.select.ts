@@ -3,6 +3,7 @@ import { RA3Bot } from '../../bot';
 import { ra3StatsService } from '../../services/ra3-stats.service';
 import { StatsView, STATS_MODES, StatsMode } from '../../commands/stats/stats.view';
 import { logger } from '../../utils/logger';
+import { getGameContext } from '../../utils/game-context';
 
 const processing = new Map<string, boolean>();
 
@@ -26,8 +27,9 @@ export async function execute(_bot: RA3Bot, interaction: StringSelectMenuInterac
   processing.set(messageId, true);
 
   try {
-    const stats = await ra3StatsService.fetch();
-    const view = new StatsView(stats);
+    const context = getGameContext(interaction.guildId);
+    const stats = await ra3StatsService.fetch(context.game, context.sources);
+    const view = new StatsView(stats, context.game, context.sources);
     view.setPage(2);
     view.setMode(mode as StatsMode);
     await interaction.deferUpdate();

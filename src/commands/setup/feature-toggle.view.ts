@@ -8,6 +8,7 @@ import {
 } from 'discord.js';
 import { appSettingsRepository } from '../../repositories/app-settings.repository';
 import { Guild, guildRepository } from '../../repositories/guild.repository';
+import { GameId } from '../../config/games';
 
 export type FeatureKey =
   | 'clans'
@@ -21,6 +22,8 @@ export type FeatureKey =
   | 'statsAutoUpdate'
   | 'welcome'
   | 'news'
+  | 'cncOnline'
+  | 'ra3BattleNet'
   | 'menusMode'
   | 'dmPublicCommands';
 
@@ -30,22 +33,115 @@ interface FeatureDefinition {
   emoji: string;
   description: string;
   enabled: (guild: Guild) => boolean;
+  games?: GameId[];
 }
 
 export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
-  { key: 'clans', label: 'Clans', emoji: '👥', description: 'Clan creation and management', enabled: (g) => g.clansEnabled === 1 },
-  { key: 'tournaments', label: 'Tournaments', emoji: '🏆', description: 'Tournament browsing and tools', enabled: (g) => g.tournamentsEnabled === 1 },
-  { key: 'profiles', label: 'Profiles', emoji: '👤', description: 'Linked player profiles and ranks', enabled: (g) => g.profilesEnabled === 1 },
-  { key: 'twitchNotifier', label: 'Twitch notifier', emoji: '📺', description: 'Twitch live announcements', enabled: (g) => g.twitchNotifierEnabled === 1 },
-  { key: 'youtubeNotifier', label: 'YouTube notifier', emoji: '🎬', description: 'YouTube video announcements', enabled: (g) => g.youtubeNotifierEnabled === 1 },
-  { key: 'moddbNotifier', label: 'ModDB updates', emoji: '📦', description: 'Recent RA3 ModDB posts', enabled: (g) => g.moddbNotifierEnabled === 1 },
-  { key: 'moderation', label: 'Moderation', emoji: '🔨', description: 'Moderation commands', enabled: (g) => g.moderationEnabled === 1 },
-  { key: 'lobby', label: 'Lobby tracker', emoji: '🎮', description: 'Online lobby tracking', enabled: (g) => g.lobbyEnabled === 1 },
-  { key: 'statsAutoUpdate', label: 'Stats auto-update', emoji: '📊', description: 'Scheduled stats panels', enabled: (g) => g.statsAutoUpdateEnabled === 1 },
-  { key: 'welcome', label: 'Welcome messages', emoji: '👋', description: 'Messages for new server members', enabled: (g) => g.welcomeEnabled === 1 },
-  { key: 'news', label: 'RA3 news', emoji: '📰', description: 'GameReplays news announcements', enabled: (g) => g.newsEnabled === 1 },
-  { key: 'menusMode', label: 'Interactive menus', emoji: '🎛️', description: 'Use buttons and menus where available', enabled: (g) => g.menusEnabled === 1 },
-  { key: 'dmPublicCommands', label: 'Public commands in DMs', emoji: '✉️', description: 'Allow safe public commands in bot DMs', enabled: () => appSettingsRepository.isDmPublicCommandsEnabled() },
+  {
+    key: 'clans',
+    label: 'Clans',
+    emoji: '👥',
+    description: 'Clan creation and management',
+    enabled: (g) => g.clansEnabled === 1,
+  },
+  {
+    key: 'tournaments',
+    label: 'Tournament & referee tools',
+    emoji: '🏆',
+    description: 'Tournament browsing, check-ins, map picks and score reports',
+    enabled: (g) => g.tournamentsEnabled === 1,
+  },
+  {
+    key: 'profiles',
+    label: 'Profiles',
+    emoji: '👤',
+    description: 'Linked player profiles and ranks',
+    enabled: (g) => g.profilesEnabled === 1,
+  },
+  {
+    key: 'twitchNotifier',
+    label: 'Twitch notifier',
+    emoji: '📺',
+    description: 'Twitch live announcements',
+    enabled: (g) => g.twitchNotifierEnabled === 1,
+  },
+  {
+    key: 'youtubeNotifier',
+    label: 'YouTube notifier',
+    emoji: '🎬',
+    description: 'YouTube video announcements',
+    enabled: (g) => g.youtubeNotifierEnabled === 1,
+  },
+  {
+    key: 'moddbNotifier',
+    label: 'ModDB updates',
+    emoji: '📦',
+    description: 'Recent updates for the selected game',
+    enabled: (g) => g.moddbNotifierEnabled === 1,
+  },
+  {
+    key: 'moderation',
+    label: 'Moderation',
+    emoji: '🔨',
+    description: 'Moderation commands',
+    enabled: (g) => g.moderationEnabled === 1,
+  },
+  {
+    key: 'lobby',
+    label: 'Lobby tracker',
+    emoji: '🎮',
+    description: 'Online lobby tracking',
+    enabled: (g) => g.lobbyEnabled === 1,
+  },
+  {
+    key: 'statsAutoUpdate',
+    label: 'Stats auto-update',
+    emoji: '📊',
+    description: 'Scheduled stats panels',
+    enabled: (g) => g.statsAutoUpdateEnabled === 1,
+  },
+  {
+    key: 'welcome',
+    label: 'Welcome messages',
+    emoji: '👋',
+    description: 'Messages for new server members',
+    enabled: (g) => g.welcomeEnabled === 1,
+  },
+  {
+    key: 'news',
+    label: 'Game news',
+    emoji: '📰',
+    description: 'News for the selected game',
+    enabled: (g) => g.newsEnabled === 1,
+  },
+  {
+    key: 'cncOnline',
+    label: 'C&C Online',
+    emoji: '🌐',
+    description: 'C&C Online lobbies, players and presence',
+    enabled: (g) => g.cncOnlineEnabled === 1,
+  },
+  {
+    key: 'ra3BattleNet',
+    label: 'RA3BattleNet',
+    emoji: '🔻',
+    description: 'RA3BattleNet lobbies, ladder and presence',
+    enabled: (g) => g.ra3BattleNetEnabled === 1,
+  },
+  {
+    key: 'menusMode',
+    label: 'Interactive menus',
+    emoji: '🎛️',
+    description: 'Use buttons and menus where available',
+    enabled: (g) => g.menusEnabled === 1,
+  },
+  {
+    key: 'dmPublicCommands',
+    label: 'Public commands in DMs',
+    emoji: '✉️',
+    description: 'Allow safe public commands in bot DMs',
+    enabled: () => appSettingsRepository.isDmPublicCommandsEnabled(),
+  },
 ];
 
 const GUILD_FEATURE_KEYS = new Set<FeatureKey>([
@@ -60,6 +156,8 @@ const GUILD_FEATURE_KEYS = new Set<FeatureKey>([
   'statsAutoUpdate',
   'welcome',
   'news',
+  'cncOnline',
+  'ra3BattleNet',
 ]);
 
 export function isFeatureKey(value: string): value is FeatureKey {
@@ -94,12 +192,15 @@ export function buildFeatureToggleView(
   if (!guild) throw new Error('Guild settings are not initialized.');
 
   const available = FEATURE_DEFINITIONS.filter(
-    (feature) => includeGlobal || feature.key !== 'dmPublicCommands',
+    (feature) =>
+      (includeGlobal || feature.key !== 'dmPublicCommands') &&
+      (!feature.games || feature.games.includes(guild.game)),
   );
   const active = available.find((feature) => feature.key === selected) ?? available[0];
   const enabled = active.enabled(guild);
   const statusLines = available.map(
-    (feature) => `${feature.emoji} **${feature.label}:** ${feature.enabled(guild) ? 'Enabled' : 'Disabled'}`,
+    (feature) =>
+      `${feature.emoji} **${feature.label}:** ${feature.enabled(guild) ? 'Enabled' : 'Disabled'}`,
   );
 
   const embed = new EmbedBuilder()

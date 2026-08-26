@@ -55,6 +55,12 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     case 'news':
       current = guildData?.newsEnabled === 1;
       break;
+    case 'cncOnline':
+      current = guildData?.cncOnlineEnabled === 1;
+      break;
+    case 'ra3BattleNet':
+      current = guildData?.ra3BattleNetEnabled === 1;
+      break;
     default:
       await interaction.reply({ content: 'Unknown feature.', ephemeral: true });
       return;

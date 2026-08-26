@@ -1,13 +1,10 @@
-import {
-  ChatInputCommandInteraction,
-  PermissionFlagsBits,
-  SlashCommandBuilder,
-} from 'discord.js';
+import { ChatInputCommandInteraction, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { userRepository } from '../../repositories/user.repository';
 import { buildDiscordProfileEmbed } from '../profile/profile.command';
 import { denyUnlessAdmin } from '../../utils/permissions';
 import { resolveMember } from '../../utils/members';
+import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
   .setName('profile_admin')
@@ -66,7 +63,11 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   const target = interaction.options.getUser('user', true);
   if (action === 'view') {
     await interaction.deferReply({ ephemeral: true });
-    const embed = await buildDiscordProfileEmbed(target, userRepository.getLanguage(target.id));
+    const embed = await buildDiscordProfileEmbed(
+      target,
+      userRepository.getLanguage(target.id),
+      getGameContext(interaction.guildId).game,
+    );
     await interaction.editReply({ embeds: [embed] });
     return;
   }

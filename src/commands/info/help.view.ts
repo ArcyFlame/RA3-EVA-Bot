@@ -14,6 +14,7 @@ import {
   buildAdminEmbed,
   buildModerationEmbed,
 } from './help.embeds';
+import { GameId } from '../../config/games';
 
 export class HelpView {
   private embed: EmbedBuilder;
@@ -21,10 +22,17 @@ export class HelpView {
   private isAdmin: boolean;
   private mainEmbed: EmbedBuilder;
   private hidden: Set<string>;
+  private game: GameId;
 
-  constructor(isAdmin: boolean, mainEmbed?: EmbedBuilder, hidden: string[] = []) {
+  constructor(
+    isAdmin: boolean,
+    mainEmbed?: EmbedBuilder,
+    hidden: string[] = [],
+    game: GameId = 'ra3',
+  ) {
     this.isAdmin = isAdmin;
-    this.mainEmbed = mainEmbed ?? buildMainEmbed();
+    this.game = game;
+    this.mainEmbed = mainEmbed ?? buildMainEmbed(game);
     this.embed = this.mainEmbed;
     this.hidden = new Set(hidden);
     this.components = this.buildComponents();
@@ -91,19 +99,19 @@ export class HelpView {
         newEmbed = this.mainEmbed;
         break;
       case 'tournaments':
-        newEmbed = buildTournamentsEmbed();
+        newEmbed = buildTournamentsEmbed(this.game);
         break;
       case 'community':
-        newEmbed = buildCommunityEmbed();
+        newEmbed = buildCommunityEmbed(this.game);
         break;
       case 'profile':
-        newEmbed = buildProfileEmbed();
+        newEmbed = buildProfileEmbed(this.game);
         break;
       case 'info':
-        newEmbed = buildInfoEmbed();
+        newEmbed = buildInfoEmbed(this.game);
         break;
       case 'admin':
-        newEmbed = buildAdminEmbed();
+        newEmbed = buildAdminEmbed(this.game);
         break;
       case 'moderation':
         newEmbed = buildModerationEmbed();

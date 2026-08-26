@@ -1,20 +1,9 @@
-import {
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-} from 'discord.js';
+import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { tournamentRepository } from '../../repositories/tournament.repository';
-import {
-  isTournamentRelevant,
-  parsePortalDate,
-} from '../../services/tournament-scanner.service';
+import { parsePortalDate } from '../../services/tournament-scanner.service';
 import { truncateSentences } from '../../utils/text';
-import {
-  ESPORTS_FALLBACK_URL,
-  resolveTournamentStatus,
-  tournamentStatusLabel,
-} from '../../utils/tournament-status';
+import { resolveTournamentStatus, tournamentStatusLabel } from '../../utils/tournament-status';
+import { GameId, GAME_CONFIGS } from '../../config/games';
 
 /**
  * Shared renderer for the interactive tournament browser used by /events,
@@ -23,16 +12,13 @@ import {
  * so buttons keep working on any message (channel or ephemeral).
  */
 
-/** Sorted announcement list (newest first), RA3-relevant only. */
-export function getSortedAnnouncements() {
-  return tournamentRepository
-    .getAnnouncements()
-    .filter((a) => isTournamentRelevant(a.title))
-    .sort((a, b) => {
-      const ta = parsePortalDate(a.startDate ?? '') ?? 0;
-      const tb = parsePortalDate(b.startDate ?? '') ?? 0;
-      return tb - ta;
-    });
+/** Sorted announcement list (newest first) for one configured game. */
+export function getSortedAnnouncements(game: GameId = 'ra3') {
+  return tournamentRepository.getAnnouncements(game).sort((a, b) => {
+    const ta = parsePortalDate(a.startDate ?? '') ?? 0;
+    const tb = parsePortalDate(b.startDate ?? '') ?? 0;
+    return tb - ta;
+  });
 }
 
 /**
@@ -46,14 +32,17 @@ export function isEventEnded(startDate: string | null | undefined): boolean {
 /** Renders the event embed shared by /events pages and channel cards. */
 function renderEventEmbed(
   eventId: number,
-  announcements = getSortedAnnouncements(),
+  announcements?: ReturnType<typeof getSortedAnnouncements>,
 ): { embed: EmbedBuilder; index: number; actionUrl: string; isActive: boolean } | null {
+  const detail = tournamentRepository.getEventDetail(eventId);
+  if (!detail) return null;
+  const config = GAME_CONFIGS[detail.game];
+  announcements ??= getSortedAnnouncements(detail.game);
   const index = announcements.findIndex((a) => a.id === eventId);
   if (index === -1) return null;
   const a = announcements[index];
 
   // Full detail (format / prize / map pool / links) comes from the event record.
-  const detail = tournamentRepository.getEventDetail(a.id);
   const registrationUrl = detail?.registrationUrl ?? a.signUpUrl ?? undefined;
   const status = resolveTournamentStatus({
     storedStatus: detail?.status,
@@ -62,19 +51,24 @@ function renderEventEmbed(
     checkinsUrl: detail?.checkinsUrl,
   });
   const isActive = status !== 'ended';
-  const actionUrl = registrationUrl ?? detail?.topicUrl ?? a.eventUrl ?? ESPORTS_FALLBACK_URL;
+  const actionUrl =
+    registrationUrl ?? detail?.topicUrl ?? a.eventUrl ?? config.tournamentFallbackUrl;
 
   // Short description: full sentences only, never cut mid-word.
-  const shortDesc = truncateSentences(a.description || 'A Red Alert 3 tournament announcement.', 220);
+  const shortDesc = truncateSentences(
+    a.description || `A ${config.shortLabel} tournament announcement.`,
+    220,
+  );
 
   const embed = new EmbedBuilder()
     .setTitle(`🏆 ${a.title}`)
     .setDescription(shortDesc)
     .setURL(a.eventUrl)
-    .setColor(isActive ? 0x57f287 : 0xed4245);
+    .setColor(isActive ? config.color : 0xed4245)
+    .setThumbnail(config.artworkUrl);
   const validPrize =
     detail?.prizePool &&
-    (/\d/.test(detail.prizePool) && /[$€£]|USD/i.test(detail.prizePool) ||
+    ((/\d/.test(detail.prizePool) && /[$€£]|USD/i.test(detail.prizePool)) ||
       /^sponsored by/i.test(detail.prizePool.trim()))
       ? detail.prizePool.slice(0, 100)
       : 'Not announced';
@@ -105,21 +99,17 @@ function renderEventEmbed(
       inline: false,
     },
   );
-  embed.setFooter({ text: `RA3 Esports • GameReplays.org • ${index + 1}/${announcements.length}` });
+  embed.setFooter({ text: `${config.shortLabel} Esports • ${index + 1}/${announcements.length}` });
   return { embed, index, actionUrl, isActive };
 }
 
 /** The action button every event view shares (Sign Up while open, Results after). */
-function actionButton(
-  eventId: number,
-  actionUrl: string,
-  isActive: boolean,
-): ButtonBuilder {
+function actionButton(eventId: number, actionUrl: string, isActive: boolean): ButtonBuilder {
   if (isActive) {
     return new ButtonBuilder()
       .setLabel('Join / Register')
       .setStyle(ButtonStyle.Link)
-      .setURL(actionUrl || ESPORTS_FALLBACK_URL);
+      .setURL(actionUrl);
   }
   return new ButtonBuilder()
     .setCustomId(`eventpg_results_${eventId}`)
@@ -146,7 +136,7 @@ export function renderEventCard(
 /** Renders one event page (embed + nav/sign-up/results buttons for /events). */
 export function renderEventPage(
   eventId: number,
-  announcements = getSortedAnnouncements(),
+  announcements?: ReturnType<typeof getSortedAnnouncements>,
 ): { embeds: [EmbedBuilder]; components: [ActionRowBuilder<ButtonBuilder>] } | null {
   const rendered = renderEventEmbed(eventId, announcements);
   if (!rendered) return null;

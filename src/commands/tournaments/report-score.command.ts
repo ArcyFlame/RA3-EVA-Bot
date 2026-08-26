@@ -11,14 +11,31 @@ import {
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { guildRepository } from '../../repositories/guild.repository';
-import { tournamentRepository, TournamentParticipant } from '../../repositories/tournament.repository';
+import {
+  tournamentRepository,
+  TournamentParticipant,
+} from '../../repositories/tournament.repository';
 import { userRepository } from '../../repositories/user.repository';
 import { challongeService } from '../../services/challonge.service';
 import { getCurrentTournament } from '../../services/tournament-context.service';
-import { ESPORTS_FALLBACK_URL } from '../../utils/tournament-status';
+import { GameId, GAME_CONFIGS } from '../../config/games';
 
 const FACTION_MATCHUPS = ['SvS', 'SvA', 'SvE', 'AvS', 'AvA', 'AvE', 'EvS', 'EvA', 'EvE'];
-const COMMON_SCORES = ['1-0', '0-1', '2-0', '2-1', '1-2', '0-2', '3-0', '3-1', '3-2', '2-3', '1-3', '0-3'];
+const GENEVO_FACTION_MATCHUPS = ['UvU', 'UvC', 'UvG', 'CvU', 'CvC', 'CvG', 'GvU', 'GvC', 'GvG'];
+const COMMON_SCORES = [
+  '1-0',
+  '0-1',
+  '2-0',
+  '2-1',
+  '1-2',
+  '0-2',
+  '3-0',
+  '3-1',
+  '3-2',
+  '2-3',
+  '1-3',
+  '0-3',
+];
 
 export const data = new SlashCommandBuilder()
   .setName('report_score')
@@ -30,11 +47,13 @@ export const data = new SlashCommandBuilder()
       .setAutocomplete(true)
       .setRequired(true),
   )
-  .addStringOption((option) => {
-    option.setName('factions').setDescription('Your faction vs opponent faction').setRequired(true);
-    for (const matchup of FACTION_MATCHUPS) option.addChoices({ name: matchup, value: matchup });
-    return option;
-  })
+  .addStringOption((option) =>
+    option
+      .setName('factions')
+      .setDescription('Faction matchup: RA3 S/A/E or GenEvo U/C/G')
+      .setAutocomplete(true)
+      .setRequired(true),
+  )
   .addStringOption((option) =>
     option
       .setName('score')
@@ -43,7 +62,7 @@ export const data = new SlashCommandBuilder()
       .setRequired(true),
   );
 
-function gameFor(guildId: string | null): string {
+function gameFor(guildId: string | null): GameId {
   if (!guildId) return 'ra3';
   return guildRepository.findByDiscordId(guildId)?.game ?? 'ra3';
 }
@@ -57,9 +76,22 @@ function checkedOpponents(eventId: number, userId: string): TournamentParticipan
 export async function autocomplete(_bot: RA3Bot, interaction: AutocompleteInteraction) {
   const focused = interaction.options.getFocused(true);
   const query = String(focused.value ?? '').toLowerCase();
+  if (focused.name === 'factions') {
+    const matchups =
+      gameFor(interaction.guildId) === 'genevo' ? GENEVO_FACTION_MATCHUPS : FACTION_MATCHUPS;
+    await interaction.respond(
+      matchups
+        .filter((matchup) => matchup.toLowerCase().includes(query))
+        .map((matchup) => ({ name: matchup, value: matchup })),
+    );
+    return;
+  }
   if (focused.name === 'score') {
     await interaction.respond(
-      COMMON_SCORES.filter((score) => score.startsWith(query)).map((score) => ({ name: score, value: score })),
+      COMMON_SCORES.filter((score) => score.startsWith(query)).map((score) => ({
+        name: score,
+        value: score,
+      })),
     );
     return;
   }
@@ -107,12 +139,18 @@ function resolveReporter(
 
 export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) {
-    await interaction.reply({ content: 'Score reporting is available inside a server.', ephemeral: true });
+    await interaction.reply({
+      content: 'Score reporting is available inside a server.',
+      ephemeral: true,
+    });
     return;
   }
   const guildData = guildRepository.findByDiscordId(interaction.guild.id);
   if (guildData?.tournamentsEnabled === 0) {
-    await interaction.reply({ content: '❌ Tournaments are disabled on this server.', ephemeral: true });
+    await interaction.reply({
+      content: '❌ Tournaments are disabled on this server.',
+      ephemeral: true,
+    });
     return;
   }
 
@@ -122,7 +160,10 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
       content: 'I could not identify a current tournament.',
       components: [
         new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder().setLabel('View RA3 Tournaments').setStyle(ButtonStyle.Link).setURL(ESPORTS_FALLBACK_URL),
+          new ButtonBuilder()
+            .setLabel(`View ${GAME_CONFIGS[guildData?.game ?? 'ra3'].shortLabel}`)
+            .setStyle(ButtonStyle.Link)
+            .setURL(GAME_CONFIGS[guildData?.game ?? 'ra3'].tournamentFallbackUrl),
         ),
       ],
       ephemeral: true,
@@ -132,7 +173,10 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
 
   const reporter = resolveReporter(event.id, interaction);
   if (!reporter || reporter.checkedIn !== 1) {
-    await interaction.reply({ content: 'Check in for the current tournament before reporting a score.', ephemeral: true });
+    await interaction.reply({
+      content: 'Check in for the current tournament before reporting a score.',
+      ephemeral: true,
+    });
     return;
   }
 
@@ -149,7 +193,9 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
   }
 
   const factions = interaction.options.getString('factions', true);
-  if (!FACTION_MATCHUPS.includes(factions)) {
+  const validFactionMatchups =
+    (guildData?.game ?? 'ra3') === 'genevo' ? GENEVO_FACTION_MATCHUPS : FACTION_MATCHUPS;
+  if (!validFactionMatchups.includes(factions)) {
     await interaction.reply({ content: 'Invalid faction matchup.', ephemeral: true });
     return;
   }
@@ -162,7 +208,10 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
   const player1Score = Number(scoreMatch[1]);
   const player2Score = Number(scoreMatch[2]);
   if (player1Score === player2Score || Math.max(player1Score, player2Score) > 9) {
-    await interaction.reply({ content: 'The reported series must have one winner.', ephemeral: true });
+    await interaction.reply({
+      content: 'The reported series must have one winner.',
+      ephemeral: true,
+    });
     return;
   }
 
@@ -178,8 +227,12 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
       challongeService.getParticipants(challongeRef).catch(() => []),
       challongeService.getMatches(challongeRef).catch(() => []),
     ]);
-    const p1 = participants.find((entry) => entry.name.toLowerCase() === reporter.name.toLowerCase());
-    const p2 = participants.find((entry) => entry.name.toLowerCase() === opponent.name.toLowerCase());
+    const p1 = participants.find(
+      (entry) => entry.name.toLowerCase() === reporter.name.toLowerCase(),
+    );
+    const p2 = participants.find(
+      (entry) => entry.name.toLowerCase() === opponent.name.toLowerCase(),
+    );
     const openMatch =
       p1 && p2
         ? matches.find(
@@ -218,7 +271,9 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
   const embed = new EmbedBuilder()
     .setTitle('⚔️ Tournament score awaiting review')
     .setColor(0xfaa61a)
-    .setDescription(`**${escapeMarkdown(reporter.name)} ${player1Score}–${player2Score} ${escapeMarkdown(opponent.name)}**`)
+    .setDescription(
+      `**${escapeMarkdown(reporter.name)} ${player1Score}–${player2Score} ${escapeMarkdown(opponent.name)}**`,
+    )
     .addFields(
       { name: 'Tournament', value: event.title.slice(0, 1024), inline: false },
       { name: 'Factions', value: factions, inline: true },
@@ -253,12 +308,18 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
   } else if (guildData?.refereeRoleId) {
     const role = interaction.guild.roles.cache.get(guildData.refereeRoleId);
     for (const member of role?.members.values() ?? []) {
-      await member.send(payload).then(() => (delivered = true)).catch(() => null);
+      await member
+        .send(payload)
+        .then(() => (delivered = true))
+        .catch(() => null);
     }
   }
   if (!delivered) {
     const owner = await bot.client.users.fetch(interaction.guild.ownerId).catch(() => null);
-    await owner?.send(payload).then(() => (delivered = true)).catch(() => null);
+    await owner
+      ?.send(payload)
+      .then(() => (delivered = true))
+      .catch(() => null);
   }
 
   await interaction.editReply(

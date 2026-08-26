@@ -6,16 +6,13 @@ import { newsRepository } from '../repositories/news.repository';
 import { guildRepository } from '../repositories/guild.repository';
 import { safeGetText } from '../utils/safe-fetch';
 import { contentDeliveryRepository } from '../repositories/content-delivery.repository';
+import { GameId, GAME_CONFIGS } from '../config/games';
 
 const RA3_PORTAL_URL = 'https://www.gamereplays.org/redalert3/';
 
-/** Older games still use their forum feeds. RA3 uses the maintained portal:
- * its old RSS feed stopped updating years ago. */
-const GAME_NEWS_FEEDS: Record<string, { url: string; filter?: RegExp }> = {
-  kw: { url: 'https://www.gamereplays.org/community/index.php?act=rssout&id=32' },
+const GAME_NEWS_FEEDS: Partial<Record<GameId, { url: string; filter?: RegExp }>> = {
   genevo: {
-    url: 'https://www.gamereplays.org/community/index.php?act=rssout&id=1',
-    filter: /generals evolution|genevo|gen evo/i,
+    url: 'https://rss.moddb.com/mods/command-and-conquer-generals-evolution/articles/feed/rss.xml',
   },
 };
 
@@ -83,13 +80,16 @@ async function fetchFeedItems(url: string, filter?: RegExp): Promise<ParsedNews[
     .map((item: any) => ({
       title: String(item.title || '').trim(),
       url: String(item.link || '').trim(),
-      excerpt: String(item.description || '').replace(/<[^>]+>/g, '').trim().slice(0, 300),
+      excerpt: String(item.description || '')
+        .replace(/<[^>]+>/g, '')
+        .trim()
+        .slice(0, 300),
     }))
     .filter((item: ParsedNews) => item.title && item.url)
     .filter((item: ParsedNews) => (filter ? filter.test(`${item.title} ${item.excerpt}`) : true));
 }
 
-async function fetchGameItems(game: string): Promise<ParsedNews[]> {
+async function fetchGameItems(game: GameId): Promise<ParsedNews[]> {
   if (game === 'ra3') {
     const html = await safeGetText(RA3_PORTAL_URL);
     return html ? parseRa3PortalNews(html) : [];
@@ -125,9 +125,7 @@ export class NewsScannerService {
     this.scanning = true;
     try {
       // Union of feeds for the games any guild actually uses.
-      const games = new Set(
-        guildRepository.getAllGuilds().map((g) => g.game ?? 'ra3'),
-      );
+      const games = new Set(guildRepository.getAllGuilds().map((g) => g.game ?? 'ra3'));
       if (games.size === 0) games.add('ra3');
 
       let newCount = 0;
@@ -137,8 +135,13 @@ export class NewsScannerService {
         // Sources are newest-first. Insert oldest-first so the newest item has
         // the highest local id and /news opens on it.
         for (const item of [...items].reverse()) {
-          if (newsRepository.hasNewsUrl(item.url)) continue;
-          newsRepository.create({ newsUrl: item.url, title: item.title, excerpt: item.excerpt });
+          if (newsRepository.hasNewsUrl(item.url, game)) continue;
+          newsRepository.create({
+            game,
+            newsUrl: item.url,
+            title: item.title,
+            excerpt: item.excerpt,
+          });
           fresh.push(item);
           newCount++;
         }
@@ -159,13 +162,18 @@ export class NewsScannerService {
     }
   }
 
-  private buildEmbed(latest: { title: string; newsUrl?: string; url: string; excerpt?: string }): EmbedBuilder {
+  private buildEmbed(
+    latest: { title: string; newsUrl?: string; url: string; excerpt?: string },
+    game: GameId,
+  ): EmbedBuilder {
     const link = latest.newsUrl || latest.url;
+    const config = GAME_CONFIGS[game];
     return new EmbedBuilder()
       .setTitle(`📰 ${latest.title}`)
       .setURL(link)
-      .setColor(0x5865f2)
-      .setDescription(latest.excerpt?.slice(0, 300) || 'New Red Alert 3 news.');
+      .setColor(config.color)
+      .setThumbnail(config.artworkUrl)
+      .setDescription(latest.excerpt?.slice(0, 300) || `New ${config.shortLabel} news.`);
   }
 
   private async announceItemToGuild(
@@ -182,7 +190,7 @@ export class NewsScannerService {
     if (contentDeliveryRepository.wasDelivered(guildId, 'news', link, channel.id)) return false;
 
     try {
-      await channel.send({ embeds: [this.buildEmbed(latest)] });
+      await channel.send({ embeds: [this.buildEmbed(latest, guildData.game)] });
       contentDeliveryRepository.markDelivered(guildId, 'news', link, channel.id);
       return true;
     } catch (error) {
@@ -197,7 +205,7 @@ export class NewsScannerService {
     let latest: { title: string; newsUrl?: string; url: string; excerpt?: string } | undefined;
     latest = (await fetchGameItems(guildData?.game ?? 'ra3').catch(() => []))[0];
     if (!latest) {
-      const stored = newsRepository.getLatest(1)[0];
+      const stored = newsRepository.getLatest(1, guildData?.game ?? 'ra3')[0];
       if (stored) latest = { ...stored, url: stored.newsUrl };
     }
     return latest ? this.announceItemToGuild(guildId, latest) : false;
@@ -206,7 +214,7 @@ export class NewsScannerService {
   /** Posts one news item to every guild with a bound news channel. */
   private async announceItem(
     latest: { title: string; newsUrl?: string; url: string; excerpt?: string },
-    game: string,
+    game: GameId,
   ): Promise<void> {
     if (!(latest.newsUrl || latest.url)) return;
 

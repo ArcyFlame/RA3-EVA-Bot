@@ -17,22 +17,11 @@ import {
   getCurrentTournament,
   listTournamentContexts,
 } from '../../services/tournament-context.service';
-import { ESPORTS_FALLBACK_URL } from '../../utils/tournament-status';
+import { GameId, GAME_CONFIGS } from '../../config/games';
+import { GENEVO_MAPS, RA3_TOURNAMENT_MAPS } from '../../data/game-maps';
 
 const PATCH_1_12_8_URL = 'https://www.gamereplays.org/community/index.php?showtopic=1083648';
-const DEFAULT_PATCH_MAPS = [
-  'Battlebase Alpha',
-  'Battlebase Delta',
-  'Deep Cold',
-  'Erebor Lament',
-  'Grinderberg',
-  'Isla Pascua',
-  'Lake of Albatross',
-  'Misty Abyss',
-  'Pacific Paradise',
-  'Scorching Sands',
-  'Thermal Tension',
-];
+const DEFAULT_PATCH_MAPS = [...RA3_TOURNAMENT_MAPS];
 
 export const data = new SlashCommandBuilder()
   .setName('pickmap')
@@ -47,7 +36,7 @@ export const data = new SlashCommandBuilder()
 
 export const guildOnly = false;
 
-function gameFor(interaction: ChatInputCommandInteraction | AutocompleteInteraction): string {
+function gameFor(interaction: ChatInputCommandInteraction | AutocompleteInteraction): GameId {
   if (!interaction.guildId) return 'ra3';
   return guildRepository.findByDiscordId(interaction.guildId)?.game ?? 'ra3';
 }
@@ -69,6 +58,7 @@ export async function autocomplete(_bot: RA3Bot, interaction: AutocompleteIntera
 
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   const game = gameFor(interaction);
+  const gameConfig = GAME_CONFIGS[game];
   const eventQuery = interaction.options.getString('event')?.trim();
   const event = eventQuery ? findTournament(eventQuery, game) : getCurrentTournament(game);
 
@@ -78,9 +68,9 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       components: [
         new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
-            .setLabel('View RA3 Tournaments')
+            .setLabel(`View ${gameConfig.shortLabel}`)
             .setStyle(ButtonStyle.Link)
-            .setURL(ESPORTS_FALLBACK_URL),
+            .setURL(gameConfig.tournamentFallbackUrl),
         ),
       ],
       ephemeral: true,
@@ -88,15 +78,18 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     return;
   }
 
-  let maps = DEFAULT_PATCH_MAPS;
+  let maps: string[] = game === 'genevo' ? [...GENEVO_MAPS] : DEFAULT_PATCH_MAPS;
   if (event) {
     maps = (event.maps ?? '')
       .split(/,\s*/)
       .map((map) => map.trim())
-      .filter((map) => map && isKnownSkirmishMap(map));
+      .filter((map) => map && isKnownSkirmishMap(map, game));
     if (maps.length === 0) {
       const detailsUrl =
-        event.registrationUrl ?? event.topicUrl ?? event.eventUrl ?? ESPORTS_FALLBACK_URL;
+        event.registrationUrl ??
+        event.topicUrl ??
+        event.eventUrl ??
+        gameConfig.tournamentFallbackUrl;
       await interaction.reply({
         content:
           `I could not verify the map pool for **${event.title}**. ` +
@@ -118,8 +111,11 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   const map = maps[Math.floor(Math.random() * maps.length)];
   const embed = new EmbedBuilder()
     .setTitle('🗺️ Map Pick')
-    .setDescription(`**${map}**${event ? `\nFrom **${event.title}**` : '\nFrom the 1.12.8 patch pool'}`)
-    .setColor(0x00ae86);
+    .setDescription(
+      `**${map}**${event ? `\nFrom **${event.title}**` : game === 'ra3' ? '\nFrom the default tournament pool' : '\nFrom the Generals Evolution 0.33 map catalog'}`,
+    )
+    .setColor(gameConfig.color)
+    .setThumbnail(gameConfig.artworkUrl);
 
   const minimap = minimapPath(map);
   const files: Array<{ attachment: string; name: string }> = [];
@@ -130,9 +126,9 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setLabel('1.12.8 Patch')
+      .setLabel(game === 'ra3' ? '1.12.8 Patch' : 'Generals Evolution 0.33')
       .setStyle(ButtonStyle.Link)
-      .setURL(PATCH_1_12_8_URL),
+      .setURL(game === 'ra3' ? PATCH_1_12_8_URL : gameConfig.moddbDownloadsUrl),
   );
   await interaction.reply({ embeds: [embed], components: [row], files });
 }

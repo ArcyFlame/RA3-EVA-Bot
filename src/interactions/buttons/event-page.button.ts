@@ -1,17 +1,20 @@
-import { ButtonInteraction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import {
+  ButtonInteraction,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { tournamentRepository } from '../../repositories/tournament.repository';
 import { getSortedAnnouncements, renderEventPage } from '../../commands/tournaments/events.utils';
 import { renderResultsPage, matchesGuildGame } from '../../commands/tournaments/results.utils';
-import {
-  baseName,
-  editionsCompatible,
-  forumScanner,
-} from '../../services/forum-scanner.service';
+import { baseName, editionsCompatible, forumScanner } from '../../services/forum-scanner.service';
 import { challongeService } from '../../services/challonge.service';
 import { parseIntSafe } from '../../utils/parse';
 import { logger } from '../../utils/logger';
 import { guildRepository } from '../../repositories/guild.repository';
+import { GameId } from '../../config/games';
 
 /**
  * Stateless event-browser actions: `eventpg_{prev|next|results|refresh}_{eventId}`.
@@ -26,15 +29,17 @@ export const customIdPrefix = 'eventpg_';
  * originally paired with — a sibling event sharing the base name may hold
  * the bracket link even when this event's own row has none.
  */
-function resolveChallongeUrl(eventId: number, title: string, game: string): string | null {
+function resolveChallongeUrl(eventId: number, title: string, game: GameId): string | null {
   const brackets = tournamentRepository.getBrackets(eventId);
-  const validBracket = brackets.find(
-    (bracket) =>
-      (!bracket.bracketName || editionsCompatible(bracket.bracketName, title)) &&
-      bracket.isPrimary,
-  ) ?? brackets.find(
-    (bracket) => !bracket.bracketName || editionsCompatible(bracket.bracketName, title),
-  );
+  const validBracket =
+    brackets.find(
+      (bracket) =>
+        (!bracket.bracketName || editionsCompatible(bracket.bracketName, title)) &&
+        bracket.isPrimary,
+    ) ??
+    brackets.find(
+      (bracket) => !bracket.bracketName || editionsCompatible(bracket.bracketName, title),
+    );
   if (validBracket) return validBracket.challongeUrl;
 
   const own = tournamentRepository.getEventDetail(eventId)?.challongeUrl;
@@ -44,13 +49,14 @@ function resolveChallongeUrl(eventId: number, title: string, game: string): stri
   const prefix = baseName(title).slice(0, 12);
   if (!prefix) return null;
   const sibling = tournamentRepository
-    .getEventsWithChallonge()
+    .getEventsWithChallonge(game)
     .find(
       (e) =>
         e.id !== eventId &&
         matchesGuildGame(e.title, game) &&
         editionsCompatible(e.title, title) &&
-        (baseName(e.title).startsWith(prefix) || baseName(title).startsWith(baseName(e.title).slice(0, 12))),
+        (baseName(e.title).startsWith(prefix) ||
+          baseName(title).startsWith(baseName(e.title).slice(0, 12))),
     );
   if (sibling) {
     // Self-heal: remember the bracket on the announcement row itself.
@@ -72,7 +78,10 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     return;
   }
 
-  const announcements = getSortedAnnouncements();
+  const guildGame = interaction.guildId
+    ? (guildRepository.findByDiscordId(interaction.guildId)?.game ?? 'ra3')
+    : (tournamentRepository.getEventDetail(eventId)?.game ?? 'ra3');
+  const announcements = getSortedAnnouncements(guildGame);
   const index = announcements.findIndex((a) => a.id === eventId);
   if (index === -1) {
     await interaction.reply({ content: 'This event is no longer available.', ephemeral: true });
@@ -83,10 +92,6 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     if (action === 'results') {
       await interaction.deferReply({ ephemeral: true });
       const current = announcements[index];
-      const guildGame = interaction.guildId
-        ? guildRepository.findByDiscordId(interaction.guildId)?.game ?? 'ra3'
-        : 'ra3';
-
       // Same view as /results: the event's own bracket, or the sibling
       // event's bracket when the forum topic paired with the twin row.
       const challongeUrl = resolveChallongeUrl(current.id, current.title, guildGame);
@@ -124,7 +129,9 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
             new EmbedBuilder()
               .setTitle(`📊 ${current.title}`)
               .setURL(detail.topicUrl)
-              .setDescription('The tournament post is available, but no verified results bracket was found.')
+              .setDescription(
+                'The tournament post is available, but no verified results bracket was found.',
+              )
               .setColor(0x5865f2),
           ],
           components: [row],
@@ -133,7 +140,8 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
       }
 
       await interaction.editReply({
-        content: 'No results available for this tournament yet. Run `/tournaments_scan` to discover brackets.',
+        content:
+          'No results available for this tournament yet. Run `/tournaments_scan` to discover brackets.',
       });
       return;
     }
@@ -158,8 +166,7 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     // Wrap-around: prev on the first event loops to the last, next on the
     // last loops back to the first.
     const count = announcements.length;
-    const nextIndex =
-      action === 'prev' ? (index - 1 + count) % count : (index + 1) % count;
+    const nextIndex = action === 'prev' ? (index - 1 + count) % count : (index + 1) % count;
     const target = announcements[nextIndex];
     const rendered = renderEventPage(target.id, announcements);
     if (!rendered) {

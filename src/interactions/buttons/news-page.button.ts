@@ -3,6 +3,7 @@ import { RA3Bot } from '../../bot';
 import { newsRepository } from '../../repositories/news.repository';
 import { renderNewsPage } from '../../commands/misc/news.command';
 import { parseIntSafe } from '../../utils/parse';
+import { getGameContext } from '../../utils/game-context';
 
 /**
  * /news navigation: `newspg_{prev|next}_{itemId}`. Wrap-around in both
@@ -20,7 +21,7 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
   }
 
   await interaction.deferUpdate();
-  const items = newsRepository.getLatest(20);
+  const items = newsRepository.getLatest(20, getGameContext(interaction.guildId).game);
   const index = items.findIndex((i) => i.id === itemId);
   if (index === -1) {
     await interaction.editReply({ content: 'This news item is no longer available.' });

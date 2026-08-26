@@ -22,43 +22,44 @@ import { t } from '../../utils/i18n';
 export const wizardViews = new Map<string, GuildChannelsWizardView>();
 
 export class NotificationsMainView {
-  constructor(private isAdmin: boolean, private lang: Language = 'en') {}
+  constructor(
+    private isAdmin: boolean,
+    private lang: Language = 'en',
+  ) {}
 
   buildEmbed(): EmbedBuilder {
-    const embed = new EmbedBuilder().setTitle(t(this.lang, 'notifications.title')).setColor(0x5865f2);
+    const embed = new EmbedBuilder()
+      .setTitle(t(this.lang, 'notifications.title'))
+      .setColor(0x5865f2);
     if (this.isAdmin) {
-      embed
-        .setDescription(t(this.lang, 'notifications.description'))
-        .addFields(
-          {
-            name: t(this.lang, 'notifications.tracked'),
-            value: t(this.lang, 'notifications.trackedHint'),
-            inline: false,
-          },
-          {
-            name: t(this.lang, 'notifications.channels'),
-            value: t(this.lang, 'notifications.channelsHint'),
-            inline: false,
-          },
-          {
-            name: t(this.lang, 'notifications.test'),
-            value: t(this.lang, 'notifications.testHint'),
-            inline: false,
-          },
-          {
-            name: t(this.lang, 'personal.title'),
-            value: t(this.lang, 'personal.description'),
-            inline: false,
-          },
-        );
-    } else {
-      embed
-        .setDescription(t(this.lang, 'notifications.personalOnly'))
-        .addFields({
+      embed.setDescription(t(this.lang, 'notifications.description')).addFields(
+        {
+          name: t(this.lang, 'notifications.tracked'),
+          value: t(this.lang, 'notifications.trackedHint'),
+          inline: false,
+        },
+        {
+          name: t(this.lang, 'notifications.channels'),
+          value: t(this.lang, 'notifications.channelsHint'),
+          inline: false,
+        },
+        {
+          name: t(this.lang, 'notifications.test'),
+          value: t(this.lang, 'notifications.testHint'),
+          inline: false,
+        },
+        {
           name: t(this.lang, 'personal.title'),
           value: t(this.lang, 'personal.description'),
           inline: false,
-        });
+        },
+      );
+    } else {
+      embed.setDescription(t(this.lang, 'notifications.personalOnly')).addFields({
+        name: t(this.lang, 'personal.title'),
+        value: t(this.lang, 'personal.description'),
+        inline: false,
+      });
     }
     return embed.setFooter({ text: t(this.lang, 'notifications.footer') });
   }
@@ -109,7 +110,7 @@ export class GuildChannelsWizardView {
     { label: 'Stats Panel', value: 'stats_panel', emoji: '📊' },
     { label: 'ModDB Updates', value: 'moddb', emoji: '📦' },
     { label: 'Lobby Updates', value: 'lobby', emoji: '🎮' },
-    { label: 'RA3 News', value: 'news', emoji: '📰' },
+    { label: 'Game News', value: 'news', emoji: '📰' },
   ];
 
   constructor(guild: Guild, ownerId: string) {

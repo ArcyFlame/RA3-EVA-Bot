@@ -1,104 +1,234 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Commands — E.V.A Docs</title>
-  <link rel="stylesheet" href="assets/styles.css" />
-</head>
-<body>
-  <aside class="sidebar">
-    <div class="logo">E.V.A<span>.</span></div>
-    <div class="tagline">RA3 Community Bot</div>
-    <nav>
-      <h3>Getting Started</h3>
-      <a href="index.html">Introduction</a>
-      <a href="setup.html">Setup</a>
-      <h3>Features</h3>
-      <a href="tournaments.html">Tournaments</a>
-      <a href="stats.html">Stats &amp; Profiles</a>
-      <a href="notifications.html">News &amp; Feeds</a>
-      <h3>Reference</h3>
-      <a class="active" href="commands.html">Commands</a>
-      <a href="self-hosting.html">Self-Hosting</a>
-    </nav>
-  </aside>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Commands — E.V.A Docs</title>
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="logo">E.V.A<span>.</span></div>
+      <div class="tagline">C&amp;C Community Bot</div>
+      <nav>
+        <h3>Getting Started</h3>
+        <a href="index.html">Introduction</a>
+        <a href="setup.html">Setup</a>
+        <h3>Features</h3>
+        <a href="tournaments.html">Tournaments</a>
+        <a href="stats.html">Stats &amp; Profiles</a>
+        <a href="notifications.html">News &amp; Feeds</a>
+        <h3>Reference</h3>
+        <a class="active" href="commands.html">Commands</a>
+        <a href="self-hosting.html">Self-Hosting</a>
+      </nav>
+    </aside>
 
-  <main class="content">
-    <h1>Commands</h1>
-    <p>
-      Every command is also listed in <code>/help</code>, grouped the same way.
-      Admins can hide categories per server in <code>/toggle</code>.
-      Safe public commands can also be used in DMs by default; the bot owner can
-      disable that from the same feature menu.
-    </p>
+    <main class="content">
+      <h1>Commands</h1>
+      <p>
+        Every command is also listed in <code>/help</code>, grouped the same way. Admins can hide
+        categories per server in <code>/toggle</code>. Safe public commands can also be used in DMs
+        by default; the bot owner can disable that from the same feature menu.
+      </p>
 
-    <h2>Tournaments</h2>
-    <table>
-      <tr><th>Command</th><th>What it does</th></tr>
-      <tr><td><code>/events</code></td><td>Browse tournament announcements with Sign Up / Results buttons</td></tr>
-      <tr><td><code>/results</code></td><td>Podium + standings from every discovered Challonge bracket</td></tr>
-      <tr><td><code>/matches</code></td><td>The current bracket: standings when finished, up-next while running</td></tr>
-      <tr><td><code>/pickmap [event]</code></td><td>Pick a verified map from the current or selected tournament</td></tr>
-      <tr><td><code>/checkin [event]</code></td><td>Open the check-in board; referees also get management controls</td></tr>
-      <tr><td><code>/report_score &lt;opponent&gt; &lt;factions&gt; &lt;score&gt;</code></td><td>Submit a checked-in tournament result for referee review</td></tr>
-      <tr><td><code>/tournaments_scan</code></td><td>Force an immediate portal + forum scan <span class="badge red">admin</span></td></tr>
-      <tr><td><code>/tournament_link</code></td><td>Attach a Challonge bracket by URL <span class="badge red">admin</span></td></tr>
-      <tr><td><code>/add_master</code> / <code>/remove_master</code> / <code>/list_masters</code></td><td>Hall of Fame management <span class="badge red">admin</span></td></tr>
-    </table>
+      <h2>Tournaments</h2>
+      <table>
+        <tr>
+          <th>Command</th>
+          <th>What it does</th>
+        </tr>
+        <tr>
+          <td><code>/events</code></td>
+          <td>Browse tournament announcements with Sign Up / Results buttons</td>
+        </tr>
+        <tr>
+          <td><code>/results</code></td>
+          <td>Podium + standings from every discovered Challonge bracket</td>
+        </tr>
+        <tr>
+          <td><code>/matches</code></td>
+          <td>The current bracket: standings when finished, up-next while running</td>
+        </tr>
+        <tr>
+          <td><code>/pickmap [event]</code></td>
+          <td>Pick a verified map from the current or selected tournament</td>
+        </tr>
+        <tr>
+          <td><code>/checkin [event]</code></td>
+          <td>Open the check-in board; referees also get management controls</td>
+        </tr>
+        <tr>
+          <td><code>/report_score &lt;opponent&gt; &lt;factions&gt; &lt;score&gt;</code></td>
+          <td>Submit a checked-in tournament result for referee review</td>
+        </tr>
+        <tr>
+          <td><code>/tournaments_scan</code></td>
+          <td>Force an immediate portal + forum scan <span class="badge red">admin</span></td>
+        </tr>
+        <tr>
+          <td><code>/tournament_link</code></td>
+          <td>Attach a Challonge bracket by URL <span class="badge red">admin</span></td>
+        </tr>
+        <tr>
+          <td>
+            <code>/add_master</code> / <code>/remove_master</code> / <code>/list_masters</code>
+          </td>
+          <td>Hall of Fame management <span class="badge red">admin</span></td>
+        </tr>
+      </table>
 
-    <h2>Stats</h2>
-    <table>
-      <tr><th>Command</th><th>What it does</th></tr>
-      <tr><td><code>/stats</code></td><td>Live community stats with pages and charts (reply is private)</td></tr>
-      <tr><td><code>/stats_panel set|disable</code></td><td>Persistent Live Stats panel with charts <span class="badge red">admin</span></td></tr>
-      <tr><td><code>/match_panel set|disable</code></td><td>Live match ticker panel <span class="badge red">admin</span></td></tr>
-      <tr><td><code>/lobby_panel set|disable</code></td><td>Persistent lobby board <span class="badge red">admin</span></td></tr>
-    </table>
+      <h2>Stats</h2>
+      <table>
+        <tr>
+          <th>Command</th>
+          <th>What it does</th>
+        </tr>
+        <tr>
+          <td><code>/stats</code></td>
+          <td>Live community stats with pages and charts (reply is private)</td>
+        </tr>
+        <tr>
+          <td><code>/stats_panel set|disable</code></td>
+          <td>Persistent Live Stats panel with charts <span class="badge red">admin</span></td>
+        </tr>
+        <tr>
+          <td><code>/match_panel set|disable</code></td>
+          <td>Live match ticker panel <span class="badge red">admin</span></td>
+        </tr>
+        <tr>
+          <td><code>/lobby_panel set|disable</code></td>
+          <td>Persistent lobby board <span class="badge red">admin</span></td>
+        </tr>
+      </table>
 
-    <h2>Profiles</h2>
-    <table>
-      <tr><th>Command</th><th>What it does</th></tr>
-      <tr><td><code>/profile [user] [player]</code></td><td>Player profile — a Discord member or any player by RA3BattleNet name / persona id</td></tr>
-      <tr><td><code>/profile_admin</code></td><td>View, unlink or clear a member's linked player profile <span class="badge red">admin</span></td></tr>
-      <tr><td><code>/link</code></td><td>Manage Shatabrick and RA3BattleNet account links</td></tr>
-    </table>
+      <h2>Profiles</h2>
+      <table>
+        <tr>
+          <th>Command</th>
+          <th>What it does</th>
+        </tr>
+        <tr>
+          <td><code>/profile [user] [player]</code></td>
+          <td>Player profile — a Discord member or any player by Shatabrick/platform name or id</td>
+        </tr>
+        <tr>
+          <td><code>/profile_admin</code></td>
+          <td>
+            View, unlink or clear a member's linked player profile
+            <span class="badge red">admin</span>
+          </td>
+        </tr>
+        <tr>
+          <td><code>/link</code></td>
+          <td>Manage Shatabrick and RA3BattleNet account links</td>
+        </tr>
+      </table>
 
-    <h2>Community</h2>
-    <table>
-      <tr><th>Command</th><th>What it does</th></tr>
-      <tr><td><code>/news</code></td><td>Browse RA3 news from GameReplays</td></tr>
-      <tr><td><code>/mods</code></td><td>Newest RA3 mod updates and articles from ModDB's RA3 articles page</td></tr>
-      <tr><td><code>/maps</code></td><td>Where to get custom maps + the install path</td></tr>
-      <tr><td><code>/tips</code></td><td>Random verified gameplay tip or fun fact</td></tr>
-      <tr><td><code>/setup</code></td><td>How to install C&amp;C Online / RA3BattleNet and play online</td></tr>
-      <tr><td><code>/notifications</code></td><td>Your notification settings; admins manage channels &amp; streamers</td></tr>
-    </table>
+      <h2>Community</h2>
+      <table>
+        <tr>
+          <th>Command</th>
+          <th>What it does</th>
+        </tr>
+        <tr>
+          <td><code>/news</code></td>
+          <td>Browse current news for the selected game</td>
+        </tr>
+        <tr>
+          <td><code>/mods</code></td>
+          <td>Newest game-specific articles and updates from ModDB</td>
+        </tr>
+        <tr>
+          <td><code>/maps</code></td>
+          <td>Where to get custom maps + the install path</td>
+        </tr>
+        <tr>
+          <td><code>/tips</code></td>
+          <td>Random verified gameplay tip or fun fact</td>
+        </tr>
+        <tr>
+          <td><code>/setup</code></td>
+          <td>How to install C&amp;C Online / RA3BattleNet and play online</td>
+        </tr>
+        <tr>
+          <td><code>/notifications</code></td>
+          <td>Your notification settings; admins manage channels &amp; streamers</td>
+        </tr>
+      </table>
 
-    <h2>Clans</h2>
-    <table>
-      <tr><th>Command</th><th>What it does</th></tr>
-      <tr><td><code>/clans</code></td><td>List clans; clan leaders manage their clan</td></tr>
-      <tr><td><code>/clan_manager</code></td><td>Admin clan management (approvals, edit, remove) <span class="badge red">admin</span></td></tr>
-      <tr><td><code>/clan_approve</code></td><td>Approve or reject pending clans <span class="badge red">admin</span></td></tr>
-    </table>
+      <h2>Clans</h2>
+      <table>
+        <tr>
+          <th>Command</th>
+          <th>What it does</th>
+        </tr>
+        <tr>
+          <td><code>/clans</code></td>
+          <td>List clans; clan leaders manage their clan</td>
+        </tr>
+        <tr>
+          <td><code>/clan_manager</code></td>
+          <td>
+            Admin clan management (approvals, edit, remove) <span class="badge red">admin</span>
+          </td>
+        </tr>
+        <tr>
+          <td><code>/clan_approve</code></td>
+          <td>Approve or reject pending clans <span class="badge red">admin</span></td>
+        </tr>
+      </table>
 
-    <h2>Admin &amp; Moderation</h2>
-    <table>
-      <tr><th>Command</th><th>What it does</th></tr>
-      <tr><td><code>/bot_setup</code></td><td>Setup wizard: roles, channels, game, features <span class="badge red">admin</span></td></tr>
-      <tr><td><code>/set_admin_role</code></td><td>Set the bot admin role <span class="badge red">admin</span></td></tr>
-      <tr><td><code>/toggle</code></td><td>Choose a feature category, then enable or disable it <span class="badge red">admin</span></td></tr>
-      <tr><td><code>/test_channels</code></td><td>Verify the bot can post in every configured channel <span class="badge red">admin</span></td></tr>
-      <tr><td><code>/warn</code></td><td>Warn a member <span class="badge red">mod</span></td></tr>
-      <tr><td><code>/help</code></td><td>Command overview</td></tr>
-      <tr><td><code>/info</code> <code>/ping</code> <code>/uptime</code></td><td>Bot info, latency, uptime</td></tr>
-      <tr><td><code>/restart</code> <code>/kill</code></td><td>Bot control <span class="badge red">owner</span></td></tr>
-    </table>
+      <h2>Admin &amp; Moderation</h2>
+      <table>
+        <tr>
+          <th>Command</th>
+          <th>What it does</th>
+        </tr>
+        <tr>
+          <td><code>/bot_setup</code></td>
+          <td>
+            Setup wizard: roles, channels, game, features <span class="badge red">admin</span>
+          </td>
+        </tr>
+        <tr>
+          <td><code>/set_admin_role</code></td>
+          <td>Set the bot admin role <span class="badge red">admin</span></td>
+        </tr>
+        <tr>
+          <td><code>/toggle</code></td>
+          <td>
+            Choose a feature category, then enable or disable it
+            <span class="badge red">admin</span>
+          </td>
+        </tr>
+        <tr>
+          <td><code>/test_channels</code></td>
+          <td>
+            Verify the bot can post in every configured channel <span class="badge red">admin</span>
+          </td>
+        </tr>
+        <tr>
+          <td><code>/warn</code></td>
+          <td>Warn a member <span class="badge red">mod</span></td>
+        </tr>
+        <tr>
+          <td><code>/help</code></td>
+          <td>Command overview</td>
+        </tr>
+        <tr>
+          <td><code>/info</code> <code>/ping</code> <code>/uptime</code></td>
+          <td>Bot info, latency, uptime</td>
+        </tr>
+        <tr>
+          <td><code>/restart</code> <code>/kill</code></td>
+          <td>Bot control <span class="badge red">owner</span></td>
+        </tr>
+      </table>
 
-    <div class="footer">
-      E.V.A — built for the Red Alert 3 community by Arcy. Not affiliated with EA.
-    </div>
-  </main>
-</body>
+      <div class="footer">
+        E.V.A — built for the Command &amp; Conquer community by Arcy. Not affiliated with EA.
+      </div>
+    </main>
+  </body>
 </html>

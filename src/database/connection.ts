@@ -22,6 +22,8 @@ import { up as up020, down as down020 } from './migrations/020_forum_winner_resc
 import { up as up021, down as down021 } from './migrations/021_ftw90_bracket_cleanup';
 import { up as up022, down as down022 } from './migrations/022_referee_checkin_alerts';
 import { up as up023, down as down023 } from './migrations/023_winner_marker_cleanup';
+import { up as up024, down as down024 } from './migrations/024_game_modes_and_sources';
+import { up as up025, down as down025 } from './migrations/025_stats_baseline_repair';
 import { logger } from '../utils/logger';
 
 interface Migration {
@@ -56,6 +58,8 @@ const migrations: Migration[] = [
   { version: 21, name: '021_ftw90_bracket_cleanup', up: up021, down: down021 },
   { version: 22, name: '022_referee_checkin_alerts', up: up022, down: down022 },
   { version: 23, name: '023_winner_marker_cleanup', up: up023, down: down023 },
+  { version: 24, name: '024_game_modes_and_sources', up: up024, down: down024 },
+  { version: 25, name: '025_stats_baseline_repair', up: up025, down: down025 },
 ];
 
 function ensureMigrationsTable(): void {

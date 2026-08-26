@@ -7,6 +7,7 @@ import {
   extractArticleDescription,
   extractEventFacts,
   findResultsTopic,
+  parseGenevoTournaments,
 } from '../../src/services/tournament-scanner.service';
 
 const FIXTURE = `
@@ -108,6 +109,28 @@ describe('extractEventFacts', () => {
     expect(facts.maps).toContain('Thermal Tension');
     // The map list must stop before the next section.
     expect(facts.maps).not.toContain('Prize');
+  });
+
+  it('recognizes Generals Evolution map identifiers in its own event feed', () => {
+    const facts = extractEventFacts(
+      'Map pool: GenEvo033 Aymcam Skrm 01, GenEvo033 Sgor00 Skrm 25 Prize: 50$',
+      'genevo',
+    );
+    expect(facts.maps).toContain('GenEvo033 Aymcam Skrm 01');
+    expect(facts.maps).toContain('GenEvo033 sgor00 Skrm 25');
+  });
+});
+
+describe('parseGenevoTournaments', () => {
+  it('keeps event announcements and ignores ordinary update articles', async () => {
+    const xml = `<?xml version="1.0"?><rss><channel>
+      <item><title>Summer Cup Registration</title><link>https://www.moddb.com/events/summer</link><pubDate>Tue, 25 Aug 2026 12:00:00 GMT</pubDate><description><![CDATA[Sign up for the next Generals Evolution tournament.]]></description></item>
+      <item><title>Version 0.34 development update</title><link>https://www.moddb.com/articles/update</link><description><![CDATA[New units and balance changes.]]></description></item>
+    </channel></rss>`;
+    const items = await parseGenevoTournaments(xml);
+    expect(items).toHaveLength(1);
+    expect(items[0].title).toBe('Summer Cup Registration');
+    expect(items[0].description).toContain('next Generals Evolution tournament');
   });
 });
 

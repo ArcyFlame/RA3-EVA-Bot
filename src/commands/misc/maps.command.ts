@@ -8,14 +8,50 @@ import {
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { MODDB, RA3_BATTLE_NET } from '../../utils/emojis';
+import { getGameContext } from '../../utils/game-context';
+import { gameMapNames, RA3_TOURNAMENT_MAPS } from '../../data/game-maps';
 
 export const data = new SlashCommandBuilder()
   .setName('maps')
-  .setDescription('Where to download custom RA3 maps');
+  .setDescription('Map downloads and the map catalog for this server game');
 
 export const guildOnly = false;
 
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
+  const context = getGameContext(interaction.guildId);
+  if (context.game === 'genevo') {
+    const embed = new EmbedBuilder()
+      .setTitle('🗺️ Generals Evolution Maps')
+      .setDescription(
+        `The bot recognizes **${gameMapNames('genevo').length} Generals Evolution 0.33 maps** and uses their internal IDs to keep GenEvo lobbies separate from Red Alert 3. Maps are installed and updated with the mod.`,
+      )
+      .setColor(context.config.color)
+      .setThumbnail(context.config.artworkUrl)
+      .addFields(
+        {
+          name: `${MODDB} Official ModDB`,
+          value:
+            'Download the current release and map updates from the official Generals Evolution page.',
+        },
+        {
+          name: '🌐 Multiplayer',
+          value:
+            'Use C&C Online. Eight-player games are experimental and are not treated as a supported 4v4 mode.',
+        },
+      );
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setLabel('Generals Evolution')
+        .setStyle(ButtonStyle.Link)
+        .setURL(context.config.moddbDownloadsUrl),
+      new ButtonBuilder()
+        .setLabel('C&C Online')
+        .setStyle(ButtonStyle.Link)
+        .setURL('https://cnc-online.net/en/'),
+    );
+    await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+    return;
+  }
   const embed = new EmbedBuilder()
     .setTitle('🗺️ Custom Map Downloads')
     .setDescription(
@@ -26,8 +62,14 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     .setColor(0x00ae86)
     .addFields(
       {
+        name: '🏆 Default Tournament Pool',
+        value: RA3_TOURNAMENT_MAPS.join(' • '),
+        inline: false,
+      },
+      {
         name: '🟦 Steam Workshop (RA3)',
-        value: 'Official Steam Workshop hub for RA3 maps - subscribe and they install automatically.',
+        value:
+          'Official Steam Workshop hub for RA3 maps - subscribe and they install automatically.',
         inline: false,
       },
       {
@@ -47,10 +89,11 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       },
       {
         name: '🎲 Random Pick',
-        value: 'Use `/pickmap` to get a random competitive map for your next match.',
+        value: `Use \`/pickmap\` to pick from an event pool. The bot recognizes **${gameMapNames('ra3').length}** official, bonus and community maps.`,
         inline: false,
       },
-    );
+    )
+    .setThumbnail(context.config.artworkUrl);
 
   const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()

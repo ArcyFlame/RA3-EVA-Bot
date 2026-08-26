@@ -1,8 +1,10 @@
 import { BaseRepository } from './base.repository';
 import { normalizeTournamentWinnerNames } from '../utils/winner-names';
+import { GameId } from '../config/games';
 
 export interface TournamentEvent {
   id: number;
+  game: GameId;
   eventUrl: string;
   title: string;
   description?: string;
@@ -111,8 +113,8 @@ export class TournamentRepository extends BaseRepository {
 
   createEvent(data: Omit<TournamentEvent, 'id'>): number {
     const result = this.run(
-      `INSERT INTO tournament_events (event_url, title, description, announced_at, format, prize_pool, maps, start_date, sign_up_url, announcement_channel_id, announcement_message_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tournament_events (event_url, title, description, announced_at, format, prize_pool, maps, start_date, sign_up_url, announcement_channel_id, announcement_message_id, game)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.eventUrl,
         data.title,
@@ -125,22 +127,24 @@ export class TournamentRepository extends BaseRepository {
         data.signUpUrl,
         data.announcementChannelId,
         data.announcementMessageId,
+        data.game,
       ],
     );
     return result.lastInsertRowid;
   }
 
   /** Lightweight event list for the /events command (id + title only). */
-  getEventSummaries(limit = 3): Array<{ id: number; title: string }> {
+  getEventSummaries(limit = 3, game?: GameId): Array<{ id: number; title: string }> {
     return this.queryAll<{ id: number; title: string }>(
-      'SELECT id, title FROM tournament_events ORDER BY announced_at DESC LIMIT ?',
-      [limit],
+      `SELECT id, title FROM tournament_events${game ? ' WHERE game = ?' : ''} ORDER BY announced_at DESC LIMIT ?`,
+      game ? [game, limit] : [limit],
     );
   }
 
   /** Full announcement list (with sign-up URL) for the interactive /events command. */
-  getAnnouncements(): Array<{
+  getAnnouncements(game?: GameId): Array<{
     id: number;
+    game: GameId;
     title: string;
     eventUrl: string;
     description: string | null;
@@ -149,21 +153,24 @@ export class TournamentRepository extends BaseRepository {
   }> {
     return this.queryAll<{
       id: number;
+      game: GameId;
       title: string;
       event_url: string;
       description: string | null;
       start_date: string | null;
       sign_up_url: string | null;
-    }>('SELECT id, title, event_url, description, start_date, sign_up_url FROM tournament_events ORDER BY id ASC').map(
-      (r) => ({
-        id: r.id,
-        title: r.title,
-        eventUrl: r.event_url,
-        description: r.description,
-        startDate: r.start_date,
-        signUpUrl: r.sign_up_url,
-      }),
-    );
+    }>(
+      `SELECT id, game, title, event_url, description, start_date, sign_up_url FROM tournament_events${game ? ' WHERE game = ?' : ''} ORDER BY id ASC`,
+      game ? [game] : [],
+    ).map((r) => ({
+      id: r.id,
+      game: r.game,
+      title: r.title,
+      eventUrl: r.event_url,
+      description: r.description,
+      startDate: r.start_date,
+      signUpUrl: r.sign_up_url,
+    }));
   }
 
   getLatestResultId(): number | undefined {
@@ -196,8 +203,9 @@ export class TournamentRepository extends BaseRepository {
       registration_url: string | null;
       topic_url: string | null;
       status: string | null;
+      game: GameId;
     }>(
-      'SELECT title, event_url, description, format, prize_pool, maps, start_date, challonge_url, checkins_url, registration_url, topic_url, status FROM tournament_events WHERE id = ?',
+      'SELECT title, event_url, description, format, prize_pool, maps, start_date, challonge_url, checkins_url, registration_url, topic_url, status, game FROM tournament_events WHERE id = ?',
       [eventId],
     );
     if (!row) return undefined;
@@ -214,21 +222,28 @@ export class TournamentRepository extends BaseRepository {
       registrationUrl: row.registration_url,
       topicUrl: row.topic_url,
       status: row.status ?? 'unknown',
+      game: row.game,
     };
   }
 
   /** Newest event that has a discovered Challonge bracket (for /matches, /results). */
-  getLatestEventWithChallonge(): { id: number; title: string; challongeUrl: string } | undefined {
+  getLatestEventWithChallonge(
+    game?: GameId,
+  ): { id: number; title: string; challongeUrl: string } | undefined {
     const row = this.query<{ id: number; title: string; challonge_url: string }>(
-      'SELECT id, title, challonge_url FROM tournament_events WHERE challonge_url IS NOT NULL ORDER BY id DESC LIMIT 1',
+      `SELECT id, title, challonge_url FROM tournament_events WHERE challonge_url IS NOT NULL${game ? ' AND game = ?' : ''} ORDER BY id DESC LIMIT 1`,
+      game ? [game] : [],
     );
     return row ? { id: row.id, title: row.title, challongeUrl: row.challonge_url } : undefined;
   }
 
   /** Every event with a discovered bracket, newest first (callers filter by game). */
-  getEventsWithChallonge(): Array<{ id: number; title: string; challongeUrl: string }> {
+  getEventsWithChallonge(
+    game?: GameId,
+  ): Array<{ id: number; title: string; challongeUrl: string }> {
     return this.queryAll<{ id: number; title: string; challonge_url: string }>(
-      'SELECT id, title, challonge_url FROM tournament_events WHERE challonge_url IS NOT NULL ORDER BY id DESC',
+      `SELECT id, title, challonge_url FROM tournament_events WHERE challonge_url IS NOT NULL${game ? ' AND game = ?' : ''} ORDER BY id DESC`,
+      game ? [game] : [],
     ).map((r) => ({ id: r.id, title: r.title, challongeUrl: r.challonge_url }));
   }
 
@@ -237,7 +252,7 @@ export class TournamentRepository extends BaseRepository {
     tournamentUrl: string,
     winnerName: string,
     eventTitle?: string,
-    game: 'ra3' | 'kw' | 'genevo' = 'ra3',
+    game: GameId = 'ra3',
   ): void {
     const canonicalUrl = tournamentUrl.trim().toLowerCase();
     if (!canonicalUrl) return;
@@ -254,9 +269,10 @@ export class TournamentRepository extends BaseRepository {
   }
 
   hasWinnerFor(tournamentUrl: string): boolean {
-    return !!this.query<{ id: number }>('SELECT id FROM tournament_winners WHERE tournament_url = ?', [
-      tournamentUrl.trim().toLowerCase(),
-    ]);
+    return !!this.query<{ id: number }>(
+      'SELECT id FROM tournament_winners WHERE tournament_url = ?',
+      [tournamentUrl.trim().toLowerCase()],
+    );
   }
 
   setEventStatus(
@@ -313,7 +329,9 @@ export class TournamentRepository extends BaseRepository {
     return true;
   }
 
-  getBrackets(eventId: number): Array<{ challongeUrl: string; bracketName: string | null; isPrimary: number }> {
+  getBrackets(
+    eventId: number,
+  ): Array<{ challongeUrl: string; bracketName: string | null; isPrimary: number }> {
     return this.queryAll<{
       challonge_url: string;
       bracket_name: string | null;
@@ -329,18 +347,31 @@ export class TournamentRepository extends BaseRepository {
   }
 
   /** Every discovered bracket across all events (for the winner sync pass). */
-  getAllBrackets(): Array<{ eventId: number; eventTitle: string; challongeUrl: string }> {
-    return this.queryAll<{ event_id: number; title: string; challonge_url: string }>(
-      `SELECT b.event_id, e.title, b.challonge_url
+  getAllBrackets(
+    game?: GameId,
+  ): Array<{ eventId: number; eventTitle: string; game: GameId; challongeUrl: string }> {
+    return this.queryAll<{ event_id: number; title: string; game: GameId; challonge_url: string }>(
+      `SELECT b.event_id, e.title, e.game, b.challonge_url
        FROM tournament_brackets b
-       JOIN tournament_events e ON e.id = b.event_id`,
-    ).map((r) => ({ eventId: r.event_id, eventTitle: r.title, challongeUrl: r.challonge_url }));
+       JOIN tournament_events e ON e.id = b.event_id${game ? ' WHERE e.game = ?' : ''}`,
+      game ? [game] : [],
+    ).map((r) => ({
+      eventId: r.event_id,
+      eventTitle: r.title,
+      game: r.game,
+      challongeUrl: r.challonge_url,
+    }));
   }
 
   /** Stores forum-discovered links (challonge/check-ins/registration) on an event. */
   updateEventLinks(
     eventId: number,
-    links: { challongeUrl?: string; checkinsUrl?: string; registrationUrl?: string; topicUrl?: string },
+    links: {
+      challongeUrl?: string;
+      checkinsUrl?: string;
+      registrationUrl?: string;
+      topicUrl?: string;
+    },
   ): void {
     this.run(
       'UPDATE tournament_events SET challonge_url = COALESCE(?, challonge_url), checkins_url = COALESCE(?, checkins_url), registration_url = COALESCE(?, registration_url), topic_url = COALESCE(?, topic_url) WHERE id = ?',
@@ -628,7 +659,11 @@ export class TournamentRepository extends BaseRepository {
     };
   }
 
-  reviewMatchReport(reportId: number, status: 'approved' | 'rejected', reviewedBy: string): boolean {
+  reviewMatchReport(
+    reportId: number,
+    status: 'approved' | 'rejected',
+    reviewedBy: string,
+  ): boolean {
     const result = this.run(
       `UPDATE tournament_matches
        SET status = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP

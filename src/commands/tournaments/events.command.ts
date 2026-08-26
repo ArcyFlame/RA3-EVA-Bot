@@ -2,10 +2,11 @@ import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { guildRepository } from '../../repositories/guild.repository';
 import { getSortedAnnouncements, renderEventPage } from './events.utils';
+import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
   .setName('events')
-  .setDescription('Browse RA3 tournament announcements, sign-ups and results');
+  .setDescription('Browse tournament announcements, sign-ups and results');
 
 export const guildOnly = false;
 
@@ -23,7 +24,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
 
   await interaction.deferReply({ ephemeral: true });
 
-  const announcements = getSortedAnnouncements();
+  const announcements = getSortedAnnouncements(getGameContext(interaction.guildId).game);
   if (announcements.length === 0) {
     await interaction.editReply({ content: 'No tournament announcements found.' });
     return;

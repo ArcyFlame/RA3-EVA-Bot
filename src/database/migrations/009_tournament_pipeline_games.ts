@@ -25,7 +25,7 @@ export function up(): void {
     'CREATE INDEX IF NOT EXISTS idx_tournament_participants_event ON tournament_participants (event_id)',
   );
 
-  // Multi-game support: which C&C game this server runs (ra3 | kw | genevo).
+  // Multi-game support: stores the selected C&C game identifier.
   db.exec(`ALTER TABLE guilds ADD COLUMN game TEXT NOT NULL DEFAULT 'ra3'`);
   // JSON array of help-category values the guild hides from /help.
   db.exec(`ALTER TABLE guilds ADD COLUMN hidden_help_categories TEXT`);

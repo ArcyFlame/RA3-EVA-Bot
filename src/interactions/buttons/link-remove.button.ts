@@ -2,6 +2,7 @@ import { ButtonInteraction } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { userRepository } from '../../repositories/user.repository';
 import { buildLinkManager } from '../../commands/profile/link.view';
+import { getGameContext } from '../../utils/game-context';
 
 export const customIdPrefix = 'link_remove_';
 
@@ -14,6 +15,10 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     return;
   }
   await interaction.update(
-    buildLinkManager(interaction.user.id, userRepository.getLanguage(interaction.user.id)),
+    buildLinkManager(
+      interaction.user.id,
+      userRepository.getLanguage(interaction.user.id),
+      getGameContext(interaction.guildId).game,
+    ),
   );
 }

@@ -1,30 +1,33 @@
-# E.V.A - Red Alert 3 Community Bot
+# E.V.A - RA3 & Generals Evolution Community Bot
 
-A Discord bot for the **Command & Conquer: Red Alert 3** community, built with
-discord.js v14, TypeScript, better-sqlite3 and chartjs-node-canvas. Named after
-E.V.A, the Allied command voice.
+A Discord bot for **Command & Conquer: Red Alert 3** and **Generals Evolution**,
+built with discord.js v14, TypeScript, better-sqlite3 and chartjs-node-canvas.
+Each Discord server selects its game, sources and features in the setup wizard.
 
 ## Features
 
-- **Live community stats** - online players from C&C Online and RA3BattleNet,
-  leaderboards (1v1/2v2/3v3), most-played maps and faction popularity, with
-  Red Alert-styled charts (online 24h / new players 30d / online 30d) and a
-  persistent stats panel for your channel.
-- **Tournament pipeline** - automatically scans the GameReplays.org RA3 esports
-  portal and forum: announcements, sign-up threads, player rosters, prize
+- **Game-aware stats** - both games can use C&C Online and RA3BattleNet. Generals
+  Evolution online counts include only players identified in its lobbies by map
+  or platform mod metadata; RA3BattleNet seasons and Masters remain RA3-only.
+  Eight-player Generals Evolution games are shown as experimental, not as a
+  supported 4v4 mode.
+- **Tournament pipeline** - scans the GameReplays.org RA3 esports portal and
+  forum plus official Generals Evolution announcements: sign-up links, rosters, prize
   pools, map pools and Challonge brackets (including multi-bracket events like
   qualifiers + playoffs). `/results`, `/matches` and `/events` show podium and
   standings; check-ins, score reports and referee review are built in. Older
   tournament winners are indexed from the full esports forum history.
 - **Player profiles** - `/link` manages Shatabrick and RA3BattleNet identities.
-  `/profile` keeps both platforms separate and shows live rank, Elo and W/L
-  wherever the platform currently exposes that data.
-- **News & content feeds** - current GameReplays RA3 portal news and ModDB RA3 articles
-  (`/mods`), Twitch streams and YouTube uploads (RSS-based, no API key),
-  posted to the channels you choose, always deduplicated.
+  `/profile` reads Shatabrick's public rank pages and shows separate Unranked,
+  Ranked and Clan records alongside RA3BattleNet records. Season history is
+  shown only for Red Alert 3.
+- **News & content feeds** - current GameReplays RA3 news or the official
+  Generals Evolution ModDB feed, plus game-filtered ModDB, Twitch and YouTube
+  posts. Feeds are deduplicated and seed only their newest item in empty channels.
 - **Community tools** - `/pickmap` with verified tournament map pools, clan
   manager, tips, moderation utilities, per-guild
-  game selection (RA3 / Kane's Wrath / Generals Evolution), i18n (EN/RU/ZH)
+  game selection (RA3 / Generals Evolution), game-specific maps and tips,
+  i18n (EN/RU/ZH)
   and an admin setup wizard.
 - **Direct messages** - safe public commands work in DMs by default. The bot
   owner can switch this off from `/toggle`; server-only and staff commands stay
@@ -45,13 +48,13 @@ node dist/index.js
 Then run `/bot_setup` in your server to choose the admin role, channels and
 features. `/help` lists everything. Useful scripts:
 
-| Command | Purpose |
-| --- | --- |
-| `npm run build` | Compile to `dist/` |
-| `npm run typecheck` | TypeScript check |
-| `npm test` | Test suite (vitest) |
-| `npm run diagnose` | Configuration diagnostics |
-| `npm run seed:masters` | Seed the Hall of Fame list |
+| Command                               | Purpose                               |
+| ------------------------------------- | ------------------------------------- |
+| `npm run build`                       | Compile to `dist/`                    |
+| `npm run typecheck`                   | TypeScript check                      |
+| `npm test`                            | Test suite (vitest)                   |
+| `npm run diagnose`                    | Configuration diagnostics             |
+| `npm run seed:masters`                | Seed the Hall of Fame list            |
 | `npm run backfill:tournament-winners` | Resume the historical tournament scan |
 
 ## Architecture
@@ -76,12 +79,11 @@ Permissions are layered: `owner` (`OWNER_ID`, gates `/kill` and `/restart`) →
 
 ## Credits
 
-Built for the Red Alert 3 community by **Arcy + AI**. Data from
+Built for the Command & Conquer community by **Arcy**. Data from
 [GameReplays.org](https://www.gamereplays.org), [RA3BattleNet](https://ra3battle.cn),
 [C&C Online](https://cnc-online.net), Shatabrick and
-[Challonge](https://challonge.com).
-
-## Code was generated + fixed by AI such as Z.ai, Claude & ChatGPT Sol.
+[Challonge](https://challonge.com), with Generals Evolution updates from its
+[official ModDB page](https://www.moddb.com/mods/command-and-conquer-generals-evolution).
 
 ## License
 

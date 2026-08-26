@@ -2,6 +2,13 @@ import axios from 'axios';
 import { logger } from '../utils/logger';
 import { db } from '../database/sqlite';
 import { masterRepository } from '../repositories/master.repository';
+import { GameId } from '../config/games';
+import {
+  cleanGameMapName,
+  gameMapNames,
+  isKnownGameMap,
+  matchesGameLobby,
+} from '../data/game-maps';
 
 export interface RA3Stats {
   online_now: number;
@@ -86,7 +93,7 @@ interface Ra3bLiveData {
   recentMatches: Array<{ players: string; map: string; platform: string }>;
 }
 
-// Friendly map name mapping (same as Python)
+// Friendly names for internal map identifiers returned by the live APIs.
 const MAP_FRIENDLY_NAMES: Record<string, string> = {
   feasel1: 'Fire Island',
   feasel2: 'Carville',
@@ -137,7 +144,8 @@ const MAP_FRIENDLY_NAMES: Record<string, string> = {
   serenity_gardens: 'Serenity Gardens',
 };
 
-export function cleanMapName(rawName: string): string {
+export function cleanMapName(rawName: string, game: GameId = 'ra3'): string {
+  if (game !== 'ra3') return cleanGameMapName(rawName, game);
   let name = rawName.replace(/\\/g, '/').split('/').pop()?.replace('.map', '') || rawName;
   name = name
     .replace(/ra3bn_/g, '')
@@ -152,7 +160,8 @@ export function cleanMapName(rawName: string): string {
   return name.charAt(0).toUpperCase() + name.slice(1) || 'Unknown';
 }
 
-export function isSkirmishMap(mapName: string): boolean {  const lower = mapName.toLowerCase();
+export function isSkirmishMap(mapName: string): boolean {
+  const lower = mapName.toLowerCase();
   const campaign = [
     // RA3 base campaign missions
     'stalingrad',
@@ -211,7 +220,7 @@ export function isSkirmishMap(mapName: string): boolean {  const lower = mapName
     'campaign',
     'mission',
   ];
-  return !campaign.some((kw) => lower.includes(kw));
+  return !campaign.some((marker) => lower.includes(marker));
 }
 
 /**
@@ -271,47 +280,52 @@ const KNOWN_SKIRMISH_MAPS: string[] = [
   'Arctic Barents Sea',
 ];
 
-const KNOWN_MAP_KEYS = KNOWN_SKIRMISH_MAPS.map((m) => m.toLowerCase().replace(/[^a-z0-9]/g, ''));
-
 /** True only for maps on the RA3 allowlist (official + competitive + ladder). */
-export function isKnownSkirmishMap(displayName: string): boolean {
-  const norm = displayName.toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (norm.length < 3) return false;
-  for (const key of KNOWN_MAP_KEYS) {
-    if (norm === key) return true;
-    // Names often carry suffixes ("Grinderberg 2") or trim oddly.
-    if (norm.length >= 5 && (norm.startsWith(key) || key.startsWith(norm))) return true;
-  }
-  return false;
+export function isKnownSkirmishMap(displayName: string, game: GameId = 'ra3'): boolean {
+  return isKnownGameMap(displayName, game);
 }
 
 /** Read access to the allowlist (used by the tournament scanner for map pools). */
-export function knownSkirmishMapNames(): string[] {
-  return [...KNOWN_SKIRMISH_MAPS];
+export function knownSkirmishMapNames(game: GameId = 'ra3'): string[] {
+  return game === 'ra3'
+    ? [...new Set([...gameMapNames(game), ...KNOWN_SKIRMISH_MAPS])]
+    : gameMapNames(game);
+}
+
+export interface StatsSourceOptions {
+  cncOnline?: boolean;
+  ra3BattleNet?: boolean;
 }
 
 export class RA3StatsService {
-  private cache: RA3Stats | null = null;
-  private cacheTime = 0;
+  private cache = new Map<string, { stats: RA3Stats; at: number }>();
   private readonly cacheTTL = 5 * 60 * 1000; // 5 minutes
-  private lastSnapshotAt = 0;
+  private lastSnapshotAt = new Map<GameId, number>();
   private readonly snapshotInterval = 10 * 60 * 1000; // persist a snapshot every 10 min
-  private lastCncData: CncLiveData | null = null;
-  private lastRa3bData: Ra3bLiveData | null = null;
+  private lastCncData = new Map<GameId, CncLiveData>();
+  private lastRa3bData = new Map<GameId, Ra3bLiveData>();
 
-  async fetch(): Promise<RA3Stats> {
-    if (this.cache && Date.now() - this.cacheTime < this.cacheTTL) return this.cache;
-    logger.info('Fetching fresh RA3 stats...');
+  async fetch(game: GameId = 'ra3', sources: StatsSourceOptions = {}): Promise<RA3Stats> {
+    const useCnc = sources.cncOnline !== false;
+    const useRa3b = sources.ra3BattleNet !== false;
+    const cacheKey = `${game}:${useCnc ? 1 : 0}:${useRa3b ? 1 : 0}`;
+    const cached = this.cache.get(cacheKey);
+    if (cached && Date.now() - cached.at < this.cacheTTL) return cached.stats;
+    logger.info(`Fetching fresh ${game} stats...`);
 
     // Fetch all data in parallel
     const [cncData, ra3bData, ra3bLadders, factionData, mapData, seasonData] =
       await Promise.allSettled([
-        this.fetchCnCOnline(),
-        this.fetchRA3BattleNet(),
-        this.fetchRA3BattleNetLadders(),
-        this.fetchFactionDistribution(),
-        this.fetchRA3BattleNetMaps(),
-        this.fetchCurrentSeason(),
+        this.fetchCnCOnline(game),
+        this.fetchRA3BattleNet(game),
+        game === 'ra3'
+          ? this.fetchRA3BattleNetLadders()
+          : Promise.resolve({ '1v1': [], '2v2': [], '3v3': [] }),
+        game === 'ra3'
+          ? this.fetchFactionDistribution()
+          : Promise.resolve({ Allies: 0, Soviets: 0, Empire: 0 }),
+        game === 'ra3' ? this.fetchRA3BattleNetMaps() : Promise.resolve({}),
+        game === 'ra3' ? this.fetchCurrentSeason() : Promise.resolve(undefined),
       ]);
 
     const cncLive =
@@ -322,63 +336,71 @@ export class RA3StatsService {
       ra3bData.status === 'fulfilled'
         ? ra3bData.value
         : { ok: false, players: 0, rooms: 0, mapCounts: {}, recentMatches: [] };
-    if (cncLive.ok) this.lastCncData = cncLive;
-    if (ra3bLive.ok) this.lastRa3bData = ra3bLive;
-    const cnc = cncLive.ok ? cncLive : this.lastCncData ?? cncLive;
-    const ra3b = ra3bLive.ok ? ra3bLive : this.lastRa3bData ?? ra3bLive;
+    if (cncLive.ok) this.lastCncData.set(game, cncLive);
+    if (ra3bLive.ok) this.lastRa3bData.set(game, ra3bLive);
+    const cnc = cncLive.ok ? cncLive : (this.lastCncData.get(game) ?? cncLive);
+    const ra3b = ra3bLive.ok ? ra3bLive : (this.lastRa3bData.get(game) ?? ra3bLive);
     const completeSample = cncLive.ok && ra3bLive.ok;
     const ra3bLaddersVal =
-      ra3bLadders.status === 'fulfilled' ? ra3bLadders.value : { '1v1': [], '2v2': [], '3v3': [], '4v4': [] };
+      ra3bLadders.status === 'fulfilled' ? ra3bLadders.value : { '1v1': [], '2v2': [], '3v3': [] };
     const factions =
-      factionData.status === 'fulfilled'
-        ? factionData.value
-        : { Allies: 30, Soviets: 35, Empire: 35 };
-    const ra3bMaps = mapData.status === 'fulfilled' ? mapData.value : {};
+      factionData.status === 'fulfilled' ? factionData.value : { Allies: 0, Soviets: 0, Empire: 0 };
+    const ra3bMaps: Record<string, number> = mapData.status === 'fulfilled' ? mapData.value : {};
     const season = seasonData.status === 'fulfilled' ? seasonData.value : undefined;
 
-    // Combine map counts from both platforms (only known RA3 skirmish maps)
+    // Combine current lobby map counts from both platforms. RA3 can also add
+    // the platform's historical map endpoint; GenEvo has no separate season
+    // map API and therefore uses only identified live lobbies.
     const combinedMapCounts: Record<string, number> = {};
-    for (const [map, count] of Object.entries(cnc.mapCounts)) {
-      if (isKnownSkirmishMap(map)) combinedMapCounts[map] = (combinedMapCounts[map] || 0) + count;
+    for (const [map, count] of Object.entries(useCnc ? cnc.mapCounts : {})) {
+      combinedMapCounts[map] = (combinedMapCounts[map] || 0) + count;
     }
-    for (const [map, count] of Object.entries(ra3bMaps)) {
-      if (isKnownSkirmishMap(map)) combinedMapCounts[map] = (combinedMapCounts[map] || 0) + count;
+    for (const [map, count] of Object.entries(useRa3b ? ra3b.mapCounts : {})) {
+      combinedMapCounts[map] = (combinedMapCounts[map] || 0) + count;
+    }
+    for (const [map, count] of Object.entries(game === 'ra3' && useRa3b ? ra3bMaps : {})) {
+      if (isKnownSkirmishMap(map, game)) {
+        combinedMapCounts[map] = (combinedMapCounts[map] || 0) + count;
+      }
     }
     const topMaps = Object.entries(combinedMapCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10) as Array<[string, number]>;
 
-    const onlineNow = cnc.players + ra3b.players;
+    const onlineNow = (useCnc ? cnc.players : 0) + (useRa3b ? ra3b.players : 0);
 
     // Real history from the stats_snapshots the bot persists every 10 min.
     // Missing buckets stay null so a short tracking window is never presented
     // as a full day or month of repeated measurements.
-    const history24 = this.getRecentHistory(24);
+    const history24 = this.getRecentHistory(24, game);
+    const historyValue = (row: { cnc_online: number; ra3battle_online: number }) =>
+      (useCnc ? row.cnc_online : 0) + (useRa3b ? row.ra3battle_online : 0);
     const currentPoint = completeSample ? [{ at: Date.now(), v: onlineNow }] : [];
     const onlineLast24h = this.bucketHistory(
       history24
-        .map((r) => ({ at: this.parseSnapshotTime(r.created_at), v: r.online_now }))
+        .map((r) => ({ at: this.parseSnapshotTime(r.created_at), v: historyValue(r) }))
         .concat(currentPoint),
       24,
       3_600_000,
     );
-    const peakValues = history24.map((r) => r.online_now);
+    const peakValues = history24.map(historyValue);
     if (completeSample) peakValues.push(onlineNow);
     const peak24h = peakValues.length > 0 ? Math.max(...peakValues) : onlineNow;
-    const history30 = this.getRecentHistory(24 * 30);
+    const history30 = this.getRecentHistory(24 * 30, game);
     const onlineLast30d = this.bucketHistory(
       history30
-        .map((r) => ({ at: this.parseSnapshotTime(r.created_at), v: r.online_now }))
+        .map((r) => ({ at: this.parseSnapshotTime(r.created_at), v: historyValue(r) }))
         .concat(currentPoint),
       30,
       86_400_000,
     );
     // New players per day: personas whose first ladder appearance was that
     // day (tracked since the bot started watching the ladders).
-    await this.trackSeenPlayers();
-    const newPlayersLast30d = this.newPlayersByDay();
-    const tournamentWins = this.getTournamentWins();
-    const masters = this.getMasters();
+    if (game === 'ra3' && useRa3b) await this.trackSeenPlayers();
+    const newPlayersLast30d =
+      game === 'ra3' && useRa3b ? this.newPlayersByDay() : new Array(30).fill(null);
+    const tournamentWins = this.getTournamentWins(game);
+    const masters = game === 'ra3' ? this.getMasters() : [];
 
     // C&C Online exposes no public ladder API — the Top 10 page says so
     // instead of showing invented numbers. RA3BattleNet ladders are real.
@@ -386,7 +408,6 @@ export class RA3StatsService {
       '1v1': [],
       '2v2': [],
       '3v3': [],
-      '4v4': [],
     };
 
     const stats: RA3Stats = {
@@ -403,24 +424,24 @@ export class RA3StatsService {
       new_player_tracking_started_at: this.getTrackingStart(),
       faction_distribution: factions,
       top_maps: topMaps,
-      cnc_recent_matches: cnc.recentMatches,
-      ra3battle_recent_matches: ra3b.recentMatches,
+      cnc_recent_matches: useCnc ? cnc.recentMatches : [],
+      ra3battle_recent_matches: useRa3b ? ra3b.recentMatches : [],
       cnc_ladders: cncLadders,
-      ra3b_ladders: ra3bLaddersVal,
+      ra3b_ladders: useRa3b ? ra3bLaddersVal : { '1v1': [], '2v2': [], '3v3': [] },
       tournament_wins: tournamentWins,
       ra3b_season: season,
       masters: masters,
     };
 
-    this.cache = stats;
-    this.cacheTime = Date.now();
+    this.cache.set(cacheKey, { stats, at: Date.now() });
 
     // Persist a snapshot every snapshotInterval so refresh can show history.
     const now = Date.now();
-    if (completeSample && now - this.lastSnapshotAt >= this.snapshotInterval) {
-      this.lastSnapshotAt = now;
+    const lastSnapshot = this.lastSnapshotAt.get(game) ?? 0;
+    if (completeSample && now - lastSnapshot >= this.snapshotInterval) {
+      this.lastSnapshotAt.set(game, now);
       try {
-        this.snapshotStats(stats);
+        this.snapshotStats(stats, game);
       } catch (err) {
         logger.warn('Failed to persist RA3 stats snapshot:', err);
       }
@@ -431,30 +452,46 @@ export class RA3StatsService {
     return stats;
   }
 
-  private snapshotStats(stats: RA3Stats): void {
+  private snapshotStats(stats: RA3Stats, game: GameId): void {
     // Top players per platform (1v1 ladder, top 10) so history remembers who was on top.
     const topPlayers = {
       cnc: (stats.cnc_ladders['1v1'] || []).slice(0, 10).map((r) => r[0]),
       ra3b: (stats.ra3b_ladders['1v1'] || []).slice(0, 10).map((r) => r.personaName),
     };
     db.prepare(
-      'INSERT INTO stats_snapshots (online_now, cnc_online, ra3battle_online, faction_distribution, top_maps, top_players) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO stats_snapshots (online_now, cnc_online, ra3battle_online, faction_distribution, top_maps, top_players, game) VALUES (?, ?, ?, ?, ?, ?, ?)',
     ).run(
-      stats.online_now, stats.cnc_online, stats.ra3battle_online,
+      stats.cnc_online + stats.ra3battle_online,
+      stats.cnc_online,
+      stats.ra3battle_online,
       JSON.stringify(stats.faction_distribution),
       JSON.stringify(stats.top_maps),
       JSON.stringify(topPlayers),
+      game,
     );
     // Keep the last 30 days of snapshots.
     db.prepare("DELETE FROM stats_snapshots WHERE created_at < datetime('now', '-30 days')").run();
   }
 
   /** Recent history (default: last 24h) for refresh/next, oldest first. */
-  getRecentHistory(hours = 24): Array<{ created_at: string; online_now: number; cnc_online: number; ra3battle_online: number; faction_distribution: string; top_maps: string; top_players: string }> {
+  getRecentHistory(
+    hours = 24,
+    game: GameId = 'ra3',
+  ): Array<{
+    created_at: string;
+    online_now: number;
+    cnc_online: number;
+    ra3battle_online: number;
+    faction_distribution: string;
+    top_maps: string;
+    top_players: string;
+  }> {
     try {
       return db
-        .prepare("SELECT created_at, online_now, cnc_online, ra3battle_online, faction_distribution, top_maps, top_players FROM stats_snapshots WHERE created_at >= datetime('now', ?) ORDER BY created_at ASC")
-        .all('-' + hours + ' hours') as any[];
+        .prepare(
+          "SELECT created_at, online_now, cnc_online, ra3battle_online, faction_distribution, top_maps, top_players FROM stats_snapshots WHERE game = ? AND created_at >= datetime('now', ?) ORDER BY created_at ASC",
+        )
+        .all(game, '-' + hours + ' hours') as any[];
     } catch {
       return [];
     }
@@ -518,7 +555,7 @@ export class RA3StatsService {
       const out: Array<number | null> = [];
       for (let i = 29; i >= 0; i--) {
         const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
-        out.push(trackingStart && d >= trackingStart ? byDate.get(d) ?? 0 : null);
+        out.push(trackingStart && d >= trackingStart ? (byDate.get(d) ?? 0) : null);
       }
       return out;
     } catch {
@@ -569,7 +606,7 @@ export class RA3StatsService {
   ): Promise<{ personaName: string; elo: number; primaryFaction: string; mode: string } | null> {
     const stats = await this.fetch();
     const needle = name.toLowerCase();
-    for (const mode of ['1v1', '2v2', '3v3', '4v4'] as const) {
+    for (const mode of ['1v1', '2v2', '3v3'] as const) {
       const ladder = stats.ra3b_ladders[mode] || [];
       const hit = ladder.find((p) => p.personaName.toLowerCase() === needle);
       if (hit) return { ...hit, mode };
@@ -686,7 +723,7 @@ export class RA3StatsService {
   // ------------------------------------------------------------------
   // C&C Online API
   // ------------------------------------------------------------------
-  private async fetchCnCOnline(): Promise<CncLiveData> {
+  private async fetchCnCOnline(gameId: GameId): Promise<CncLiveData> {
     try {
       const res = await axios.get('https://cnc-online.net/api/serverinfo/?site=cnconline', {
         timeout: 5000,
@@ -695,27 +732,57 @@ export class RA3StatsService {
       const users = ra3.users || {};
       const gamesPlaying = ra3.games?.playing || [];
       const gamesStaging = ra3.games?.staging || [];
-      const lobbiesHosting = ra3.lobbies?.hosting || 0;
 
-      const playersOnline = Object.keys(users).length;
-      const activeGames = gamesPlaying.length + gamesStaging.length + lobbiesHosting;
+      const allGames = [...gamesPlaying, ...gamesStaging];
+      const gameRows = allGames.filter((game: any) =>
+        matchesGameLobby(game.map || '', game.mod, gameId),
+      );
+      const genevoRows = allGames.filter((game: any) =>
+        matchesGameLobby(game.map || '', game.mod, 'genevo'),
+      );
+      const genevoPlayers = new Set<string>();
+      const genevoPlayerIds = new Set<string>();
+      const genevoPlayerNames = new Set<string>();
+      for (const game of genevoRows) {
+        const players = Array.isArray(game.players)
+          ? game.players
+          : game.players && typeof game.players === 'object'
+            ? Object.values(game.players)
+            : [];
+        for (const player of players as any[]) {
+          if (player?.id != null) {
+            genevoPlayers.add(`id:${player.id}`);
+            genevoPlayerIds.add(String(player.id));
+          } else if (player?.nickname) {
+            genevoPlayers.add(`name:${String(player.nickname).toLowerCase()}`);
+          }
+          if (player?.nickname) genevoPlayerNames.add(String(player.nickname).toLowerCase());
+        }
+      }
+      const playersOnline =
+        gameId === 'genevo'
+          ? Math.max(
+              genevoPlayers.size,
+              genevoRows.reduce(
+                (total: number, game: any) => total + (Number(game.numRealPlayers) || 0),
+                0,
+              ),
+            )
+          : Object.values(users).filter((user: any) => {
+              const id = user?.id == null ? '' : String(user.id);
+              const name = String(user?.nickname || '').toLowerCase();
+              return !genevoPlayerIds.has(id) && !genevoPlayerNames.has(name);
+            }).length;
+      const activeGames = gameRows.length;
 
       const mapCounts: Record<string, number> = {};
-      const allGames = [...gamesPlaying, ...gamesStaging];
-      for (const game of allGames) {
-        let map = game.map || 'Unknown';
-        map = map.split('.map')[0];
-        map = map
-          .replace(/\[.*?\]/g, '')
-          .replace(/[_\-\s]+/g, ' ')
-          .trim();
-        if (map && isKnownSkirmishMap(map)) {
-          mapCounts[map] = (mapCounts[map] || 0) + 1;
-        }
+      for (const game of gameRows) {
+        const map = cleanGameMapName(game.map || 'Unknown', gameId);
+        if (map !== 'Unknown') mapCounts[map] = (mapCounts[map] || 0) + 1;
       }
 
       const recentMatches: Array<{ players: string; map: string; platform: string }> = [];
-      for (const game of [...gamesPlaying, ...gamesStaging].slice(0, 10)) {
+      for (const game of gameRows.slice(0, 10)) {
         let players: string[] = [];
         if (Array.isArray(game.players)) {
           players = game.players.map((p: any) => p.nickname || 'Unknown');
@@ -724,15 +791,8 @@ export class RA3StatsService {
         }
         if (players.length === 0) continue;
         const playersStr = players.join(', ');
-        let map = game.map || 'Unknown';
-        map = map.split('.map')[0];
-        map =
-          map
-            .replace(/\[.*?\]/g, '')
-            .replace(/[_\-\s]+/g, ' ')
-            .trim() || 'Unknown';
-        // Only genuine RA3 skirmish games — no co-op, campaign or mod lobbies.
-        if (!isKnownSkirmishMap(map)) continue;
+        const map = cleanGameMapName(game.map || 'Unknown', gameId);
+        if (map === 'Unknown') continue;
         recentMatches.push({ players: playersStr, map, platform: 'C&C Online' });
         if (recentMatches.length >= 5) break;
       }
@@ -747,17 +807,36 @@ export class RA3StatsService {
   // ------------------------------------------------------------------
   // RA3BattleNet API
   // ------------------------------------------------------------------
-  private async fetchRA3BattleNet(): Promise<Ra3bLiveData> {
+  private async fetchRA3BattleNet(gameId: GameId): Promise<Ra3bLiveData> {
     try {
       const res = await axios.get('https://api.ra3battle.cn/api/server/status/detail', {
         timeout: 5000,
       });
-      const players = res.data.players?.length || 0;
       const games = res.data.games || [];
-      const rooms = games.length;
+      const gameRows = games.filter((game: any) =>
+        matchesGameLobby(game.mapname || '', game.mod, gameId),
+      );
+      const identifiedPlayers = new Set<string>();
+      for (const game of gameRows) {
+        const players = Array.isArray(game.players)
+          ? game.players
+          : game.players && typeof game.players === 'object'
+            ? Object.values(game.players)
+            : [];
+        for (const player of players as any[]) {
+          identifiedPlayers.add(
+            player?.id != null
+              ? `id:${player.id}`
+              : `name:${String(player?.name || '').toLowerCase()}`,
+          );
+        }
+      }
+      identifiedPlayers.delete('name:');
+      const players = gameId === 'genevo' ? identifiedPlayers.size : res.data.players?.length || 0;
+      const rooms = gameRows.length;
       const mapCounts: Record<string, number> = {};
       const recentMatches: Array<{ players: string; map: string; platform: string }> = [];
-      for (const game of games.slice(0, 10)) {
+      for (const game of gameRows) {
         let playersList: string[] = [];
         if (Array.isArray(game.players)) {
           playersList = game.players.map((p: any) => p.name || 'Unknown');
@@ -766,10 +845,8 @@ export class RA3StatsService {
         }
         if (playersList.length === 0) continue;
         const playersStr = playersList.join(', ');
-        let map = game.mapname || 'Unknown';
-        map = cleanMapName(map);
-        // Only genuine RA3 skirmish games — no co-op, campaign or mod lobbies.
-        if (!isKnownSkirmishMap(map)) continue;
+        const map = cleanMapName(game.mapname || 'Unknown', gameId);
+        if (map === 'Unknown') continue;
         mapCounts[map] = (mapCounts[map] || 0) + 1;
         if (recentMatches.length < 5) {
           recentMatches.push({ players: playersStr, map, platform: 'RA3BattleNet' });
@@ -785,8 +862,8 @@ export class RA3StatsService {
   private async fetchRA3BattleNetLadders(): Promise<
     Record<string, Array<{ personaName: string; elo: number; primaryFaction: string }>>
   > {
-    const modes = ['1v1', '2v2', '3v3', '4v4'];
-    const result: Record<string, any[]> = { '1v1': [], '2v2': [], '3v3': [], '4v4': [] };
+    const modes = ['1v1', '2v2', '3v3'];
+    const result: Record<string, any[]> = { '1v1': [], '2v2': [], '3v3': [] };
     for (const mode of modes) {
       try {
         const url = `https://api.ra3battle.cn/api/stats/ladder/ra3/${mode}/records/page/1/result`;
@@ -876,13 +953,13 @@ export class RA3StatsService {
   // ------------------------------------------------------------------
   // Hall of fame data (masters) + tournament winners
   // ------------------------------------------------------------------
-  private getTournamentWins(): Record<string, number> {
+  private getTournamentWins(game: GameId): Record<string, number> {
     try {
       const rows = db
         .prepare(
-          "SELECT winner_name, winner_key FROM tournament_winners WHERE game = 'ra3' ORDER BY recorded_at ASC",
+          'SELECT winner_name, winner_key FROM tournament_winners WHERE game = ? ORDER BY recorded_at ASC',
         )
-        .all() as Array<{ winner_name: string; winner_key: string | null }>;
+        .all(game) as Array<{ winner_name: string; winner_key: string | null }>;
       const aliases = new Map(
         (
           db

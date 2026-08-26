@@ -9,6 +9,7 @@ import axios from 'axios';
 import xml2js from 'xml2js';
 import { contentDeliveryRepository } from '../repositories/content-delivery.repository';
 import { safeGetText } from '../utils/safe-fetch';
+import { classifyGameContent, GameId, GAME_CONFIGS } from '../config/games';
 
 export class YouTubeNotifierService {
   private callbackUrl: string | null = null;
@@ -42,9 +43,7 @@ export class YouTubeNotifierService {
 
   async start(): Promise<void> {
     if (!this.hasReachableCallback()) {
-      logger.info(
-        'YouTube: no public callback URL - using polling mode for tracked channels',
-      );
+      logger.info('YouTube: no public callback URL - using polling mode for tracked channels');
       await this.pollAll();
       this.pollInterval = setInterval(() => {
         this.pollAll().catch((error) => logger.error('YouTube poll tick failed:', error));
@@ -83,7 +82,9 @@ export class YouTubeNotifierService {
   /** Latest uploads of a channel via its free RSS feed (no API key needed). */
   private async fetchFeedUploads(
     channelId: string,
-  ): Promise<Array<{ videoId: string; title: string; publishedAt?: string; channelTitle?: string }>> {
+  ): Promise<
+    Array<{ videoId: string; title: string; publishedAt?: string; channelTitle?: string }>
+  > {
     if (!/^[\w-]{5,50}$/.test(channelId)) return [];
     const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
     const xml = await safeGetText(url, { timeoutMs: 10_000 });
@@ -123,7 +124,13 @@ export class YouTubeNotifierService {
         for (const video of uploads) {
           if (!video.publishedAt) continue;
           if (Date.now() - new Date(video.publishedAt).getTime() > this.POLL_MAX_AGE_MS) continue;
-          await this.handleNotification(streamer.id, video.videoId, video.title, true, streamer.isDefault);
+          await this.handleNotification(
+            streamer.id,
+            video.videoId,
+            video.title,
+            true,
+            streamer.isDefault,
+          );
         }
       } catch (error) {
         logger.warn(`YouTube poll failed for channel ${streamer.id}:`, error);
@@ -213,13 +220,32 @@ export class YouTubeNotifierService {
     db.prepare('INSERT OR IGNORE INTO youtube_notified_videos (video_id) VALUES (?)').run(videoId);
   }
 
-  private buildVideoEmbed(videoId: string, title: string, channelName: string): EmbedBuilder {
+  private videoMatchesGame(title: string, game: GameId, trackedForGuild: boolean): boolean {
+    const classified = classifyGameContent(title);
+    if (classified === 'other') return false;
+    if (trackedForGuild && classified === 'neutral') return true;
+    return game === 'genevo' ? classified === 'genevo' : classified !== 'genevo';
+  }
+
+  private buildVideoEmbed(
+    videoId: string,
+    title: string,
+    channelName: string,
+    game: GameId,
+  ): EmbedBuilder {
+    const videoUrl = `https://youtu.be/${videoId}`;
     return new EmbedBuilder()
-      .setTitle(`📺 New video: ${title}`)
-      .setURL(`https://youtu.be/${videoId}`)
+      .setTitle(title.slice(0, 256))
+      .setURL(videoUrl)
+      .setDescription(`🔴 **NEW VIDEO** on YouTube\n${videoUrl}`)
       .setColor(0xff0000)
       .setAuthor({ name: channelName, iconURL: 'https://www.youtube.com/favicon.ico' })
-      .setThumbnail(`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`)
+      .setThumbnail(GAME_CONFIGS[game].artworkUrl)
+      .setImage(`https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`)
+      .addFields(
+        { name: '🎮 Game', value: GAME_CONFIGS[game].shortLabel, inline: true },
+        { name: '📺 Channel', value: channelName.slice(0, 1024), inline: true },
+      )
       .setTimestamp();
   }
 
@@ -228,16 +254,21 @@ export class YouTubeNotifierService {
     videoId: string,
     title: string,
     channelName: string,
+    trackedForGuild = false,
   ): Promise<boolean> {
     const guild = this.client?.guilds.cache.get(guildId);
     if (!guild) return false;
     const guildData = guildRepository.findByDiscordId(guildId);
     if (!guildData?.youtubeChannelId || !guildData.youtubeNotifierEnabled) return false;
+    if (!this.videoMatchesGame(title, guildData.game, trackedForGuild)) return false;
     const channel = guild.channels.cache.get(guildData.youtubeChannelId);
     if (!(channel instanceof TextChannel)) return false;
-    if (contentDeliveryRepository.wasDelivered(guildId, 'youtube', videoId, channel.id)) return false;
+    if (contentDeliveryRepository.wasDelivered(guildId, 'youtube', videoId, channel.id))
+      return false;
     try {
-      await channel.send({ embeds: [this.buildVideoEmbed(videoId, title, channelName)] });
+      await channel.send({
+        embeds: [this.buildVideoEmbed(videoId, title, channelName, guildData.game)],
+      });
       contentDeliveryRepository.markDelivered(guildId, 'youtube', videoId, channel.id);
       return true;
     } catch (error) {
@@ -258,11 +289,18 @@ export class YouTubeNotifierService {
       publishedAt?: string;
       channelTitle?: string;
       channelId: string;
+      trackedForGuild: boolean;
     }> = [];
     for (const channelId of channelIds) {
       try {
         const uploads = await this.fetchFeedUploads(channelId);
-        videos.push(...uploads.map((video) => ({ ...video, channelId })));
+        videos.push(
+          ...uploads.map((video) => ({
+            ...video,
+            channelId,
+            trackedForGuild: tracked.includes(channelId),
+          })),
+        );
       } catch (error) {
         logger.warn(`YouTube bootstrap failed for channel ${channelId}:`, error);
       }
@@ -272,10 +310,20 @@ export class YouTubeNotifierService {
       const tb = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
       return tb - ta;
     });
-    const latest = videos[0];
+    const game = guildRepository.findByDiscordId(guildId)?.game ?? 'ra3';
+    const latest = videos.find((video) =>
+      this.videoMatchesGame(video.title, game, video.trackedForGuild),
+    );
     if (!latest) return false;
-    const channelName = latest.channelTitle || this.channelNames.get(latest.channelId) || 'YouTube Channel';
-    return this.sendVideoToGuild(guildId, latest.videoId, latest.title, channelName);
+    const channelName =
+      latest.channelTitle || this.channelNames.get(latest.channelId) || 'YouTube Channel';
+    return this.sendVideoToGuild(
+      guildId,
+      latest.videoId,
+      latest.title,
+      channelName,
+      latest.trackedForGuild,
+    );
   }
 
   async handleNotification(
@@ -291,16 +339,18 @@ export class YouTubeNotifierService {
     const trackings = trackedStreamerRepository.findByPlatformId(channelId);
     // Default channels (Sybert) post to every guild with YouTube enabled;
     // guild-tracked channels only to the guilds that track them.
-    const targetGuildIds = isDefaultChannel
-      ? guildRepository.getAllGuilds().map((g) => g.discordId)
-      : trackings.map((t) => t.guildId);
-    if (targetGuildIds.length === 0) return;
+    const targets = isDefaultChannel
+      ? guildRepository
+          .getAllGuilds()
+          .map((guild) => ({ guildId: guild.discordId, tracked: false }))
+      : trackings.map((tracking) => ({ guildId: tracking.guildId, tracked: true }));
+    if (targets.length === 0) return;
 
     this.markNotified(videoId);
 
     const channelName = this.channelNames.get(channelId) || 'YouTube Channel';
-    for (const guildId of targetGuildIds) {
-      await this.sendVideoToGuild(guildId, videoId, title, channelName);
+    for (const target of targets) {
+      await this.sendVideoToGuild(target.guildId, videoId, title, channelName, target.tracked);
     }
   }
 }

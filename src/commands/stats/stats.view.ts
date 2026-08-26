@@ -7,7 +7,7 @@ import {
   StringSelectMenuOptionBuilder,
   escapeMarkdown,
 } from 'discord.js';
-import { RA3Stats } from '../../services/ra3-stats.service';
+import { RA3Stats, StatsSourceOptions } from '../../services/ra3-stats.service';
 import {
   CNC_ONLINE,
   RA3_BATTLE_NET,
@@ -18,12 +18,12 @@ import {
   FACTION_EMPIRE,
   FACTION_RANDOM,
 } from '../../utils/emojis';
-import { masterRepository } from '../../repositories/master.repository';
 import { sanitizeInput } from '../../utils/sanitize';
+import { GameId, GAME_CONFIGS } from '../../config/games';
 
 export type StatsPage = 0 | 1 | 2 | 3;
-export type StatsMode = '1v1' | '2v2' | '3v3' | '4v4';
-export const STATS_MODES: StatsMode[] = ['1v1', '2v2', '3v3', '4v4'];
+export type StatsMode = '1v1' | '2v2' | '3v3';
+export const STATS_MODES: StatsMode[] = ['1v1', '2v2', '3v3'];
 export const STATS_PAGES = 4;
 
 export class StatsView {
@@ -31,11 +31,15 @@ export class StatsView {
   private page: StatsPage = 0;
   private mode: StatsMode = '1v1';
   private recentMatchCount = 5;
-  /** RA3BattleNet sections render only for RA3 servers (KW/GenEvo: C&C Online only). */
-  private showRa3b = true;
+  private game: GameId;
+  private showCnc: boolean;
+  private showRa3b: boolean;
 
-  constructor(stats: RA3Stats) {
+  constructor(stats: RA3Stats, game: GameId = 'ra3', sources: StatsSourceOptions = {}) {
     this._stats = stats;
+    this.game = game;
+    this.showCnc = sources.cncOnline !== false;
+    this.showRa3b = sources.ra3BattleNet !== false;
   }
 
   updateStats(stats: RA3Stats) {
@@ -43,29 +47,34 @@ export class StatsView {
   }
 
   getEmbed(): EmbedBuilder {
+    const config = GAME_CONFIGS[this.game];
     const embed = new EmbedBuilder()
-      .setColor(0x2a0a0a)
-      .setFooter({ text: 'RA3 Community Stats • Updated every 5 minutes' })
+      .setColor(config.color)
+      .setFooter({ text: `${config.shortLabel} Community Stats • Updated every 5 minutes` })
       .setTimestamp();
 
     if (this.page === 0) {
-      embed.setTitle('RA3 Community Live Stats');
-      const seasonName = this._stats.ra3b_season
-        ? this._stats.ra3b_season.englishName || this._stats.ra3b_season.chineseName
-        : undefined;
-      // One source at a time: KW/GenEvo servers (RA3BattleNet off) count
-      // C&C Online players only, never the combined figure.
+      embed.setTitle(`${config.shortLabel} Community Live Stats`);
+      const seasonName =
+        this.game === 'ra3' && this._stats.ra3b_season
+          ? this._stats.ra3b_season.englishName || this._stats.ra3b_season.chineseName
+          : undefined;
+      const platformLines = [
+        this.showCnc
+          ? `${CNC_ONLINE} **C&C Online:** ${this._stats.cnc_online} players | Active games: ${this._stats.cnc_active_games}`
+          : '',
+        this.showRa3b
+          ? `${RA3_BATTLE_NET} **RA3BattleNet:** ${this._stats.ra3battle_online} players | Active games: ${this._stats.ra3battle_active_games}`
+          : '',
+      ].filter(Boolean);
       embed.setDescription(
-        `${ICON_POWER} **Online Now:** ${this.showRa3b ? this._stats.online_now : this._stats.cnc_online}\n` +
-          (this.showRa3b ? `**Peak 24h:** ${this._stats.peak_24h}\n` : '') +
-          `\n${CNC_ONLINE} **C&C Online:** ${this._stats.cnc_online} players | Active games: ${this._stats.cnc_active_games}` +
-          (this.showRa3b
-            ? `\n${RA3_BATTLE_NET} **RA3BattleNet:** ${this._stats.ra3battle_online} players | Active games: ${this._stats.ra3battle_active_games}`
-            : '') +
+        `${ICON_POWER} **Online Now:** ${this._stats.online_now}\n` +
+          `**Peak 24h:** ${this._stats.peak_24h}\n\n` +
+          (platformLines.join('\n') || 'No multiplayer platform is enabled for this server.') +
           (seasonName ? `\n\n📅 **Current Season:** ${seasonName}` : ''),
       );
     } else if (this.page === 1) {
-      embed.setTitle('🎮 Recent Matches & Factions');
+      embed.setTitle(this.game === 'ra3' ? '🎮 Recent Matches & Factions' : '🎮 Recent Matches');
       const cncMatches =
         this._stats.cnc_recent_matches
           .slice(0, this.recentMatchCount)
@@ -77,22 +86,25 @@ export class StatsView {
           .map((m) => `${this._formatPlayers(m.players)} · *${m.map}*`)
           .join('\n') || 'No active games';
       embed.addFields(
-        { name: `${CNC_ONLINE} C&C Online`, value: cncMatches, inline: false },
+        ...(this.showCnc
+          ? [{ name: `${CNC_ONLINE} C&C Online`, value: cncMatches, inline: false }]
+          : []),
         ...(this.showRa3b
           ? [{ name: `${RA3_BATTLE_NET} RA3BattleNet`, value: ra3bMatches, inline: false }]
           : []),
         {
           name: '🗺️ Most Played Maps (Top 10)',
-          value: this._stats.top_maps
-            .slice(0, 10)
-            .map(([name, count]) => `• **${name}** (${count} games)`)
-            .join('\n'),
+          value:
+            this._stats.top_maps
+              .slice(0, 10)
+              .map(([name, count]) => `• **${name}** (${count} games)`)
+              .join('\n') || 'No active map data right now.',
           inline: false,
         },
         // Faction data comes from the RA3BattleNet API (Shatabrick's will be
         // merged once published) — so the section only exists for RA3 servers.
         // The API reports game COUNTS per faction; percentages are computed.
-        ...(this.showRa3b
+        ...(this.game === 'ra3' && this.showRa3b
           ? [
               {
                 name: '🎌 Faction Popularity (RA3BattleNet)',
@@ -117,20 +129,24 @@ export class StatsView {
       const cncLb = this._stats.cnc_ladders[this.mode] || [];
       const ra3bLb = this._stats.ra3b_ladders[this.mode] || [];
       embed.addFields(
-        {
-          name: `${CNC_ONLINE} C&C Online Top 10`,
-          value: cncLb.length
-            ? cncLb
-                .slice(0, 10)
-                .map(
-                  ([name, elo, faction], i) =>
-                    `**${i + 1}** ${this._factionEmoji(faction)} \`${elo}\` ${name}`,
-                )
-                .join('\n')
-            : 'No public ladder API for C&C Online.\nRanks live on Shatabrick.',
-          inline: false,
-        },
-        ...(this.showRa3b
+        ...(this.showCnc
+          ? [
+              {
+                name: `${CNC_ONLINE} C&C Online Top 10`,
+                value: cncLb.length
+                  ? cncLb
+                      .slice(0, 10)
+                      .map(
+                        ([name, elo, faction], i) =>
+                          `**${i + 1}** ${this._factionEmoji(faction)} \`${elo}\` ${name}`,
+                      )
+                      .join('\n')
+                  : `No public ladder API for C&C Online.\nUse \`/profile\` for Shatabrick ranks.`,
+                inline: false,
+              },
+            ]
+          : []),
+        ...(this.game === 'ra3' && this.showRa3b
           ? [
               {
                 name: `${RA3_BATTLE_NET} RA3BattleNet Top 10`,
@@ -142,16 +158,18 @@ export class StatsView {
                           `**${i + 1}** ${this._factionEmoji(p.primaryFaction)} \`${p.elo}\` ${p.personaName}`,
                       )
                       .join('\n')
-                  : this.mode === '4v4'
-                    ? 'RA3BattleNet has no 4v4 ladder.'
-                    : 'No data yet.',
+                  : 'No data yet.',
                 inline: false,
               },
             ]
           : []),
       );
     } else if (this.page === 3) {
-      embed.setTitle(`${GOLD_CUP} Tournament Wins & Masters`);
+      embed.setTitle(
+        this.game === 'ra3'
+          ? `${GOLD_CUP} Tournament Wins & Masters`
+          : `${GOLD_CUP} Tournament Wins`,
+      );
       const wins =
         Object.entries(this._stats.tournament_wins)
           .sort((a, b) => b[1] - a[1])
@@ -160,19 +178,21 @@ export class StatsView {
           .join('\n') || 'No data';
       embed.addFields(
         { name: `Tournament Wins (Top 10)`, value: wins, inline: false },
-        {
-          name: '🏅 Hall of Fame',
-          value: this._getMastersText() || 'No masters recorded yet.',
-          inline: false,
-        },
+        ...(this.game === 'ra3'
+          ? [
+              {
+                name: '🏅 Hall of Fame',
+                value: this._getMastersText() || 'No masters recorded yet.',
+                inline: false,
+              },
+            ]
+          : []),
       );
     }
     embed.setFooter({
       text: `Updates every 10 min • Last refresh: ${new Date().toLocaleTimeString()} UTC`,
     });
-    embed.setThumbnail(
-      'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/17480/header.jpg',
-    );
+    embed.setThumbnail(config.artworkUrl);
     return embed;
   }
 
@@ -194,7 +214,7 @@ export class StatsView {
   }
 
   private _getMastersText(): string {
-    const rows = masterRepository.getAll();
+    const rows = this._stats.masters;
     if (rows.length === 0) return '';
     let currentYear = 0;
     let text = '';
@@ -246,12 +266,11 @@ export class StatsView {
           .setCustomId('stats_mode')
           .setPlaceholder('Select game mode')
           .addOptions(
-            ...STATS_MODES.map(
-              (m) =>
-                new StringSelectMenuOptionBuilder()
-                  .setLabel(m)
-                  .setValue(m)
-                  .setDefault(this.mode === m),
+            ...STATS_MODES.map((m) =>
+              new StringSelectMenuOptionBuilder()
+                .setLabel(m)
+                .setValue(m)
+                .setDefault(this.mode === m),
             ),
           ),
       );
@@ -271,6 +290,10 @@ export class StatsView {
   }
   setShowRa3b(show: boolean) {
     this.showRa3b = show;
+  }
+  setSources(sources: StatsSourceOptions) {
+    this.showCnc = sources.cncOnline !== false;
+    this.showRa3b = sources.ra3BattleNet !== false;
   }
   getPage() {
     return this.page;

@@ -6,6 +6,7 @@ import { guildRepository } from '../repositories/guild.repository';
 import { db } from '../database/sqlite';
 import { contentDeliveryRepository } from '../repositories/content-delivery.repository';
 import { safeGetText } from '../utils/safe-fetch';
+import { GameId, GAME_CONFIGS } from '../config/games';
 
 interface RSSItem {
   title: string;
@@ -19,15 +20,21 @@ interface RSSItem {
 export class ModDBNotifierService {
   private pollInterval: NodeJS.Timeout | null = null;
   private client: Client | null = null;
-  /** ModDB's RA3 articles page carries the current mod updates. Other feeds
-   * are older or map-heavy, so they are deliberately not mixed into /mods. */
-  private readonly rssFeeds = [
-    'https://rss.moddb.com/games/cc-red-alert-3/articles/feed/rss.xml',
+  private readonly rssFeeds: Array<{ game: GameId; url: string }> = [
+    { game: 'ra3', url: 'https://rss.moddb.com/games/cc-red-alert-3/articles/feed/rss.xml' },
+    {
+      game: 'genevo',
+      url: 'https://rss.moddb.com/mods/command-and-conquer-generals-evolution/articles/feed/rss.xml',
+    },
+    {
+      game: 'genevo',
+      url: 'https://rss.moddb.com/mods/command-and-conquer-generals-evolution/downloads/feed/rss.xml',
+    },
   ];
   private readonly pollIntervalMinutes = 15;
   /** At most one channel post per 6 hours — ModDB bursts must not spam. */
   private readonly minPostIntervalMs = 6 * 60 * 60 * 1000;
-  private lastPostedAt = 0;
+  private lastPostedAt = new Map<GameId, number>();
   private polling = false;
 
   setClient(client: Client): void {
@@ -66,26 +73,27 @@ export class ModDBNotifierService {
 
   private async pollFeeds(): Promise<void> {
     logger.debug('Polling ModDB RSS feeds...');
-    const candidates: Array<{ item: RSSItem; feedUrl: string }> = [];
+    const candidates: Array<{ item: RSSItem; feedUrl: string; game: GameId }> = [];
     const seen = new Set<string>();
     // First run (empty dedup table): ingest the feed history silently and
     // present only the newest item — channels then only ever see genuinely
     // NEW content instead of a backlog.
     const wasEmpty = !db.prepare('SELECT 1 FROM moddb_notified LIMIT 1').get();
 
-    for (const feedUrl of this.rssFeeds) {
+    for (const feed of this.rssFeeds) {
       try {
-        const items = await this.fetchFeed(feedUrl);
+        const items = await this.fetchFeed(feed.url);
         for (const item of items) {
-          if (seen.has(item.guid)) continue;
-          seen.add(item.guid);
-          if (await this.isAlreadyNotified(item.guid)) continue;
-          candidates.push({ item, feedUrl });
+          const key = `${feed.game}:${item.guid}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (await this.isAlreadyNotified(key)) continue;
+          candidates.push({ item, feedUrl: feed.url, game: feed.game });
         }
         // Small delay between feeds to avoid rate limiting
         await this.delay(1000);
       } catch (error) {
-        logger.error(`Failed to process feed ${feedUrl}:`, error);
+        logger.error(`Failed to process feed ${feed.url}:`, error);
       }
     }
 
@@ -97,40 +105,45 @@ export class ModDBNotifierService {
       return tb - ta;
     });
 
-    if (wasEmpty) {
-      // Fresh install: post the newest item, mark the rest as seen.
-      const newest = candidates[0];
-      await this.sendNotification(newest.item, newest.feedUrl);
-      for (const c of candidates) await this.markNotified(c.item.guid);
-      this.lastPostedAt = Date.now();
-      logger.info(`ModDB RSS: first run - posted the newest item, ${candidates.length - 1} older item(s) marked seen`);
-      return;
-    }
+    // Each game has its own rate limit. A busy RA3 feed must not consume or
+    // mark Generals Evolution items (and vice versa).
+    for (const game of ['ra3', 'genevo'] as const) {
+      const gameCandidates = candidates.filter((candidate) => candidate.game === game);
+      if (gameCandidates.length === 0) continue;
+      const newest = gameCandidates[0];
 
-    // Rate limit: max one post per window, newest item only.
-    const sinceLast = Date.now() - this.lastPostedAt;
-    if (sinceLast < this.minPostIntervalMs) {
-      logger.debug(
-        `ModDB RSS: ${candidates.length} new item(s) waiting (rate limited, next post in ${Math.round((this.minPostIntervalMs - sinceLast) / 60000)} min)`,
+      if (!wasEmpty) {
+        const sinceLast = Date.now() - (this.lastPostedAt.get(game) ?? 0);
+        if (sinceLast < this.minPostIntervalMs) {
+          logger.debug(
+            `ModDB RSS: ${gameCandidates.length} new ${game} item(s) waiting (rate limited, next post in ${Math.round((this.minPostIntervalMs - sinceLast) / 60000)} min)`,
+          );
+          continue;
+        }
+      }
+
+      await this.sendNotification(newest.item, newest.feedUrl, game);
+      for (const candidate of gameCandidates) {
+        await this.markNotified(`${candidate.game}:${candidate.item.guid}`);
+      }
+      this.lastPostedAt.set(game, Date.now());
+      logger.info(
+        `ModDB RSS: posted the newest ${game} item; ${gameCandidates.length - 1} older item(s) marked seen`,
       );
-      return;
     }
-    const newest = candidates[0];
-    await this.sendNotification(newest.item, newest.feedUrl);
-    for (const candidate of candidates) await this.markNotified(candidate.item.guid);
-    this.lastPostedAt = Date.now();
-    logger.info(`ModDB RSS: posted the newest RA3 item; ${candidates.length - 1} older item(s) marked seen`);
   }
 
-  private async fetchLatestCandidates(): Promise<Array<{ item: RSSItem; feedUrl: string }>> {
+  private async fetchLatestCandidates(
+    game: GameId,
+  ): Promise<Array<{ item: RSSItem; feedUrl: string }>> {
     const candidates: Array<{ item: RSSItem; feedUrl: string }> = [];
     const seen = new Set<string>();
-    for (const feedUrl of this.rssFeeds) {
+    for (const feed of this.rssFeeds.filter((entry) => entry.game === game)) {
       try {
-        for (const item of await this.fetchFeed(feedUrl)) {
+        for (const item of await this.fetchFeed(feed.url)) {
           if (seen.has(item.guid)) continue;
           seen.add(item.guid);
-          candidates.push({ item, feedUrl });
+          candidates.push({ item, feedUrl: feed.url });
         }
       } catch {
         // A failed feed must not hide valid items from the others.
@@ -143,22 +156,25 @@ export class ModDBNotifierService {
     });
   }
 
-  /** Newest RA3 articles and mod updates for the /mods command. */
-  async fetchLatestRa3Items(limit = 10): Promise<RSSItem[]> {
-    return (await this.fetchLatestCandidates()).slice(0, limit).map(({ item }) => item);
+  async fetchLatestItems(game: GameId, limit = 10): Promise<RSSItem[]> {
+    return (await this.fetchLatestCandidates(game)).slice(0, limit).map(({ item }) => item);
   }
 
   async postLatestToGuild(guildId: string): Promise<boolean> {
-    const latest = (await this.fetchLatestCandidates())[0];
-    return latest ? this.sendNotificationToGuild(latest.item, latest.feedUrl, guildId) : false;
+    const game = guildRepository.findByDiscordId(guildId)?.game ?? 'ra3';
+    const latest = (await this.fetchLatestCandidates(game))[0];
+    return latest
+      ? this.sendNotificationToGuild(latest.item, latest.feedUrl, guildId, game)
+      : false;
   }
 
-  /** Admin test: posts the newest RA3 item to every configured guild (no dedup marking). */
+  /** Admin test: posts the newest relevant item to configured guilds. */
   async postTest(): Promise<number> {
-    const latest = (await this.fetchLatestCandidates())[0];
-    if (!latest) return 0;
-    await this.sendNotification(latest.item, latest.feedUrl);
-    return 1;
+    let sent = 0;
+    for (const guild of guildRepository.getAllGuilds()) {
+      if (await this.postLatestToGuild(guild.discordId)) sent++;
+    }
+    return sent;
   }
 
   /** xml2js can hand back guid/link as arrays or {_ : text} objects — flatten to a string. */
@@ -191,7 +207,7 @@ export class ModDBNotifierService {
       guid:
         ModDBNotifierService.flattenRssValue(item.guid) ||
         ModDBNotifierService.flattenRssValue(item.link) ||
-        `ra3:${ModDBNotifierService.flattenRssValue(item.title)}`,
+        ModDBNotifierService.flattenRssValue(item.title),
       category: item.category,
     }));
   }
@@ -222,15 +238,22 @@ export class ModDBNotifierService {
     return this.truncate(cleaned || 'Open the post on ModDB for full details.', 300);
   }
 
-  private buildEmbed(item: RSSItem, feedUrl: string): EmbedBuilder {
+  private buildEmbed(item: RSSItem, feedUrl: string, game: GameId): EmbedBuilder {
     const type = this.detectType(feedUrl, item);
+    const config = GAME_CONFIGS[game];
     const embed = new EmbedBuilder()
       .setTitle(`${this.getTypeEmoji(type)} ${this.formatTypeName(type)}: ${item.title}`)
       .setURL(item.link)
       .setDescription(this.cleanDescription(item.description))
-      .setColor(this.getTypeColor(type))
+      .setColor(type === 'update' ? config.color : this.getTypeColor(type))
       .setAuthor({ name: 'ModDB', iconURL: 'https://www.moddb.com/favicon.ico' })
-      .setFooter({ text: 'ModDB • RA3 Articles' });
+      .setThumbnail(config.artworkUrl)
+      .setFooter({ text: `ModDB • ${config.shortLabel}` });
+    const image = cheerio
+      .load(`<div>${item.description ?? ''}</div>`)('img')
+      .first()
+      .attr('src');
+    if (image && /^https:\/\//i.test(image)) embed.setImage(image);
     const timestamp = new Date(item.pubDate);
     if (!Number.isNaN(timestamp.getTime())) embed.setTimestamp(timestamp);
     return embed;
@@ -240,15 +263,18 @@ export class ModDBNotifierService {
     item: RSSItem,
     feedUrl: string,
     guildId: string,
+    game: GameId,
   ): Promise<boolean> {
     const guildData = guildRepository.findByDiscordId(guildId);
     if (!guildData?.moddbNotifierEnabled || !guildData.moddbChannelId) return false;
+    if (guildData.game !== game) return false;
     const guild = this.client?.guilds.cache.get(guildId);
     const channel = guild?.channels.cache.get(guildData.moddbChannelId);
     if (!(channel instanceof TextChannel)) return false;
-    if (contentDeliveryRepository.wasDelivered(guildId, 'moddb', item.guid, channel.id)) return false;
+    if (contentDeliveryRepository.wasDelivered(guildId, 'moddb', item.guid, channel.id))
+      return false;
     try {
-      await channel.send({ embeds: [this.buildEmbed(item, feedUrl)] });
+      await channel.send({ embeds: [this.buildEmbed(item, feedUrl, game)] });
       contentDeliveryRepository.markDelivered(guildId, 'moddb', item.guid, channel.id);
       return true;
     } catch (error) {
@@ -257,11 +283,11 @@ export class ModDBNotifierService {
     }
   }
 
-  private async sendNotification(item: RSSItem, feedUrl: string): Promise<void> {
-
+  private async sendNotification(item: RSSItem, feedUrl: string, game: GameId): Promise<void> {
     const guilds = guildRepository.getAllGuilds();
     for (const guildData of guilds) {
-      await this.sendNotificationToGuild(item, feedUrl, guildData.discordId);
+      if (guildData.game !== game) continue;
+      await this.sendNotificationToGuild(item, feedUrl, guildData.discordId, game);
     }
   }
 

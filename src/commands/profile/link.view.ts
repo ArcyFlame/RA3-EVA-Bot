@@ -9,8 +9,13 @@ import {
 import { userRepository } from '../../repositories/user.repository';
 import { Language } from '../../repositories/user.repository';
 import { t } from '../../utils/i18n';
+import { GameId, GAME_CONFIGS } from '../../config/games';
 
-export function buildLinkManager(userId: string, lang: Language = 'en'): {
+export function buildLinkManager(
+  userId: string,
+  lang: Language = 'en',
+  game: GameId = 'ra3',
+): {
   embeds: [EmbedBuilder];
   components: [ActionRowBuilder<StringSelectMenuBuilder>, ActionRowBuilder<ButtonBuilder>];
 } {
@@ -22,7 +27,8 @@ export function buildLinkManager(userId: string, lang: Language = 'en'): {
   const embed = new EmbedBuilder()
     .setTitle(t(lang, 'link.title'))
     .setDescription(t(lang, 'link.description'))
-    .setColor(0x5865f2)
+    .setColor(GAME_CONFIGS[game].color)
+    .setThumbnail(GAME_CONFIGS[game].artworkUrl)
     .addFields(
       { name: 'Shatabrick (C&C Online)', value: shatabrick, inline: false },
       { name: 'RA3BattleNet', value: ra3b, inline: false },

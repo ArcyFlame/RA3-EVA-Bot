@@ -13,6 +13,7 @@ import { RA3Bot } from '../../bot';
 import { denyUnlessAdmin } from '../../utils/permissions';
 import { resolveMember } from '../../utils/members';
 import { guildRepository } from '../../repositories/guild.repository';
+import { GAME_CONFIGS, GameId } from '../../config/games';
 
 export const data = new SlashCommandBuilder()
   .setName('bot_setup')
@@ -21,13 +22,16 @@ export const data = new SlashCommandBuilder()
 
 /** Games the bot supports; the choice switches platforms, news and help. */
 export const GAME_OPTIONS = [
-  { value: 'ra3', label: 'Red Alert 3', description: 'C&C Online + RA3BattleNet (full support)' },
   {
-    value: 'kw',
-    label: "Command & Conquer: Kane's Wrath",
-    description: 'C&C Online + Shatabrick only',
+    value: 'ra3' as GameId,
+    label: GAME_CONFIGS.ra3.shortLabel,
+    description: 'C&C Online and RA3BattleNet',
   },
-  { value: 'genevo', label: 'Generals Evolution', description: 'C&C Online + Shatabrick only' },
+  {
+    value: 'genevo' as GameId,
+    label: GAME_CONFIGS.genevo.shortLabel,
+    description: 'C&C Online and RA3BattleNet',
+  },
 ] as const;
 
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
@@ -49,7 +53,8 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   const embed = new EmbedBuilder()
     .setTitle('🛠️ Server Setup Wizard')
     .setDescription('Click the buttons below to configure the bot for your server.')
-    .setColor(0x5865f2)
+    .setColor(GAME_CONFIGS[game].color)
+    .setThumbnail(GAME_CONFIGS[game].artworkUrl)
     .addFields(
       {
         name: '1. Server Game & Roles',

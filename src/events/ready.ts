@@ -8,7 +8,7 @@ import { matchReminderService } from '../services/match-reminder.service';
 import { tournamentScanner } from '../services/tournament-scanner.service';
 import { forumScanner } from '../services/forum-scanner.service';
 import { newsScanner } from '../services/news-scanner.service';
-import { chartTrackingNote, generateBarChart } from '../utils/charts';
+import { generateBarChart } from '../utils/charts';
 import { guildRepository } from '../repositories/guild.repository';
 import { ra3StatsService } from '../services/ra3-stats.service';
 import { StatsView } from '../commands/stats/stats.view';
@@ -20,6 +20,7 @@ import { wizardViews } from '../commands/notifications/views';
 import { setStartTime } from '../commands/info/uptime.command';
 import { bootstrapConfiguredContent } from '../services/content-bootstrap.service';
 import { checkinNotificationService } from '../services/checkin-notification.service';
+import { getGameContext } from '../utils/game-context';
 
 export const name = Events.ClientReady;
 export const once = true;
@@ -60,8 +61,47 @@ export async function execute(bot: RA3Bot): Promise<void> {
   // ── Dynamic presence (live player counts) ─────────────────────────────
   const updatePresence = async () => {
     try {
-      const stats = await ra3StatsService.fetch();
-      const presenceText = `C&C Online: ${stats.cnc_online} | RA3BattleNet: ${stats.ra3battle_online}`;
+      const guilds = guildRepository.getAllGuilds();
+      const useCnc = guilds.length === 0 || guilds.some((guild) => guild.cncOnlineEnabled === 1);
+      const useRa3Cnc =
+        guilds.length === 0 ||
+        guilds.some((guild) => guild.game === 'ra3' && guild.cncOnlineEnabled === 1);
+      const useGenevoCnc = guilds.some(
+        (guild) => guild.game === 'genevo' && guild.cncOnlineEnabled === 1,
+      );
+      const useRa3Ra3b =
+        guilds.length === 0 ||
+        guilds.some((guild) => guild.game === 'ra3' && guild.ra3BattleNetEnabled === 1);
+      const useGenevoRa3b = guilds.some(
+        (guild) => guild.game === 'genevo' && guild.ra3BattleNetEnabled === 1,
+      );
+      const useRa3b = useRa3Ra3b || useGenevoRa3b;
+      const [ra3Stats, genevoStats] = await Promise.all([
+        useRa3Cnc || useRa3Ra3b
+          ? ra3StatsService.fetch('ra3', {
+              cncOnline: useRa3Cnc,
+              ra3BattleNet: useRa3Ra3b,
+            })
+          : null,
+        useGenevoCnc || useGenevoRa3b
+          ? ra3StatsService.fetch('genevo', {
+              cncOnline: useGenevoCnc,
+              ra3BattleNet: useGenevoRa3b,
+            })
+          : null,
+      ]);
+      const cncOnline =
+        (useRa3Cnc ? (ra3Stats?.cnc_online ?? 0) : 0) +
+        (useGenevoCnc ? (genevoStats?.cnc_online ?? 0) : 0);
+      const platforms = [
+        useCnc ? `C&C Online: ${cncOnline}` : '',
+        useRa3b
+          ? `RA3BattleNet: ${
+              useRa3Ra3b ? (ra3Stats?.ra3battle_online ?? 0) : (genevoStats?.ra3battle_online ?? 0)
+            }`
+          : '',
+      ].filter(Boolean);
+      const presenceText = platforms.join(' | ') || 'Community tools ready';
       bot.client.user?.setPresence({
         activities: [{ name: presenceText, type: ActivityType.Playing }],
         status: 'online',
@@ -126,11 +166,7 @@ export async function execute(bot: RA3Bot): Promise<void> {
   // ── News scanner (GameReplays news portal) ─────────────────────────────
   newsScanner.setClient(bot.client);
   newsScanner.start();
-  void Promise.allSettled([
-    tournamentScanner.scan(),
-    forumScanner.scan(),
-    newsScanner.scan(),
-  ])
+  void Promise.allSettled([tournamentScanner.scan(), forumScanner.scan(), newsScanner.scan()])
     .then(async () => {
       await bootstrapConfiguredContent(bot.client);
       // This crawl is resumable and normally does no work after the historical
@@ -153,19 +189,9 @@ async function updateStatsPanels(bot: RA3Bot): Promise<void> {
   const configs = statsPanelRepository.getAll();
   if (configs.length === 0) return;
 
-  // One API fetch per tick, shared across every guild panel.
-  let view: StatsView | null = null;
-  try {
-    const stats = await ra3StatsService.fetch();
-    view = new StatsView(stats);
-  } catch (error) {
-    logger.error('Stats panel updater: failed to fetch stats:', error);
-    return;
-  }
-
   for (const cfg of configs) {
     try {
-      await updateSinglePanel(bot, cfg, view);
+      await updateSinglePanel(bot, cfg);
       // Small stagger to stay well inside channel rate limits.
       await new Promise((resolve) => setTimeout(resolve, 500));
     } catch (error) {
@@ -174,7 +200,7 @@ async function updateStatsPanels(bot: RA3Bot): Promise<void> {
   }
 }
 
-async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel, view: StatsView): Promise<void> {
+async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
   const guildData = guildRepository.findByDiscordId(cfg.guildId);
   if (!guildData || guildData.statsAutoUpdateEnabled === 0) return;
 
@@ -187,46 +213,43 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel, view: StatsView):
     return;
   }
 
-  // The shared public panel always shows the Live Stats overview (page 0);
-  // per-page browsing happens in private replies triggered by its buttons.
-  // RA3BattleNet sections (and the faction pie) render on RA3 servers only.
-  const showRa3b = (guildData.game ?? 'ra3') === 'ra3';
+  const context = getGameContext(cfg.guildId);
+  const stats = await ra3StatsService.fetch(context.game, context.sources);
+  const view = new StatsView(stats, context.game, context.sources);
   view.setPage(0);
-  view.setShowRa3b(showRa3b);
   const embedPayload: any = { embeds: [view.getEmbed()], components: view.getComponents() };
 
   // Charts live in SEPARATE messages below the embed — grouped attachments
   // render as a cropped gallery, one chart per message looks right.
   const charts: Array<{ attachment: Buffer; name: string }> = [];
   try {
-    const stats = await ra3StatsService.fetch();
-    charts.push({
-      attachment: await generateBarChart(
-        stats.online_last_24h,
-        'Online Players (Last 24 Hours)',
-        'Reds_r',
-        chartTrackingNote(stats.history_started_at),
-      ),
-      name: 'online_players_last_24_hours.png',
-    });
-    charts.push({
-      attachment: await generateBarChart(
-        stats.new_players_last_30d,
-        'New Players (Last 30 Days)',
-        'Blues_r',
-        chartTrackingNote(stats.new_player_tracking_started_at),
-      ),
-      name: 'new_players_last_30_days.png',
-    });
-    charts.push({
-      attachment: await generateBarChart(
-        stats.online_last_30d,
-        'Online Players (Last 30 Days)',
-        'YlOrBr_r',
-        chartTrackingNote(stats.history_started_at),
-      ),
-      name: 'online_players_last_30_days.png',
-    });
+    if (context.sources.cncOnline || context.sources.ra3BattleNet)
+      charts.push({
+        attachment: await generateBarChart(
+          stats.online_last_24h,
+          'Online Players (Last 24 Hours)',
+          'Reds_r',
+        ),
+        name: 'online_players_last_24_hours.png',
+      });
+    if (context.game === 'ra3' && context.sources.ra3BattleNet)
+      charts.push({
+        attachment: await generateBarChart(
+          stats.new_players_last_30d,
+          'New Players (Last 30 Days)',
+          'Blues_r',
+        ),
+        name: 'new_players_last_30_days.png',
+      });
+    if (context.sources.cncOnline || context.sources.ra3BattleNet)
+      charts.push({
+        attachment: await generateBarChart(
+          stats.online_last_30d,
+          'Online Players (Last 30 Days)',
+          'YlOrBr_r',
+        ),
+        name: 'online_players_last_30_days.png',
+      });
   } catch (error) {
     logger.warn('Stats panel charts failed (embed still updates):', error);
   }

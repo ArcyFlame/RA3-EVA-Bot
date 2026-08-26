@@ -1,99 +1,120 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tournaments — E.V.A Docs</title>
-  <link rel="stylesheet" href="assets/styles.css" />
-</head>
-<body>
-  <aside class="sidebar">
-    <div class="logo">E.V.A<span>.</span></div>
-    <div class="tagline">RA3 Community Bot</div>
-    <nav>
-      <h3>Getting Started</h3>
-      <a href="index.html">Introduction</a>
-      <a href="setup.html">Setup</a>
-      <h3>Features</h3>
-      <a class="active" href="tournaments.html">Tournaments</a>
-      <a href="stats.html">Stats &amp; Profiles</a>
-      <a href="notifications.html">News &amp; Feeds</a>
-      <h3>Reference</h3>
-      <a href="commands.html">Commands</a>
-      <a href="self-hosting.html">Self-Hosting</a>
-    </nav>
-  </aside>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tournaments — E.V.A Docs</title>
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="logo">E.V.A<span>.</span></div>
+      <div class="tagline">C&amp;C Community Bot</div>
+      <nav>
+        <h3>Getting Started</h3>
+        <a href="index.html">Introduction</a>
+        <a href="setup.html">Setup</a>
+        <h3>Features</h3>
+        <a class="active" href="tournaments.html">Tournaments</a>
+        <a href="stats.html">Stats &amp; Profiles</a>
+        <a href="notifications.html">News &amp; Feeds</a>
+        <h3>Reference</h3>
+        <a href="commands.html">Commands</a>
+        <a href="self-hosting.html">Self-Hosting</a>
+      </nav>
+    </aside>
 
-  <main class="content">
-    <h1>Tournaments</h1>
-    <p>
-      E.V.A runs a full tournament pipeline. It scans the GameReplays.org RA3
-      esports portal and the events forum on its own — new tournaments,
-      sign-up threads, brackets and results show up in your channels without
-      anyone doing anything.
-    </p>
+    <main class="content">
+      <h1>Tournaments</h1>
+      <p>
+        E.V.A runs a game-isolated tournament pipeline. RA3 uses the GameReplays.org esports portal
+        and events forum; Generals Evolution uses official ModDB announcements. New tournaments,
+        sign-up threads, brackets and results show up in your channels without anyone doing
+        anything.
+      </p>
 
-    <h2>How discovery works</h2>
-    <ol>
-      <li><strong>Portal scan</strong> — new tournament announcements are stored and posted to your tournament channel with a Sign Up button.</li>
-      <li><strong>Forum scan</strong> — the bot pairs forum topics with announcements by name: <em>"FTW 91 Registration"</em> (sign-up thread) and <em>"FTW 91 Brackets, Results and Replays"</em> (results thread). Edition numbers are respected — FTW 91 never pairs with FTW 90.</li>
-      <li><strong>Challonge links</strong> are extracted from results threads. A tournament can run several brackets (qualifiers per server, group stage, playoffs) — all are tracked, the playoff bracket is the primary one.</li>
-      <li><strong>Facts</strong> — prize pool, format, map pool and the player list are extracted from the threads (prize tables, donations, team rosters) and from Challonge as a fallback.</li>
-    </ol>
+      <h2>How discovery works</h2>
+      <ol>
+        <li>
+          <strong>Portal scan</strong> — new tournament announcements are stored and posted to your
+          tournament channel with a Sign Up button.
+        </li>
+        <li>
+          <strong>Forum scan</strong> — the bot pairs forum topics with announcements by name:
+          <em>"FTW 91 Registration"</em> (sign-up thread) and
+          <em>"FTW 91 Brackets, Results and Replays"</em> (results thread). Edition numbers are
+          respected — FTW 91 never pairs with FTW 90.
+        </li>
+        <li>
+          <strong>Challonge links</strong> are extracted from results threads. A tournament can run
+          several brackets (qualifiers per server, group stage, playoffs) — all are tracked, the
+          playoff bracket is the primary one.
+        </li>
+        <li>
+          <strong>Facts</strong> — prize pool, format, map pool and the player list are extracted
+          from the threads (prize tables, donations, team rosters) and from Challonge as a fallback.
+        </li>
+      </ol>
 
-    <h2>What you can browse</h2>
-    <div class="card">
-      <h3>/events</h3>
-      <p>An interactive browser: Date, Status, Format, Prize, Map Pool, with
-      Sign Up / Results buttons and Previous / Refresh / Next navigation.</p>
-    </div>
-    <div class="card">
-      <h3>/results</h3>
-      <p>Podium and numbered standings from each event's Challonge brackets —
-      one entry per bracket for multi-bracket events (e.g. Gathering Storm's
-      CCO qualifier, RA3BattleNet qualifier and playoffs).</p>
-    </div>
-    <div class="card">
-      <h3>/matches</h3>
-      <p>The current bracket: header with players/format/state, the same podium
-      and standings view once it finishes, upcoming matches while it runs.</p>
-    </div>
-    <div class="card">
-      <h3>/tournaments_scan</h3>
-      <p>Admins can trigger an immediate portal + forum scan instead of waiting
-      for the next automatic one.</p>
-    </div>
+      <h2>What you can browse</h2>
+      <div class="card">
+        <h3>/events</h3>
+        <p>
+          An interactive browser: Date, Status, Format, Prize, Map Pool, with Sign Up / Results
+          buttons and Previous / Refresh / Next navigation.
+        </p>
+      </div>
+      <div class="card">
+        <h3>/results</h3>
+        <p>
+          Podium and numbered standings from each event's Challonge brackets — one entry per bracket
+          for multi-bracket events (e.g. Gathering Storm's CCO qualifier, RA3BattleNet qualifier and
+          playoffs).
+        </p>
+      </div>
+      <div class="card">
+        <h3>/matches</h3>
+        <p>
+          The current bracket: header with players/format/state, the same podium and standings view
+          once it finishes, upcoming matches while it runs.
+        </p>
+      </div>
+      <div class="card">
+        <h3>/tournaments_scan</h3>
+        <p>
+          Admins can scan the official sources for their server's selected game instead of waiting
+          for the next automatic check.
+        </p>
+      </div>
 
-    <h2>Check-ins &amp; referees</h2>
-    <p>
-      Run <code>/checkin [event]</code> to open the current tournament board.
-      Referees can turn personal DM alerts on or off for new registrations and check-ins.
-      Players see numbered registered, checked-in and missing lists. Referees
-      get the management menu for opening the board, refreshing registrations
-      and posting it to the tournament channel. The referee role is configured
-      in <code>/bot_setup</code>.
-    </p>
+      <h2>Check-ins &amp; referees</h2>
+      <p>
+        Run <code>/checkin [event]</code> to open the current tournament board. Referees can turn
+        personal DM alerts on or off for new registrations and check-ins. Players see numbered
+        registered, checked-in and missing lists. Referees get the management menu for opening the
+        board, refreshing registrations and posting it to the tournament channel. The referee role
+        is configured in <code>/bot_setup</code>.
+      </p>
 
-    <h2>Score reports</h2>
-    <p>
-      <code>/report_score &lt;opponent&gt; &lt;factions&gt; &lt;score&gt;</code> uses the
-      checked-in player list for opponent suggestions. Reports go to a referee
-      for approval and can update the current Challonge match when it is an
-      exact match for the two players.
-    </p>
+      <h2>Score reports</h2>
+      <p>
+        <code>/report_score &lt;opponent&gt; &lt;factions&gt; &lt;score&gt;</code> uses the
+        checked-in player list for opponent suggestions. Reports go to a referee for approval and
+        can update the current Challonge match when it is an exact match for the two players.
+      </p>
 
-    <h2>Winners &amp; Hall of Fame</h2>
-    <p>
-      Champions are recorded from Challonge rankings, final-match results and
-      explicitly labelled forum finals for older events without a bracket.
-      A resumable scan covers the full GameReplays esports forum history. Wins
-      feed the <strong>Tournament Wins (Top 10)</strong> stats page above the
-      community-maintained <strong>Hall of Fame</strong> (<code>/add_master</code>).
-    </p>
+      <h2>Winners &amp; Hall of Fame</h2>
+      <p>
+        Champions are recorded from Challonge rankings, final-match results and explicitly labelled
+        forum finals for older events without a bracket. A resumable scan covers the full
+        GameReplays esports forum history. Wins feed the
+        <strong>Tournament Wins (Top 10)</strong> stats page above the community-maintained
+        <strong>Hall of Fame</strong> (<code>/add_master</code>).
+      </p>
 
-    <div class="footer">
-      E.V.A — built for the Red Alert 3 community by Arcy. Not affiliated with EA.
-    </div>
-  </main>
-</body>
+      <div class="footer">
+        E.V.A — built for the Command &amp; Conquer community by Arcy. Not affiliated with EA.
+      </div>
+    </main>
+  </body>
 </html>

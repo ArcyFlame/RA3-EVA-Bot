@@ -1,7 +1,7 @@
 {
   "name": "ra3-community-bot",
   "version": "4.0.0",
-  "description": "RA3 Community Bot - Tournaments, Clans, Stats, Notifications",
+  "description": "Community bot for Red Alert 3 and Generals Evolution",
   "license": "GPL-3.0-or-later",
   "main": "dist/index.js",
   "engines": {

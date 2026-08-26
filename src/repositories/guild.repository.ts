@@ -1,4 +1,5 @@
 import { BaseRepository } from './base.repository';
+import { GameId, normalizeGame } from '../config/games';
 
 export interface Guild {
   discordId: string;
@@ -29,8 +30,10 @@ export interface Guild {
   menusEnabled: number;
   newsEnabled: number;
   newsChannelId?: string;
-  /** Which C&C game this server runs (ra3 | kw | genevo). */
-  game: 'ra3' | 'kw' | 'genevo';
+  /** Which supported game this server runs. */
+  game: GameId;
+  cncOnlineEnabled: number;
+  ra3BattleNetEnabled: number;
   /** JSON array of help-category values hidden from /help on this server. */
   hiddenHelpCategories?: string;
   createdAt: string;
@@ -62,6 +65,8 @@ const FEATURE_COLUMNS: Record<string, string> = {
   statsAutoUpdate: 'stats_auto_update_enabled',
   welcome: 'welcome_enabled',
   news: 'news_enabled',
+  cncOnline: 'cnc_online_enabled',
+  ra3BattleNet: 'ra3battle_net_enabled',
 };
 
 export class GuildRepository extends BaseRepository {
@@ -106,7 +111,9 @@ export class GuildRepository extends BaseRepository {
       menusEnabled: row.menus_enabled ?? 1,
       newsEnabled: row.news_enabled ?? 1,
       newsChannelId: row.news_channel_id,
-      game: row.game ?? 'ra3',
+      game: normalizeGame(row.game),
+      cncOnlineEnabled: row.cnc_online_enabled ?? 1,
+      ra3BattleNetEnabled: row.ra3battle_net_enabled ?? 1,
       hiddenHelpCategories: row.hidden_help_categories,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -142,6 +149,9 @@ export class GuildRepository extends BaseRepository {
           stats_panel_channel_id = COALESCE(?, stats_panel_channel_id),
           stats_panel_message_id = COALESCE(?, stats_panel_message_id),
           stats_panel_interval = COALESCE(?, stats_panel_interval),
+          game = COALESCE(?, game),
+          cnc_online_enabled = COALESCE(?, cnc_online_enabled),
+          ra3battle_net_enabled = COALESCE(?, ra3battle_net_enabled),
           updated_at = CURRENT_TIMESTAMP
         WHERE discord_id = ?`,
         [
@@ -169,6 +179,9 @@ export class GuildRepository extends BaseRepository {
           data.statsPanelChannelId,
           data.statsPanelMessageId,
           data.statsPanelInterval,
+          data.game,
+          data.cncOnlineEnabled,
+          data.ra3BattleNetEnabled,
           discordId,
         ],
       );
@@ -181,8 +194,9 @@ export class GuildRepository extends BaseRepository {
           moderation_enabled, lobby_enabled, stats_auto_update_enabled, welcome_enabled,
           clan_channel_id, tournament_disputes_channel_id, twitch_channel_id,
           youtube_channel_id, tournament_events_channel_id, moddb_channel_id, lobby_channel_id,
-          stats_panel_enabled, stats_panel_channel_id, stats_panel_message_id, stats_panel_interval
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          stats_panel_enabled, stats_panel_channel_id, stats_panel_message_id, stats_panel_interval,
+          game, cnc_online_enabled, ra3battle_net_enabled
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           discordId,
           data.prefix || '!',
@@ -209,6 +223,9 @@ export class GuildRepository extends BaseRepository {
           data.statsPanelChannelId,
           data.statsPanelMessageId,
           data.statsPanelInterval ?? 10,
+          data.game ?? 'ra3',
+          data.cncOnlineEnabled ?? 1,
+          data.ra3BattleNetEnabled ?? 1,
         ],
       );
     }
@@ -257,10 +274,15 @@ export class GuildRepository extends BaseRepository {
     );
   }
 
-  setGame(discordId: string, game: 'ra3' | 'kw' | 'genevo'): void {
+  setGame(discordId: string, game: GameId): void {
     this.run(
-      `UPDATE guilds SET game = ?, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ?`,
-      [game, discordId],
+      `UPDATE guilds
+       SET game = ?,
+           cnc_online_enabled = 1,
+           ra3battle_net_enabled = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE discord_id = ?`,
+      [game, 1, discordId],
     );
   }
 

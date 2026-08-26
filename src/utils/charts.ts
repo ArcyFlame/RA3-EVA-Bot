@@ -35,13 +35,6 @@ const COLOR_TITLE_RED = '#FF0F0F';
 const COLOR_TITLE_BLUE = '#4682B4';
 const COLOR_TITLE_GOLD = '#FFD700';
 
-export function chartTrackingNote(startedAt?: string): string {
-  if (!startedAt) return 'Collecting real data; missing periods are left blank.';
-  const parsed = new Date(startedAt.includes('T') ? startedAt : `${startedAt.replace(' ', 'T')}Z`);
-  const date = Number.isNaN(parsed.getTime()) ? startedAt : parsed.toISOString().slice(0, 10);
-  return `Tracking since ${date}; missing periods are left blank.`;
-}
-
 /** Draws each bar's value on top of it. */
 const valueLabelsPlugin = {
   id: 'valueLabels',
@@ -68,21 +61,6 @@ const valueLabelsPlugin = {
   },
 };
 
-const trackingNotePlugin = {
-  id: 'trackingNote',
-  afterDraw(chart: any, _args: unknown, options: { text?: string }) {
-    if (!options.text) return;
-    const { ctx, width: chartWidth } = chart;
-    ctx.save();
-    ctx.font = '22px sans-serif';
-    ctx.fillStyle = COLOR_TEXT;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(options.text, chartWidth / 2, 140);
-    ctx.restore();
-  },
-};
-
 /**
  * Bar chart in the classic Python-bot style: dark red plot area on a
  * transparent figure (blends into Discord), peach stencil ticks, gradient
@@ -93,7 +71,6 @@ export async function generateBarChart(
   data: Array<number | null>,
   title: string,
   cmap: 'Reds_r' | 'Blues_r' | 'YlOrBr_r' = 'Reds_r',
-  trackingNote?: string,
 ): Promise<Buffer> {
   const labels = title.includes('24 Hours') ? generateHourLabels() : generateDayLabels();
   const numericData = data.filter((value): value is number => typeof value === 'number');
@@ -157,7 +134,6 @@ export async function generateBarChart(
           padding: { top: 12, bottom: 36 },
         },
         subtitle: { display: false },
-        trackingNote: { text: trackingNote },
         tooltip: { enabled: false },
         valueLabels: { display: true },
       },
@@ -188,7 +164,7 @@ export async function generateBarChart(
         },
       },
     },
-    plugins: [trackingNotePlugin, valueLabelsPlugin],
+    plugins: [valueLabelsPlugin],
   };
   return chartJSNodeCanvas.renderToBuffer(configuration);
 }
@@ -218,7 +194,7 @@ export async function generatePieChartBuffer(data: Record<string, number>): Prom
   let startAngle = -Math.PI / 2;
   const midAngles: number[] = [];
   for (let i = 0; i < values.length; i++) {
-    const angle = total > 0 ? (values[i] / total) * Math.PI * 2 : Math.PI * 2 / values.length;
+    const angle = total > 0 ? (values[i] / total) * Math.PI * 2 : (Math.PI * 2) / values.length;
     const midAngle = startAngle + angle / 2;
     midAngles.push(midAngle);
 

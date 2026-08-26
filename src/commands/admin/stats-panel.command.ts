@@ -11,6 +11,7 @@ import { denyUnlessAdmin } from '../../utils/permissions';
 import { resolveMember } from '../../utils/members';
 import { ra3StatsService } from '../../services/ra3-stats.service';
 import { StatsView } from '../stats/stats.view';
+import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
   .setName('stats_panel')
@@ -66,8 +67,9 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
       }
     }
 
-    const stats = await ra3StatsService.fetch();
-    const view = new StatsView(stats);
+    const context = getGameContext(interaction.guild.id);
+    const stats = await ra3StatsService.fetch(context.game, context.sources);
+    const view = new StatsView(stats, context.game, context.sources);
     const msg = await channel.send({ embeds: [view.getEmbed()], components: view.getComponents() });
     statsPanelRepository.setPanel(interaction.guild.id, channel.id, msg.id);
 

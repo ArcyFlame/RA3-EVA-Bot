@@ -1,21 +1,18 @@
 import { EmbedBuilder } from 'discord.js';
-import {
-  CNC_ONLINE,
-  RA3_BATTLE_NET,
-  TWITCH,
-  YOUTUBE,
-  MODDB,
-} from '../../utils/emojis';
+import { CNC_ONLINE, RA3_BATTLE_NET, TWITCH, YOUTUBE, MODDB } from '../../utils/emojis';
+import { GameId, GAME_CONFIGS } from '../../config/games';
 
-export function buildMainEmbed(): EmbedBuilder {
+export function buildMainEmbed(game: GameId = 'ra3'): EmbedBuilder {
+  const config = GAME_CONFIGS[game];
   return new EmbedBuilder()
     .setTitle('EVA Bot Command Center')
     .setDescription('Select a category from the dropdown below.')
-    .setColor(0x5865f2)
+    .setColor(config.color)
+    .setThumbnail(config.artworkUrl)
     .addFields(
       {
         name: '🏆 Tournaments',
-        value: 'Events, sign-ups, results, masters, match reporting, replays.',
+        value: `Events, sign-ups, results, match reporting and replays${game === 'ra3' ? ', plus the Masters Hall of Fame' : ''}.`,
         inline: false,
       },
       {
@@ -31,7 +28,7 @@ export function buildMainEmbed(): EmbedBuilder {
       { name: 'ℹ️ Information', value: 'About this bot, features and news.', inline: false },
       {
         name: '🛠️ Admin Tools *(admin/mod)*',
-        value: 'Server setup, panels, masters, tournaments, bot control.',
+        value: `Server setup, panels, tournaments${game === 'ra3' ? ', masters' : ''} and bot control.`,
         inline: false,
       },
       { name: '🔨 Moderation *(admin/mod)*', value: 'Kick, ban, purge, warnings.', inline: false },
@@ -39,22 +36,27 @@ export function buildMainEmbed(): EmbedBuilder {
     .setFooter({ text: 'Use /help anytime to see this menu.' });
 }
 
-export function buildTournamentsEmbed(): EmbedBuilder {
+export function buildTournamentsEmbed(game: GameId = 'ra3'): EmbedBuilder {
+  const config = GAME_CONFIGS[game];
   return new EmbedBuilder()
     .setTitle('🏆 Tournaments')
-    .setColor(0x00ff00)
+    .setColor(config.color)
+    .setThumbnail(config.artworkUrl)
     .addFields(
       {
         name: '📢 Events & Results',
-        value:
-          '`/events` - Browse tournament announcements (Sign Up while open, **Results** once ended)\n`/results` - Final standings & scores from Challonge\n`/news` - Latest RA3 news from GameReplays',
+        value: `\`/events\` - Browse tournament announcements (Join/Register while open, **Results** once ended)\n\`/results\` - Final standings & scores from Challonge\n\`/news\` - Latest ${config.shortLabel} news`,
         inline: false,
       },
-      {
-        name: '🏅 Hall of Fame',
-        value: '`/masters` - All-time ladder masters.',
-        inline: false,
-      },
+      ...(game === 'ra3'
+        ? [
+            {
+              name: '🏅 Hall of Fame',
+              value: '`/masters` - All-time ladder masters.',
+              inline: false,
+            },
+          ]
+        : []),
       {
         name: '⚔️ Matches & Reporting',
         value:
@@ -68,17 +70,27 @@ export function buildTournamentsEmbed(): EmbedBuilder {
       },
       {
         name: '🎮 Replays',
-        value: '`/replays` - Browse popular & event replays on GameReplays',
+        value:
+          game === 'ra3'
+            ? '`/replays` - Browse popular and event replays on GameReplays'
+            : '`/replays` - Open Generals Evolution replay resources and tournament posts',
         inline: false,
       },
     )
-    .setFooter({ text: 'Powered by GameReplays & Challonge' });
+    .setFooter({
+      text:
+        game === 'ra3'
+          ? 'Powered by GameReplays & Challonge'
+          : 'Powered by Challonge & the GenEvo community',
+    });
 }
 
-export function buildCommunityEmbed(): EmbedBuilder {
+export function buildCommunityEmbed(game: GameId = 'ra3'): EmbedBuilder {
+  const config = GAME_CONFIGS[game];
   return new EmbedBuilder()
     .setTitle('👥 Community')
-    .setColor(0x800080)
+    .setColor(config.color)
+    .setThumbnail(config.artworkUrl)
     .addFields(
       {
         name: '🛡️ Clans',
@@ -88,27 +100,28 @@ export function buildCommunityEmbed(): EmbedBuilder {
       },
       {
         name: '🎮 Lobby Tracker',
-        value: '`/lobby` - Show active RA3 lobbies (C&C Online & RA3BattleNet)',
+        value: `\`/lobby\` - Show active ${config.shortLabel} lobbies (C&C Online and RA3BattleNet)`,
         inline: false,
       },
       {
         name: `${CNC_ONLINE} ${RA3_BATTLE_NET} Online Setup`,
-        value: '`/setup` - How to install C&C Online or RA3BattleNet and play online',
+        value: `\`/setup\` - How to install ${config.shortLabel} and its supported online platforms`,
         inline: false,
       },
       {
         name: '🗺️ Maps',
-        value: '`/maps` - Download custom maps (Steam Workshop, CNCLabs, RA3BattleNet, ModDB)',
+        value: `\`/maps\` - ${game === 'ra3' ? 'RA3 map downloads and the complete map catalog' : 'Generals Evolution 0.33 maps and downloads'}`,
         inline: false,
       },
       {
         name: '💡 Tips & Trivia',
-        value: '`/tips` - Random verified RA3 gameplay tip or fun fact.',
+        value: `\`/tips\` - Random ${config.shortLabel} gameplay tip.`,
         inline: false,
       },
       {
         name: '📊 Live Stats',
-        value: '`/stats` - Community live stats (players, matches, factions, maps, leaderboards 1v1–4v4).',
+        value:
+          '`/stats` - Community live stats (players, matches, maps and supported 1v1–3v3 modes).',
         inline: false,
       },
       {
@@ -119,22 +132,23 @@ export function buildCommunityEmbed(): EmbedBuilder {
       },
       {
         name: `${MODDB} ModDB Updates`,
-        value:
-          '`/mods` - Browse the newest RA3 mod updates and articles from ModDB.\nNew articles are posted automatically when enabled by admins.',
+        value: `\`/mods\` - Browse the newest ${config.shortLabel} updates from ModDB.\nNew posts are announced automatically when enabled by admins.`,
         inline: false,
       },
     );
 }
 
-export function buildProfileEmbed(): EmbedBuilder {
+export function buildProfileEmbed(game: GameId = 'ra3'): EmbedBuilder {
+  const config = GAME_CONFIGS[game];
   return new EmbedBuilder()
     .setTitle('👤 Profile & Ranks')
-    .setColor(0x008080)
+    .setColor(config.color)
+    .setThumbnail(config.artworkUrl)
     .addFields(
       {
         name: 'Your Profile',
         value:
-          '`/profile [user] [player]` - View Shatabrick and RA3BattleNet ranks\n`/link` - Add, update or remove either linked account',
+          '`/profile [user] [player]` - View Shatabrick and RA3BattleNet ranks\n`/link` - Add, update or remove linked accounts',
         inline: false,
       },
       {
@@ -146,21 +160,23 @@ export function buildProfileEmbed(): EmbedBuilder {
     .setFooter({ text: 'Ranks are awarded by community staff.' });
 }
 
-export function buildInfoEmbed(): EmbedBuilder {
+export function buildInfoEmbed(game: GameId = 'ra3'): EmbedBuilder {
+  const config = GAME_CONFIGS[game];
   return new EmbedBuilder()
     .setTitle('ℹ️ Information')
-    .setColor(0xffd700)
+    .setColor(config.color)
+    .setThumbnail(config.artworkUrl)
     .setDescription(
-      'This bot helps the **Command & Conquer: Red Alert 3** community ' +
+      `This bot helps the **${config.label}** community ` +
         'organize matches, run tournaments and stay connected ' +
-        'across GameReplays, C&C Online, Shatabrick and RA3BattleNet.\n\n' +
+        `across ${game === 'ra3' ? 'GameReplays, C&C Online, Shatabrick and RA3BattleNet' : 'C&C Online, RA3BattleNet, Shatabrick, ModDB, YouTube and Twitch'}.\n\n` +
         '**Features:**\n' +
         '• Multi-platform setup guides & lobby tracker\n' +
         '• Tournaments with Challonge integration & results\n' +
         '• Clan system with custom roles and channels\n' +
-        '• Live community stats panel with charts (1v1–4v4)\n' +
+        '• Live community stats panel with charts (1v1–3v3)\n' +
         '• Player profiles and ranks (Shatabrick & RA3BattleNet)\n' +
-        '• Twitch/YouTube/ModDB notifications & RA3 news\n' +
+        `• Twitch, YouTube, ModDB and ${config.shortLabel} news\n` +
         '• Custom maps hub & esports map picker\n' +
         '• Moderation tools (kick, ban, warnings)\n\n' +
         '*"From the community, for the community."*',
@@ -171,60 +187,78 @@ export function buildInfoEmbed(): EmbedBuilder {
     );
 }
 
-export function buildAdminEmbed(): EmbedBuilder {
-  return new EmbedBuilder().setTitle('🛠️ Admin Tools').setColor(0x8b0000).addFields(
-    {
-      name: '⚙️ Server Configuration',
-      value:
-        '`/bot_setup` - Server setup wizard (admin role, channels, features)\n`/set_admin_role <role>` - Set the bot admin role\n`/toggle` - Choose a feature, then enable or disable it\n`/notifications` - Notification channels & streamers (admin view)',
-      inline: false,
-    },
-    {
-      name: '🧪 Test Posts (admin)',
-      value: '`/test_channels` or `/notifications` → Test Posts - verify every configured channel.',
-      inline: false,
-    },
-    {
-      name: '📊 Panels',
-      value:
-        '`/stats_panel set <channel>` - Persistent stats panel\n`/match_panel set <channel>` - Live match ticker\n`/lobby_panel set <channel>` - Persistent lobby board\n(each also has a `disable` subcommand)',
-      inline: false,
-    },
+export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
+  const config = GAME_CONFIGS[game];
+  return new EmbedBuilder()
+    .setTitle('🛠️ Admin Tools')
+    .setColor(config.color)
+    .setThumbnail(config.artworkUrl)
+    .addFields(
       {
-        name: '🏆 Masters & Tournaments',
+        name: '⚙️ Server Configuration',
         value:
-          '`/add_master <name> <year> [patch]` - Add a master\n`/remove_master <name>` - Remove a master\n`/list_masters` - List all masters\n`/tournament_link` - Link a Challonge bracket (paste URL)\n`/tournaments_scan` - Scan the portal + forum for tournaments, brackets and sign-ups',
+          '`/bot_setup` - Server setup wizard (admin role, channels, features)\n`/set_admin_role <role>` - Set the bot admin role\n`/toggle` - Choose a feature, then enable or disable it\n`/notifications` - Notification channels & streamers (admin view)',
         inline: false,
       },
-    {
-      name: '👤 Player Profiles',
-      value:
-        '`/profile_admin view <user>` - Inspect a member profile\n`/profile_admin unlink <user> <platform>` - Remove one link\n`/profile_admin clear <user> <confirm>` - Clear linked identities',
-      inline: false,
-    },
-    {
-      name: '✅ Tournament Check-ins',
-      value:
-        '`/checkin [event]` - Open the current tournament management board (referee)\nIncludes clear numbered lists and personal referee DM alert controls.',
-      inline: false,
-    },
-    {
-      name: '🛡️ Clans',
-      value:
-        '`/clan_manager` - Manage clans (approvals, edit, remove)\n`/clan_approve` - Approve or reject pending clans',
-      inline: false,
-    },
-    {
-      name: '🕒 Bot Info',
-      value: '`/uptime` - Bot uptime\n`/info` - About this bot and version\n`/ping` - Check latency',
-      inline: false,
-    },
-    {
-      name: '🔄 Bot Control',
-      value: '`/restart` - Restart the bot\n`/kill` - Shut down the bot',
-      inline: false,
-    },
-  );
+      {
+        name: '🧪 Test Posts (admin)',
+        value:
+          '`/test_channels` or `/notifications` → Test Posts - verify every configured channel.',
+        inline: false,
+      },
+      {
+        name: '📊 Panels',
+        value:
+          '`/stats_panel set <channel>` - Persistent stats panel\n`/match_panel set <channel>` - Live match ticker\n`/lobby_panel set <channel>` - Persistent lobby board\n(each also has a `disable` subcommand)',
+        inline: false,
+      },
+      ...(game === 'ra3'
+        ? [
+            {
+              name: '🏆 Masters & Tournaments',
+              value:
+                '`/add_master <name> <year> [patch]` - Add a master\n`/remove_master <name>` - Remove a master\n`/list_masters` - List all masters\n`/tournament_link` - Link a Challonge bracket (paste URL)\n`/tournaments_scan` - Scan the portal + forum for tournaments, brackets and sign-ups',
+              inline: false,
+            },
+          ]
+        : [
+            {
+              name: '🏆 Tournaments',
+              value:
+                '`/tournament_link` - Link or create a tournament from a Challonge bracket\n`/checkin [event]` - Open the referee check-in board',
+              inline: false,
+            },
+          ]),
+      {
+        name: '👤 Player Profiles',
+        value:
+          '`/profile_admin view <user>` - Inspect a member profile\n`/profile_admin unlink <user> <platform>` - Remove one link\n`/profile_admin clear <user> <confirm>` - Clear linked identities',
+        inline: false,
+      },
+      {
+        name: '✅ Tournament Check-ins',
+        value:
+          '`/checkin [event]` - Open the current tournament management board (referee)\nIncludes clear numbered lists and personal referee DM alert controls.',
+        inline: false,
+      },
+      {
+        name: '🛡️ Clans',
+        value:
+          '`/clan_manager` - Manage clans (approvals, edit, remove)\n`/clan_approve` - Approve or reject pending clans',
+        inline: false,
+      },
+      {
+        name: '🕒 Bot Info',
+        value:
+          '`/uptime` - Bot uptime\n`/info` - About this bot and version\n`/ping` - Check latency',
+        inline: false,
+      },
+      {
+        name: '🔄 Bot Control',
+        value: '`/restart` - Restart the bot\n`/kill` - Shut down the bot',
+        inline: false,
+      },
+    );
 }
 
 export function buildModerationEmbed(): EmbedBuilder {

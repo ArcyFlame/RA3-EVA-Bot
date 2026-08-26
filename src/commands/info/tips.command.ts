@@ -1,14 +1,35 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { FACTION_ALLIED, FACTION_SOVIET, FACTION_EMPIRE } from '../../utils/emojis';
+import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
   .setName('tips')
-  .setDescription('Get a random helpful tip or piece of trivia about Red Alert 3');
+  .setDescription('Get a useful tip for this server game');
 
 export const guildOnly = false;
 
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
+  const context = getGameContext(interaction.guildId);
+  if (context.game === 'genevo') {
+    const tip = GENEVO_TIPS[Math.floor(Math.random() * GENEVO_TIPS.length)];
+    const factionEmoji =
+      tip.faction === 'usa'
+        ? '🇺🇸'
+        : tip.faction === 'china'
+          ? '🇨🇳'
+          : tip.faction === 'gla'
+            ? '☣️'
+            : '💡';
+    const embed = new EmbedBuilder()
+      .setColor(context.config.color)
+      .setTitle('💡 Generals Evolution Tip')
+      .setDescription(`${factionEmoji} ${tip.text}`)
+      .setThumbnail(context.config.artworkUrl)
+      .setFooter({ text: 'Generals-style strategy adapted to the Red Alert 3 engine' });
+    await interaction.reply({ embeds: [embed] });
+    return;
+  }
   const tips = getTips();
   const tip = tips[Math.floor(Math.random() * tips.length)];
   const quote = getRandomQuoteForTip(tip);
@@ -23,6 +44,41 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
 
   await interaction.reply({ embeds: [embed] });
 }
+
+const GENEVO_TIPS: Array<{ text: string; faction: 'usa' | 'china' | 'gla' | 'general' }> = [
+  {
+    text: '**Protect your economy:** Supply income decides most games. Scout flanking routes and keep a mobile unit close enough to punish worker or supply-line harassment.',
+    faction: 'general',
+  },
+  {
+    text: '**Use control groups:** Keep production, main army and harassment units on separate groups. The Red Alert 3 engine rewards quick camera movement and precise focus fire.',
+    faction: 'general',
+  },
+  {
+    text: '**USA vision:** Use scouting and air mobility to choose favorable fights. Expensive units are strongest when repaired, preserved and supported instead of traded carelessly.',
+    faction: 'usa',
+  },
+  {
+    text: '**China momentum:** Build around combined arms. Tanks become much harder to stop when anti-infantry and anti-air support move with them.',
+    faction: 'china',
+  },
+  {
+    text: '**GLA map control:** Use tunnels and cheap units to create pressure from several directions. Avoid one predictable attack path.',
+    faction: 'gla',
+  },
+  {
+    text: '**Respect engine pathing:** Spread large armies before entering narrow terrain and issue shorter move commands when units begin blocking each other.',
+    faction: 'general',
+  },
+  {
+    text: '**Check the version:** Tournament players must use the same Generals Evolution release and map files. A version mismatch can prevent a lobby from starting.',
+    faction: 'general',
+  },
+  {
+    text: '**Eight-player warning:** Eight-player games are experimental. For competitive play, use 1v1, 2v2 or 3v3 unless the event rules explicitly say otherwise.',
+    faction: 'general',
+  },
+];
 
 function addEmojiToTip(tip: { text: string; faction: string }): string {
   switch (tip.faction) {

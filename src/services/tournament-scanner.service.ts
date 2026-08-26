@@ -1,18 +1,22 @@
 import * as cheerio from 'cheerio';
+import xml2js from 'xml2js';
 import { Client, TextChannel } from 'discord.js';
 import { logger } from '../utils/logger';
 import { tournamentRepository } from '../repositories/tournament.repository';
 import { guildRepository } from '../repositories/guild.repository';
-import { knownSkirmishMapNames } from './ra3-stats.service';
 import { extractPrizeValue } from '../utils/text';
 import { parsePortalDate } from '../utils/tournament-status';
 import { getSortedAnnouncements, renderEventCard } from '../commands/tournaments/events.utils';
 import { contentDeliveryRepository } from '../repositories/content-delivery.repository';
 import { safeGetText } from '../utils/safe-fetch';
+import { GameId } from '../config/games';
+import { gameMapNames } from '../data/game-maps';
 
 export { parsePortalDate } from '../utils/tournament-status';
 
 const ESPORTS_URL = 'https://www.gamereplays.org/redalert3/portals.php?show=esports';
+const GENEVO_EVENTS_FEED =
+  'https://rss.moddb.com/mods/command-and-conquer-generals-evolution/articles/feed/rss.xml';
 /** Forum that hosts the post-tournament "Bracket, Results and Replays" threads. */
 export const RESULTS_FORUM_URL = 'https://www.gamereplays.org/community/index.php?showforum=2364';
 /** Only hosts the scanner may fetch from (SSRF guard for outbound requests). */
@@ -29,6 +33,52 @@ export interface ParsedTournament {
 export interface TournamentAnnouncement extends ParsedTournament {
   signUpUrl?: string;
   description: string;
+}
+
+export interface FeedTournament {
+  title: string;
+  url: string;
+  publishedAt: string;
+  description: string;
+}
+
+const EVENT_WORDS =
+  /\b(tournament|competition|championship|cup|league|event|sign[ -]?up|register|registration)\b/i;
+
+function rssText(value: unknown): string {
+  if (value == null) return '';
+  if (Array.isArray(value)) return rssText(value[0]);
+  if (typeof value === 'object') return rssText((value as { _?: unknown })._);
+  return String(value).trim();
+}
+
+/** Parses official Generals Evolution articles and keeps event announcements only. */
+export async function parseGenevoTournaments(xml: string): Promise<FeedTournament[]> {
+  try {
+    const parsed = await new xml2js.Parser({ explicitArray: false }).parseStringPromise(xml);
+    let items = parsed?.rss?.channel?.item ?? [];
+    if (!Array.isArray(items)) items = [items];
+    return items
+      .map((item: any) => {
+        const html = rssText(item.description);
+        const description = cheerio
+          .load(`<div>${html}</div>`)('div')
+          .text()
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 4000);
+        return {
+          title: rssText(item.title),
+          url: rssText(item.link),
+          publishedAt: rssText(item.pubDate) || new Date().toISOString(),
+          description,
+        };
+      })
+      .filter((item: FeedTournament) => item.title && item.url)
+      .filter((item: FeedTournament) => EVENT_WORDS.test(`${item.title} ${item.description}`));
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -95,7 +145,10 @@ export function extractArticleDescription(html: string): string | undefined {
  * Only patterns that identify complete facts are accepted. Challonge supplies
  * format and prize details when an article does not contain them.
  */
-export function extractEventFacts(description: string | undefined): {
+export function extractEventFacts(
+  description: string | undefined,
+  game: GameId = 'ra3',
+): {
   prizePool?: string;
   format?: string;
   maps?: string;
@@ -135,12 +188,11 @@ export function extractEventFacts(description: string | undefined): {
   ];
   const styles = [
     ...new Set(
-      [...description.matchAll(/\b(single elimination|double elimination|round robin|swiss|best of \d)\b/gi)].map(
-        (m) =>
-          m[0]
-            .toLowerCase()
-            .replace(/\b\w/g, (c) => c.toUpperCase()),
-      ),
+      [
+        ...description.matchAll(
+          /\b(single elimination|double elimination|round robin|swiss|best of \d)\b/gi,
+        ),
+      ].map((m) => m[0].toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())),
     ),
   ];
   const formatBits: string[] = [];
@@ -157,7 +209,7 @@ export function extractEventFacts(description: string | undefined): {
   );
   if (mapsSection) {
     const section = mapsSection[1].toLowerCase();
-    const found = knownSkirmishMapNames()
+    const found = gameMapNames(game)
       .map((name) => ({ name, idx: section.indexOf(name.toLowerCase()) }))
       .filter((m) => m.idx !== -1)
       .sort((a, b) => a.idx - b.idx)
@@ -193,9 +245,30 @@ export function parseForumTopics(html: string): ForumTopic[] {
 }
 
 const TITLE_STOP_WORDS = new Set([
-  'the', 'a', 'an', 'of', 'for', 'and', 'to', 'in', 'on', 'at', 'is',
-  'ra3', 'red', 'alert', 'tournament', 'tournaments', 'event', 'cup',
-  'edition', 'open', 'sign', 'up', 'registration', 'new',
+  'the',
+  'a',
+  'an',
+  'of',
+  'for',
+  'and',
+  'to',
+  'in',
+  'on',
+  'at',
+  'is',
+  'ra3',
+  'red',
+  'alert',
+  'tournament',
+  'tournaments',
+  'event',
+  'cup',
+  'edition',
+  'open',
+  'sign',
+  'up',
+  'registration',
+  'new',
 ]);
 
 function distinctiveWords(title: string): string[] {
@@ -269,62 +342,22 @@ export class TournamentScannerService {
     return safeGetText(url, { timeoutMs: 15_000 });
   }
 
-  /** Scans for new tournaments, stores and announces any not yet seen. Returns the count. */
-  async scan(): Promise<number> {
+  /** Scans the selected game's official source. With no argument, scans configured games. */
+  async scan(game?: GameId): Promise<number> {
     if (this.scanning) return 0;
     this.scanning = true;
     try {
-      const html = await this.fetchHtml(ESPORTS_URL);
-      if (!html) return 0;
-      const tournaments = parseTournaments(html);
-
       let newCount = 0;
-      for (const t of tournaments) {
-        if (!isTournamentRelevant(t.title)) continue;
-        const dateTs = parsePortalDate(t.dateText);
-        if (dateTs !== null && dateTs < Date.now() - RECENT_WINDOW_DAYS * 86_400_000) continue;
-
-        // Enrich with the article body (description) + sign-up thread URL.
-        const articleHtml = await this.fetchHtml(t.url);
-        const signUpUrl = articleHtml ? extractSignUpUrl(articleHtml) : undefined;
-        const description =
-          (articleHtml ? extractArticleDescription(articleHtml) : undefined) || t.excerpt;
-        const facts = extractEventFacts(description);
-
-        if (tournamentRepository.hasEventUrl(t.url)) {
-          // Already known — refresh the sign-up URL, description and facts.
-          // Facts are only rewritten when the article was actually fetched;
-          // a failed fetch must not wipe existing values.
-          // Never re-announce a seen tournament.
-          tournamentRepository.updateEventDetails(
-            t.url,
-            signUpUrl ?? null,
-            description,
-            articleHtml ? facts : undefined,
-          );
-          continue;
-        }
-
-        const eventId = tournamentRepository.createEvent({
-          eventUrl: t.url,
-          title: t.title,
-          description,
-          announcedAt: new Date().toISOString(),
-          startDate: t.dateText || undefined,
-          signUpUrl,
-          format: facts.format,
-          prizePool: facts.prizePool,
-          maps: facts.maps,
-        });
-        if (signUpUrl) tournamentRepository.setEventStatus(eventId, 'registration');
-        newCount++;
+      const games = game
+        ? [game]
+        : [...new Set(guildRepository.getAllGuilds().map((guild) => guild.game))];
+      if (games.length === 0) games.push('ra3');
+      for (const selectedGame of games) {
+        const added = selectedGame === 'genevo' ? await this.scanGenevo() : await this.scanRa3();
+        newCount += added;
+        if (added > 0) await this.announce(selectedGame);
       }
-      if (newCount > 0) {
-        logger.info(`Tournament scanner: announced ${newCount} new tournament(s)`);
-        // One interactive message per scan (not one per tournament): users
-        // browse everything via the Prev/Next + Sign Up/Results buttons.
-        await this.announce();
-      }
+      if (newCount > 0) logger.info(`Tournament scanner: found ${newCount} new tournament(s)`);
       return newCount;
     } catch (error) {
       logger.error('Tournament scanner: scan failed:', error);
@@ -334,12 +367,89 @@ export class TournamentScannerService {
     }
   }
 
+  private async scanRa3(): Promise<number> {
+    const html = await this.fetchHtml(ESPORTS_URL);
+    if (!html) return 0;
+    const tournaments = parseTournaments(html);
+    let newCount = 0;
+    for (const t of tournaments) {
+      if (!isTournamentRelevant(t.title)) continue;
+      const dateTs = parsePortalDate(t.dateText);
+      if (dateTs !== null && dateTs < Date.now() - RECENT_WINDOW_DAYS * 86_400_000) continue;
+
+      // Enrich with the article body (description) + sign-up thread URL.
+      const articleHtml = await this.fetchHtml(t.url);
+      const signUpUrl = articleHtml ? extractSignUpUrl(articleHtml) : undefined;
+      const description =
+        (articleHtml ? extractArticleDescription(articleHtml) : undefined) || t.excerpt;
+      const facts = extractEventFacts(description, 'ra3');
+
+      if (tournamentRepository.hasEventUrl(t.url)) {
+        // Already known — refresh the sign-up URL, description and facts.
+        // Facts are only rewritten when the article was actually fetched;
+        // a failed fetch must not wipe existing values.
+        // Never re-announce a seen tournament.
+        tournamentRepository.updateEventDetails(
+          t.url,
+          signUpUrl ?? null,
+          description,
+          articleHtml ? facts : undefined,
+        );
+        continue;
+      }
+
+      const eventId = tournamentRepository.createEvent({
+        game: 'ra3',
+        eventUrl: t.url,
+        title: t.title,
+        description,
+        announcedAt: new Date().toISOString(),
+        startDate: t.dateText || undefined,
+        signUpUrl,
+        format: facts.format,
+        prizePool: facts.prizePool,
+        maps: facts.maps,
+      });
+      if (signUpUrl) tournamentRepository.setEventStatus(eventId, 'registration');
+      newCount++;
+    }
+    return newCount;
+  }
+
+  private async scanGenevo(): Promise<number> {
+    const xml = await this.fetchHtml(GENEVO_EVENTS_FEED);
+    if (!xml) return 0;
+    let newCount = 0;
+    for (const item of [...(await parseGenevoTournaments(xml))].reverse()) {
+      const facts = extractEventFacts(item.description, 'genevo');
+      if (tournamentRepository.hasEventUrl(item.url)) {
+        tournamentRepository.updateEventDetails(item.url, item.url, item.description, facts);
+        continue;
+      }
+      const eventId = tournamentRepository.createEvent({
+        game: 'genevo',
+        eventUrl: item.url,
+        title: item.title,
+        description: item.description,
+        announcedAt: item.publishedAt,
+        startDate: item.publishedAt,
+        signUpUrl: item.url,
+        format: facts.format,
+        prizePool: facts.prizePool,
+        maps: facts.maps,
+      });
+      tournamentRepository.setEventStatus(eventId, 'registration');
+      newCount++;
+    }
+    return newCount;
+  }
+
   /**
    * Posts a single interactive event browser (newest tournament + Prev/Next,
    * Sign Up/Results buttons) to each guild's configured tournament channel.
    */
-  private async announce(): Promise<void> {
-    const announcements = getSortedAnnouncements();
+  private async announce(game: GameId): Promise<void> {
+    const announcements = getSortedAnnouncements(game);
     if (announcements.length === 0) return;
     await this.announceEvent(announcements[0].id);
   }
@@ -350,7 +460,10 @@ export class TournamentScannerService {
    * for new announcements and freshly discovered brackets.
    */
   async announceEvent(eventId: number): Promise<void> {
+    const eventGame = tournamentRepository.getEventDetail(eventId)?.game;
+    if (!eventGame) return;
     for (const guildData of guildRepository.getAllGuilds()) {
+      if (guildData.game !== eventGame) continue;
       await this.announceEventToGuild(guildData.discordId, eventId);
     }
   }
@@ -359,12 +472,14 @@ export class TournamentScannerService {
     const itemKey = String(eventId);
     const guildData = guildRepository.findByDiscordId(guildId);
     if (!guildData?.tournamentEventsChannelId || guildData.tournamentsEnabled === 0) return false;
+    if (tournamentRepository.getEventDetail(eventId)?.game !== guildData.game) return false;
     const rendered = renderEventCard(eventId);
     if (!rendered) return false;
     const guild = this.client?.guilds.cache.get(guildId);
     const channel = guild?.channels.cache.get(guildData.tournamentEventsChannelId);
     if (!(channel instanceof TextChannel)) return false;
-    if (contentDeliveryRepository.wasDelivered(guildId, 'tournament', itemKey, channel.id)) return false;
+    if (contentDeliveryRepository.wasDelivered(guildId, 'tournament', itemKey, channel.id))
+      return false;
     try {
       await channel.send(rendered);
       contentDeliveryRepository.markDelivered(guildId, 'tournament', itemKey, channel.id);
@@ -376,7 +491,8 @@ export class TournamentScannerService {
   }
 
   async postLatestToGuild(guildId: string): Promise<boolean> {
-    const latest = getSortedAnnouncements()[0];
+    const game = guildRepository.findByDiscordId(guildId)?.game ?? 'ra3';
+    const latest = getSortedAnnouncements(game)[0];
     return latest ? this.announceEventToGuild(guildId, latest.id) : false;
   }
 }

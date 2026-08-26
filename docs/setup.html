@@ -1,92 +1,106 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Setup — E.V.A Docs</title>
-  <link rel="stylesheet" href="assets/styles.css" />
-</head>
-<body>
-  <aside class="sidebar">
-    <div class="logo">E.V.A<span>.</span></div>
-    <div class="tagline">RA3 Community Bot</div>
-    <nav>
-      <h3>Getting Started</h3>
-      <a href="index.html">Introduction</a>
-      <a class="active" href="setup.html">Setup</a>
-      <h3>Features</h3>
-      <a href="tournaments.html">Tournaments</a>
-      <a href="stats.html">Stats &amp; Profiles</a>
-      <a href="notifications.html">News &amp; Feeds</a>
-      <h3>Reference</h3>
-      <a href="commands.html">Commands</a>
-      <a href="self-hosting.html">Self-Hosting</a>
-    </nav>
-  </aside>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Setup — E.V.A Docs</title>
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="logo">E.V.A<span>.</span></div>
+      <div class="tagline">C&amp;C Community Bot</div>
+      <nav>
+        <h3>Getting Started</h3>
+        <a href="index.html">Introduction</a>
+        <a class="active" href="setup.html">Setup</a>
+        <h3>Features</h3>
+        <a href="tournaments.html">Tournaments</a>
+        <a href="stats.html">Stats &amp; Profiles</a>
+        <a href="notifications.html">News &amp; Feeds</a>
+        <h3>Reference</h3>
+        <a href="commands.html">Commands</a>
+        <a href="self-hosting.html">Self-Hosting</a>
+      </nav>
+    </aside>
 
-  <main class="content">
-    <h1>Setup</h1>
-    <p>
-      Getting E.V.A running in your server takes about two minutes. Everything is
-      configured through Discord — no dashboard, no config files.
-    </p>
+    <main class="content">
+      <h1>Setup</h1>
+      <p>
+        Getting E.V.A running in your server takes about two minutes. Everything is configured
+        through Discord — no dashboard, no config files.
+      </p>
 
-    <h2>1. First steps</h2>
-    <ol>
-      <li>Add the bot to your server with the invite link provided by the owner.</li>
-      <li>Run <code>/bot_setup</code> — the setup wizard opens with buttons.</li>
-      <li>
-        Pick your <strong>admin role</strong> and <strong>referee role</strong>
-        (tournament officials who can run check-ins).
-      </li>
-      <li>
-        Under <strong>Notification Channels</strong>, choose where news, ModDB
-        posts, tournament announcements, Twitch/YouTube posts and the lobby
-        board should go. You can also skip channels you don't want.
-      </li>
-      <li>
-        Choose your server's game: <span class="badge red">RA3</span>
-        <span class="badge red">Kane's Wrath</span>
-        <span class="badge red">Generals Evolution</span> — feeds and stats
-        sections adapt automatically.
-      </li>
-    </ol>
+      <h2>1. First steps</h2>
+      <ol>
+        <li>Add the bot to your server with the invite link provided by the owner.</li>
+        <li>Run <code>/bot_setup</code> — the setup wizard opens with buttons.</li>
+        <li>
+          Pick your <strong>admin role</strong> and <strong>referee role</strong>
+          (tournament officials who can run check-ins).
+        </li>
+        <li>
+          Under <strong>Notification Channels</strong>, choose where news, ModDB posts, tournament
+          announcements, Twitch/YouTube posts and the lobby board should go. You can also skip
+          channels you don't want.
+        </li>
+        <li>
+          Choose your server's game: <span class="badge red">RA3</span> or
+          <span class="badge red">Generals Evolution</span> — feeds, artwork, maps and stats
+          sections adapt automatically.
+        </li>
+      </ol>
 
-    <h2>2. Recommended channels</h2>
-    <table>
-      <tr><th>Channel</th><th>What lands there</th></tr>
-      <tr><td># tournaments</td><td>Tournament announcements with a Sign Up button, results discovery</td></tr>
-      <tr><td># news</td><td>GameReplays RA3 news</td></tr>
-      <tr><td># mods</td><td>ModDB RA3 articles and mod updates (rate-limited, no spam)</td></tr>
-      <tr><td># streams</td><td>Twitch streams and YouTube uploads (Sybert's BattleCasts included)</td></tr>
-      <tr><td># stats</td><td>The persistent Live Stats panel with charts (<code>/stats_panel set</code>)</td></tr>
-    </table>
+      <h2>2. Recommended channels</h2>
+      <table>
+        <tr>
+          <th>Channel</th>
+          <th>What lands there</th>
+        </tr>
+        <tr>
+          <td># tournaments</td>
+          <td>Tournament announcements with a Sign Up button, results discovery</td>
+        </tr>
+        <tr>
+          <td># news</td>
+          <td>Current news for the selected game</td>
+        </tr>
+        <tr>
+          <td># mods</td>
+          <td>Game-specific ModDB articles and updates (rate-limited, no spam)</td>
+        </tr>
+        <tr>
+          <td># streams</td>
+          <td>Twitch streams and YouTube uploads (Sybert's BattleCasts included)</td>
+        </tr>
+        <tr>
+          <td># stats</td>
+          <td>The persistent Live Stats panel with charts (<code>/stats_panel set</code>)</td>
+        </tr>
+      </table>
 
-    <h2>3. Verify everything works</h2>
-    <p>
-      Run <code>/test_channels</code> (admin). The bot checks every configured
-      channel — existence, permissions, and an actual test post (auto-deleted) —
-      and reports a checklist. The <em>Test Posts</em> button in
-      <code>/notifications</code> runs the same check.
-    </p>
+      <h2>3. Verify everything works</h2>
+      <p>
+        Run <code>/test_channels</code> (admin). The bot checks every configured channel —
+        existence, permissions, and an actual test post (auto-deleted) — and reports a checklist.
+        The <em>Test Posts</em> button in <code>/notifications</code> runs the same check.
+      </p>
 
-    <h2>4. Daily commands</h2>
-    <p>
-      <code>/help</code> shows every command grouped by category; admins can hide
-      categories per server in <code>/toggle</code>. The pages in this section of
-      the docs explain the tournament pipeline, stats and notification feeds in
-      depth.
-    </p>
+      <h2>4. Daily commands</h2>
+      <p>
+        <code>/help</code> shows every command grouped by category; admins can hide categories per
+        server in <code>/toggle</code>. The pages in this section of the docs explain the tournament
+        pipeline, stats and notification feeds in depth.
+      </p>
 
-    <blockquote>
-      Players use <code>/link</code> to choose Shatabrick or RA3BattleNet, then
-      add a nickname or profile id. The two platforms remain separate account
-      systems and are never cross-looked-up.
-    </blockquote>
+      <blockquote>
+        Players use <code>/link</code> to choose Shatabrick or RA3BattleNet, then add a nickname or
+        profile id. The two platforms remain separate account systems and are never cross-looked-up.
+      </blockquote>
 
-    <div class="footer">
-      E.V.A — built for the Red Alert 3 community by Arcy. Not affiliated with EA.
-    </div>
-  </main>
-</body>
+      <div class="footer">
+        E.V.A — built for the Command &amp; Conquer community by Arcy. Not affiliated with EA.
+      </div>
+    </main>
+  </body>
 </html>

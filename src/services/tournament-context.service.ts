@@ -1,12 +1,6 @@
 import { tournamentRepository } from '../repositories/tournament.repository';
 import { parsePortalDate, resolveTournamentStatus } from '../utils/tournament-status';
-
-const OTHER_GAMES = /generals evolution|genevo|gen evo|kane'?s wrath|tiberi\w*|c&c ?3|zero hour/i;
-
-function matchesGame(title: string, game: string): boolean {
-  if (game === 'genevo') return OTHER_GAMES.test(title);
-  return !OTHER_GAMES.test(title);
-}
+import { GameId } from '../config/games';
 
 export function normalizeTournamentName(title: string): string {
   return title
@@ -30,7 +24,9 @@ export interface TournamentContext {
   status: ReturnType<typeof resolveTournamentStatus>;
 }
 
-function toContext(event: ReturnType<typeof tournamentRepository.getAnnouncements>[number]): TournamentContext {
+function toContext(
+  event: ReturnType<typeof tournamentRepository.getAnnouncements>[number],
+): TournamentContext {
   const detail = tournamentRepository.getEventDetail(event.id);
   const registrationUrl = detail?.registrationUrl ?? event.signUpUrl ?? undefined;
   return {
@@ -52,10 +48,9 @@ function toContext(event: ReturnType<typeof tournamentRepository.getAnnouncement
   };
 }
 
-export function listTournamentContexts(game = 'ra3'): TournamentContext[] {
+export function listTournamentContexts(game: GameId = 'ra3'): TournamentContext[] {
   return tournamentRepository
-    .getAnnouncements()
-    .filter((event) => matchesGame(event.title, game))
+    .getAnnouncements(game)
     .sort((a, b) => {
       const aDate = parsePortalDate(a.startDate ?? '') ?? a.id;
       const bDate = parsePortalDate(b.startDate ?? '') ?? b.id;
@@ -64,12 +59,12 @@ export function listTournamentContexts(game = 'ra3'): TournamentContext[] {
     .map(toContext);
 }
 
-export function getCurrentTournament(game = 'ra3'): TournamentContext | null {
+export function getCurrentTournament(game: GameId = 'ra3'): TournamentContext | null {
   const events = listTournamentContexts(game);
   return events.find((event) => event.status !== 'ended') ?? null;
 }
 
-export function findTournament(query: string, game = 'ra3'): TournamentContext | null {
+export function findTournament(query: string, game: GameId = 'ra3'): TournamentContext | null {
   const wanted = normalizeTournamentName(query);
   if (!wanted) return getCurrentTournament(game);
   const events = listTournamentContexts(game);

@@ -5,12 +5,43 @@ import { cooldownManager } from '../utils/cooldown';
 import { handleInteractionError } from '../utils/interaction-error';
 import { resolveComponent, ComponentRegistry } from '../types';
 import { appSettingsRepository } from '../repositories/app-settings.repository';
+import { guildRepository } from '../repositories/guild.repository';
 
 export const name = Events.InteractionCreate;
 export const once = false;
 
 const DEFAULT_COMMAND_COOLDOWN_SECONDS = 3;
 const COMPONENT_COOLDOWN_MS = 2_000;
+const TOURNAMENT_COMMANDS = new Set([
+  'events',
+  'results',
+  'matches',
+  'pickmap',
+  'checkin',
+  'report_score',
+  'tournament_link',
+  'tournaments_scan',
+  'match_panel',
+]);
+const RA3_ONLY_COMMANDS = new Set(['masters', 'add_master', 'remove_master', 'list_masters']);
+const TOURNAMENT_COMPONENT_PREFIXES = [
+  'eventpg_',
+  'resultspg_',
+  'checkin_',
+  'score_review_',
+  'confirm_match_',
+  'delay_match_',
+  'delay_modal_',
+  'tournament_link_modal',
+];
+
+function tournamentToolsDisabled(guildId?: string | null): boolean {
+  return !!guildId && guildRepository.findByDiscordId(guildId)?.tournamentsEnabled === 0;
+}
+
+function isTournamentComponent(customId: string): boolean {
+  return TOURNAMENT_COMPONENT_PREFIXES.some((prefix) => customId.startsWith(prefix));
+}
 
 /**
  * customIds owned by message-component collectors living inside commands
@@ -81,6 +112,27 @@ export async function execute(bot: RA3Bot, interaction: Interaction): Promise<vo
       await interaction.reply({ content: 'Public commands in DMs are currently disabled.' });
       return;
     }
+    if (
+      RA3_ONLY_COMMANDS.has(interaction.commandName) &&
+      interaction.guildId &&
+      guildRepository.findByDiscordId(interaction.guildId)?.game === 'genevo'
+    ) {
+      await interaction.reply({
+        content: 'The Masters Hall of Fame is a Red Alert 3 feature.',
+        ephemeral: true,
+      });
+      return;
+    }
+    if (
+      TOURNAMENT_COMMANDS.has(interaction.commandName) &&
+      tournamentToolsDisabled(interaction.guildId)
+    ) {
+      await interaction.reply({
+        content: 'Tournament and referee tools are disabled on this server.',
+        ephemeral: true,
+      });
+      return;
+    }
 
     const cooldownSeconds = command.cooldown ?? DEFAULT_COMMAND_COOLDOWN_SECONDS;
     const { onCooldown, remainingSeconds } = cooldownManager.isOnCooldown(
@@ -108,6 +160,13 @@ export async function execute(bot: RA3Bot, interaction: Interaction): Promise<vo
 
   // ── Autocomplete ───────────────────────────────────────────────────────
   if (interaction.isAutocomplete()) {
+    if (
+      TOURNAMENT_COMMANDS.has(interaction.commandName) &&
+      tournamentToolsDisabled(interaction.guildId)
+    ) {
+      await interaction.respond([]);
+      return;
+    }
     const command = bot.commands.get(interaction.commandName);
     if (!command?.autocomplete) return;
     try {
@@ -146,6 +205,15 @@ async function dispatchComponent<T extends RepliableInteraction & { customId: st
   registry: ComponentRegistry<T>,
   kind: string,
 ): Promise<void> {
+  if (isTournamentComponent(interaction.customId) && tournamentToolsDisabled(interaction.guildId)) {
+    await interaction
+      .reply({
+        content: 'Tournament and referee tools are disabled on this server.',
+        ephemeral: true,
+      })
+      .catch(() => null);
+    return;
+  }
   if (isComponentOnCooldown(interaction.user.id, interaction.customId)) {
     await interaction
       .reply({ content: '⏳ Please slow down.', ephemeral: true })

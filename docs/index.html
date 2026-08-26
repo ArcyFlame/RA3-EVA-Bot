@@ -1,97 +1,131 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Introduction — E.V.A Docs</title>
-  <link rel="stylesheet" href="assets/styles.css" />
-</head>
-<body>
-  <aside class="sidebar">
-    <div class="logo">E.V.A<span>.</span></div>
-    <div class="tagline">RA3 Community Bot</div>
-    <nav>
-      <h3>Getting Started</h3>
-      <a class="active" href="index.html">Introduction</a>
-      <a href="setup.html">Setup</a>
-      <h3>Features</h3>
-      <a href="tournaments.html">Tournaments</a>
-      <a href="stats.html">Stats &amp; Profiles</a>
-      <a href="notifications.html">News &amp; Feeds</a>
-      <h3>Reference</h3>
-      <a href="commands.html">Commands</a>
-      <a href="self-hosting.html">Self-Hosting</a>
-    </nav>
-  </aside>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Introduction — E.V.A Docs</title>
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="logo">E.V.A<span>.</span></div>
+      <div class="tagline">C&amp;C Community Bot</div>
+      <nav>
+        <h3>Getting Started</h3>
+        <a class="active" href="index.html">Introduction</a>
+        <a href="setup.html">Setup</a>
+        <h3>Features</h3>
+        <a href="tournaments.html">Tournaments</a>
+        <a href="stats.html">Stats &amp; Profiles</a>
+        <a href="notifications.html">News &amp; Feeds</a>
+        <h3>Reference</h3>
+        <a href="commands.html">Commands</a>
+        <a href="self-hosting.html">Self-Hosting</a>
+      </nav>
+    </aside>
 
-  <main class="content">
-    <h1>Introduction</h1>
-    <p>
-      <strong>E.V.A</strong> is a Discord bot built for the
-      <em>Command &amp; Conquer: Red Alert 3</em> community. Named after the Allied
-      command voice, it keeps RA3 servers alive with live player statistics,
-      automatic tournament coverage, news feeds and community tools — everything
-      in one place across GameReplays, C&amp;C Online, Shatabrick and RA3BattleNet.
-    </p>
+    <main class="content">
+      <h1>Introduction</h1>
+      <p>
+        <strong>E.V.A</strong> is a Discord bot built for the
+        <em>Command &amp; Conquer: Red Alert 3</em> and <em>Generals Evolution</em>
+        communities. Named after the Allied command voice, it keeps servers active with live player
+        statistics, automatic tournament coverage, news feeds and community tools — everything in
+        one place across GameReplays, C&amp;C Online, Shatabrick and RA3BattleNet.
+      </p>
 
-    <div class="feature-grid">
-      <div class="card">
-        <h3>📊 Live Stats</h3>
-        <p>Online players from C&amp;C Online and RA3BattleNet, leaderboards, map
-        stats, faction popularity and classic Red Alert-styled charts on a
-        persistent channel panel.</p>
+      <div class="feature-grid">
+        <div class="card">
+          <h3>📊 Live Stats</h3>
+          <p>
+            Online players from C&amp;C Online and RA3BattleNet, leaderboards, map stats, faction
+            popularity and classic Red Alert-styled charts on a persistent channel panel.
+          </p>
+        </div>
+        <div class="card">
+          <h3>🏆 Tournaments</h3>
+          <p>
+            Automatic scanning of the GameReplays esports portal and forum: announcements, sign-ups,
+            prizes, map pools and Challonge brackets — including qualifiers and playoffs.
+          </p>
+        </div>
+        <div class="card">
+          <h3>🏅 Player Profiles</h3>
+          <p>
+            Link Shatabrick and RA3BattleNet from one manager. Profiles keep both platforms separate
+            and show the live rankings each source provides.
+          </p>
+        </div>
+        <div class="card">
+          <h3>📰 News &amp; Feeds</h3>
+          <p>
+            Current GameReplays RA3 news, ModDB articles and mod updates, Twitch streams and YouTube
+            uploads — posted to your channels, deduplicated, rate-limited.
+          </p>
+        </div>
+        <div class="card">
+          <h3>🛠️ Community Tools</h3>
+          <p>
+            Verified tournament map picking, clans, tips, moderation utilities and an admin setup
+            wizard.
+          </p>
+        </div>
+        <div class="card">
+          <h3>🎮 Multi-Game</h3>
+          <p>
+            Each server picks Red Alert 3 or Generals Evolution. The bot adapts its sources,
+            artwork, maps, tips, tournaments and stats automatically.
+          </p>
+        </div>
       </div>
-      <div class="card">
-        <h3>🏆 Tournaments</h3>
-        <p>Automatic scanning of the GameReplays esports portal and forum:
-        announcements, sign-ups, prizes, map pools and Challonge brackets —
-        including qualifiers and playoffs.</p>
-      </div>
-      <div class="card">
-        <h3>🏅 Player Profiles</h3>
-        <p>Link Shatabrick and RA3BattleNet from one manager. Profiles keep both
-        platforms separate and show the live rankings each source provides.</p>
-      </div>
-      <div class="card">
-        <h3>📰 News &amp; Feeds</h3>
-        <p>Current GameReplays RA3 news, ModDB articles and mod updates, Twitch streams and
-        YouTube uploads — posted to your channels, deduplicated, rate-limited.</p>
-      </div>
-      <div class="card">
-        <h3>🛠️ Community Tools</h3>
-        <p>Verified tournament map picking, clans, tips, moderation utilities
-        and an admin setup wizard.</p>
-      </div>
-      <div class="card">
-        <h3>🎮 Multi-Game</h3>
-        <p>Each server picks its game — Red Alert 3, Kane's Wrath or Generals
-        Evolution — and the bot adapts its feeds and stats sections.</p>
-      </div>
-    </div>
 
-    <h2>Where the data comes from</h2>
-    <table>
-      <tr><th>Source</th><th>Used for</th></tr>
-      <tr><td>GameReplays.org</td><td>Tournament portal + forum, current RA3 portal news</td></tr>
-      <tr><td>RA3BattleNet</td><td>Online players, ladders, faction/map stats, player profiles</td></tr>
-      <tr><td>Shatabrick</td><td>Linked C&amp;C Online identity; live profile stats when its API is available</td></tr>
-      <tr><td>C&amp;C Online</td><td>Online players, active games, recent matches</td></tr>
-      <tr><td>Challonge</td><td>Tournament brackets, standings, match results</td></tr>
-      <tr><td>ModDB</td><td>RA3 articles and mod updates</td></tr>
-      <tr><td>Twitch / YouTube</td><td>Live streams and new uploads (RA3 content)</td></tr>
-    </table>
+      <h2>Where the data comes from</h2>
+      <table>
+        <tr>
+          <th>Source</th>
+          <th>Used for</th>
+        </tr>
+        <tr>
+          <td>GameReplays.org</td>
+          <td>Tournament portal + forum, current RA3 portal news</td>
+        </tr>
+        <tr>
+          <td>RA3BattleNet</td>
+          <td>Online players, ladders, faction/map stats, player profiles</td>
+        </tr>
+        <tr>
+          <td>Shatabrick</td>
+          <td>C&amp;C Online identities, rank badges and public ladder records</td>
+        </tr>
+        <tr>
+          <td>C&amp;C Online</td>
+          <td>Online players, active games, recent matches</td>
+        </tr>
+        <tr>
+          <td>Challonge</td>
+          <td>Tournament brackets, standings, match results</td>
+        </tr>
+        <tr>
+          <td>ModDB</td>
+          <td>RA3 articles plus official Generals Evolution news and downloads</td>
+        </tr>
+        <tr>
+          <td>Twitch / YouTube</td>
+          <td>Game-filtered live streams and new uploads</td>
+        </tr>
+      </table>
 
-    <h2>Quick start</h2>
-    <p>
-      Add the bot to your server, run <code>/bot_setup</code> to choose your admin
-      role, channels and features, and you are done. The full walkthrough lives in
-      <a href="setup.html">Setup</a>; every command is listed in
-      <a href="commands.html">Commands</a>.
-    </p>
+      <h2>Quick start</h2>
+      <p>
+        Add the bot to your server, run <code>/bot_setup</code> to choose your admin role, channels
+        and features, and you are done. The full walkthrough lives in
+        <a href="setup.html">Setup</a>; every command is listed in
+        <a href="commands.html">Commands</a>.
+      </p>
 
-    <div class="footer">
-      E.V.A — built for the Red Alert 3 community by Arcy. Not affiliated with EA.
-    </div>
-  </main>
-</body>
+      <div class="footer">
+        E.V.A — built for the Command &amp; Conquer community by Arcy. Not affiliated with EA.
+      </div>
+    </main>
+  </body>
 </html>

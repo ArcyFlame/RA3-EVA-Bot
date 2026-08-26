@@ -4,10 +4,11 @@ import { tournamentScanner } from '../../services/tournament-scanner.service';
 import { forumScanner } from '../../services/forum-scanner.service';
 import { denyUnlessAdmin } from '../../utils/permissions';
 import { resolveMember } from '../../utils/members';
+import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
   .setName('tournaments_scan')
-  .setDescription('[Admin] Scan GameReplays (portal + forum) for tournaments now')
+  .setDescription("[Admin] Scan this game's official sources for tournaments")
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
@@ -19,14 +20,20 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   }
 
   await interaction.deferReply({ ephemeral: true });
-  const count = await tournamentScanner.scan();
-  const forum = await forumScanner.scan();
+  const context = getGameContext(interaction.guildId);
+  const count = await tournamentScanner.scan(context.game);
+  const forum =
+    context.game === 'ra3' ? await forumScanner.scan() : { results: 0, registrations: 0 };
   const parts = [
-    count > 0 ? `announced ${count} new tournament(s)` : 'no new portal tournaments',
-    forum.results > 0 ? `linked ${forum.results} Challonge bracket(s)` : 'no new brackets',
-    forum.registrations > 0
-      ? `added ${forum.registrations} registration(s)`
-      : 'no new registrations',
+    count > 0 ? `found ${count} new tournament(s)` : 'no new tournament announcements',
   ];
+  if (context.game === 'ra3') {
+    parts.push(
+      forum.results > 0 ? `linked ${forum.results} Challonge bracket(s)` : 'no new brackets',
+      forum.registrations > 0
+        ? `added ${forum.registrations} registration(s)`
+        : 'no new registrations',
+    );
+  }
   await interaction.editReply({ content: `✅ ${parts.join(', ')}.` });
 }

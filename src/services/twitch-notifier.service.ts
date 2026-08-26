@@ -5,6 +5,7 @@ import { twitchService, TwitchStream } from './twitch.service';
 import { trackedStreamerRepository } from '../repositories/tracked-streamer.repository';
 import { guildRepository } from '../repositories/guild.repository';
 import { db } from '../database/sqlite';
+import { classifyGameContent, GameId, GAME_CONFIGS } from '../config/games';
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const RE_NOTIFY_AFTER_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -89,6 +90,13 @@ export class TwitchNotifierService {
     ).run(userId);
   }
 
+  private streamMatchesGame(title: string, game: GameId, trackedForGuild: boolean): boolean {
+    const classified = classifyGameContent(title);
+    if (classified === 'other') return false;
+    if (trackedForGuild && classified === 'neutral') return true;
+    return game === 'genevo' ? classified === 'genevo' : classified !== 'genevo';
+  }
+
   private async handleStream(client: Client, stream: TwitchStream): Promise<void> {
     if (this.wasNotifiedRecently(stream.userId)) {
       logger.debug(`Streamer ${stream.userName} already notified recently, skipping`);
@@ -115,7 +123,11 @@ export class TwitchNotifierService {
         iconURL: 'https://static.twitchcdn.net/assets/favicon-32-e29e246c157142c94346.png',
       })
       .addFields(
-        { name: '🎮 Game', value: (stream.gameName || 'Unknown').slice(0, 1024), inline: true },
+        {
+          name: '🎮 Twitch Category',
+          value: (stream.gameName || 'Unknown').slice(0, 1024),
+          inline: true,
+        },
         { name: '👀 Viewers', value: String(stream.viewerCount ?? 0), inline: true },
       );
 
@@ -130,12 +142,17 @@ export class TwitchNotifierService {
     // is still announced to every guild with a Twitch channel configured —
     // requiring every streamer to be tracked first meant nothing ever posted.
     const trackings = trackedStreamerRepository.findByPlatformId(stream.userId);
-    const targets: Array<{ guildId: string; customMessage?: string }> = trackings.length
-      ? trackings.map((t) => ({ guildId: t.guildId, customMessage: t.customMessage }))
-      : guildRepository
-          .getAllGuilds()
-          .filter((g) => g.twitchChannelId && g.twitchNotifierEnabled === 1)
-          .map((g) => ({ guildId: g.discordId }));
+    const targets: Array<{ guildId: string; customMessage?: string; tracked: boolean }> =
+      trackings.length
+        ? trackings.map((t) => ({
+            guildId: t.guildId,
+            customMessage: t.customMessage,
+            tracked: true,
+          }))
+        : guildRepository
+            .getAllGuilds()
+            .filter((g) => g.twitchChannelId && g.twitchNotifierEnabled === 1)
+            .map((g) => ({ guildId: g.discordId, tracked: false }));
 
     for (const target of targets) {
       const guild = client.guilds.cache.get(target.guildId);
@@ -143,6 +160,7 @@ export class TwitchNotifierService {
 
       const guildData = guildRepository.findByDiscordId(guild.id);
       if (!guildData?.twitchChannelId || !guildData.twitchNotifierEnabled) continue;
+      if (!this.streamMatchesGame(stream.title || '', guildData.game, target.tracked)) continue;
 
       const channel = guild.channels.cache.get(guildData.twitchChannelId);
       if (!channel || !(channel instanceof TextChannel)) {
@@ -151,11 +169,12 @@ export class TwitchNotifierService {
       }
 
       // Sanitize admin-configured custom messages — no @everyone surprises.
-      const content = target.customMessage
-        ? sanitizeInput(target.customMessage, 500)
-        : undefined;
+      const content = target.customMessage ? sanitizeInput(target.customMessage, 500) : undefined;
       try {
-        await channel.send({ content, embeds: [embed] });
+        const targetEmbed = EmbedBuilder.from(embed).setFooter({
+          text: GAME_CONFIGS[guildData.game].shortLabel,
+        });
+        await channel.send({ content, embeds: [targetEmbed] });
         logger.info(`✅ Sent Twitch notification to ${guild.name} / #${channel.name}`);
       } catch (error) {
         logger.error(`Failed to send Twitch notification to ${guild.name}:`, error);
@@ -196,7 +215,10 @@ export class TwitchNotifierService {
       const guild = client.guilds.cache.get(g.discordId);
       const channel = guild?.channels.cache.get(g.twitchChannelId);
       if (channel instanceof TextChannel) {
-        await channel.send({ embeds: [embed] }).then(() => posted++).catch(() => null);
+        await channel
+          .send({ embeds: [embed] })
+          .then(() => posted++)
+          .catch(() => null);
       }
     }
     return posted;

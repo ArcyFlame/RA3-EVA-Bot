@@ -1,7 +1,9 @@
 import { BaseRepository } from './base.repository';
+import { GameId } from '../config/games';
 
 export interface NewsItem {
   id: number;
+  game: GameId;
   newsUrl: string;
   title: string;
   excerpt?: string;
@@ -9,26 +11,38 @@ export interface NewsItem {
 }
 
 export class NewsRepository extends BaseRepository {
-  hasNewsUrl(newsUrl: string): boolean {
-    const row = this.query<{ id: number }>('SELECT id FROM news_items WHERE news_url = ?', [newsUrl]);
+  hasNewsUrl(newsUrl: string, game: GameId): boolean {
+    const row = this.query<{ id: number }>(
+      'SELECT id FROM news_items WHERE news_url = ? AND game = ?',
+      [newsUrl, game],
+    );
     return !!row;
   }
 
-  create(data: { newsUrl: string; title: string; excerpt?: string }): void {
-    this.run('INSERT INTO news_items (news_url, title, excerpt) VALUES (?, ?, ?)', [
+  create(data: { game: GameId; newsUrl: string; title: string; excerpt?: string }): void {
+    this.run('INSERT INTO news_items (news_url, title, excerpt, game) VALUES (?, ?, ?, ?)', [
       data.newsUrl,
       data.title,
       data.excerpt ?? null,
+      data.game,
     ]);
   }
 
   /** Newest-first list for the /news browser. */
-  getLatest(limit = 20): NewsItem[] {
-    return this.queryAll<{ id: number; news_url: string; title: string; excerpt: string | null; posted_at: string }>(
-      'SELECT id, news_url, title, excerpt, posted_at FROM news_items ORDER BY id DESC LIMIT ?',
-      [limit],
+  getLatest(limit = 20, game: GameId = 'ra3'): NewsItem[] {
+    return this.queryAll<{
+      id: number;
+      game: GameId;
+      news_url: string;
+      title: string;
+      excerpt: string | null;
+      posted_at: string;
+    }>(
+      'SELECT id, game, news_url, title, excerpt, posted_at FROM news_items WHERE game = ? ORDER BY id DESC LIMIT ?',
+      [game, limit],
     ).map((r) => ({
       id: r.id,
+      game: r.game,
       newsUrl: r.news_url,
       title: r.title,
       excerpt: r.excerpt ?? undefined,

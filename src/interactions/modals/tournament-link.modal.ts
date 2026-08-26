@@ -6,6 +6,7 @@ import { editionsCompatible } from '../../services/forum-scanner.service';
 import { findTournament, getCurrentTournament } from '../../services/tournament-context.service';
 import { guildRepository } from '../../repositories/guild.repository';
 import { logger } from '../../utils/logger';
+import { statusFromChallonge } from '../../utils/tournament-status';
 
 /** /tournament_link modal: parses any Challonge URL/ID form, validates, stores. */
 export const customId = 'tournament_link_modal';
@@ -31,9 +32,11 @@ export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction)
 
   // Validate by fetching the tournament — catches typos and private brackets.
   let name: string | null = null;
+  let state: string | undefined;
   try {
     const tournament = await challongeService.getTournament(ref);
     name = tournament?.name ?? null;
+    state = tournament?.state;
   } catch (error) {
     logger.warn('tournament_link: validation fetch failed:', error);
     await interaction.editReply(
@@ -46,11 +49,7 @@ export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction)
   // Challonge's own name. This catches copied old links in forum posts too.
   const wanted = interaction.fields.getTextInputValue('event_title').trim();
   const game = guildRepository.findByDiscordId(interaction.guild.id)?.game ?? 'ra3';
-  const match = wanted ? findTournament(wanted, game) : getCurrentTournament(game);
-  if (wanted && !match) {
-    await interaction.editReply(`❌ No stored tournament matches **${wanted}**.`);
-    return;
-  }
+  let match = wanted ? findTournament(wanted, game) : getCurrentTournament(game);
   if (match && name && !editionsCompatible(name, match.title)) {
     await interaction.editReply(
       `❌ Challonge calls this bracket **${name}**, which does not match **${match.title}**. Nothing was linked.`,
@@ -62,6 +61,20 @@ export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction)
   tournamentRepository.linkTournament(interaction.guild.id, ref, challongeService.bracketUrl(ref));
 
   let attachedTo: string | undefined;
+  if (!match) {
+    const title = wanted || name || `Tournament ${ref}`;
+    const bracketUrl = challongeService.bracketUrl(ref);
+    const eventId = tournamentRepository.createEvent({
+      game,
+      eventUrl: bracketUrl,
+      title,
+      description: `${title} tournament bracket and registration page.`,
+      announcedAt: new Date().toISOString(),
+      signUpUrl: bracketUrl,
+    });
+    tournamentRepository.setEventStatus(eventId, statusFromChallonge(state));
+    match = findTournament(title, game);
+  }
   if (match) {
     tournamentRepository.setEventChallongeUrl(match.id, challongeService.bracketUrl(ref));
     tournamentRepository.addBracket(match.id, challongeService.bracketUrl(ref), name ?? undefined);
