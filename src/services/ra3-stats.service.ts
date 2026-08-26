@@ -9,6 +9,12 @@ import {
   isKnownGameMap,
   matchesGameLobby,
 } from '../data/game-maps';
+import { emptyGenevoFactionDistribution, GenevoFactionDistribution } from '../data/genevo-factions';
+import {
+  gamePlayerRepository,
+  ObservedPlayer,
+  StatsPlatform,
+} from '../repositories/game-player.repository';
 
 export interface RA3Stats {
   online_now: number;
@@ -23,6 +29,8 @@ export interface RA3Stats {
   history_started_at?: string;
   new_player_tracking_started_at?: string;
   faction_distribution: { Allies: number; Soviets: number; Empire: number };
+  genevo_faction_distribution: GenevoFactionDistribution;
+  genevo_faction_source: 'unavailable' | 'live_lobbies' | 'shatabrick';
   top_maps: Array<[string, number]>;
   cnc_recent_matches: Array<{ players: string; map: string; platform: string }>;
   ra3battle_recent_matches: Array<{ players: string; map: string; platform: string }>;
@@ -83,6 +91,7 @@ interface CncLiveData {
   activeGames: number;
   mapCounts: Record<string, number>;
   recentMatches: Array<{ players: string; map: string; platform: string }>;
+  playerIdentities: ObservedPlayer[];
 }
 
 interface Ra3bLiveData {
@@ -91,6 +100,16 @@ interface Ra3bLiveData {
   rooms: number;
   mapCounts: Record<string, number>;
   recentMatches: Array<{ players: string; map: string; platform: string }>;
+  playerIdentities: ObservedPlayer[];
+}
+
+function observedPlayer(id: unknown, name: unknown): ObservedPlayer | null {
+  const cleanName = String(name ?? '').trim();
+  if (id == null && !cleanName) return null;
+  return {
+    key: id == null ? `name:${cleanName.toLowerCase()}` : `id:${String(id)}`,
+    name: cleanName || `Player ${String(id)}`,
+  };
 }
 
 // Friendly names for internal map identifiers returned by the live APIs.
@@ -331,16 +350,30 @@ export class RA3StatsService {
     const cncLive =
       cncData.status === 'fulfilled'
         ? cncData.value
-        : { ok: false, players: 0, activeGames: 0, mapCounts: {}, recentMatches: [] };
+        : {
+            ok: false,
+            players: 0,
+            activeGames: 0,
+            mapCounts: {},
+            recentMatches: [],
+            playerIdentities: [],
+          };
     const ra3bLive =
       ra3bData.status === 'fulfilled'
         ? ra3bData.value
-        : { ok: false, players: 0, rooms: 0, mapCounts: {}, recentMatches: [] };
+        : {
+            ok: false,
+            players: 0,
+            rooms: 0,
+            mapCounts: {},
+            recentMatches: [],
+            playerIdentities: [],
+          };
     if (cncLive.ok) this.lastCncData.set(game, cncLive);
     if (ra3bLive.ok) this.lastRa3bData.set(game, ra3bLive);
     const cnc = cncLive.ok ? cncLive : (this.lastCncData.get(game) ?? cncLive);
     const ra3b = ra3bLive.ok ? ra3bLive : (this.lastRa3bData.get(game) ?? ra3bLive);
-    const completeSample = cncLive.ok && ra3bLive.ok;
+    const completeSample = (!useCnc || cncLive.ok) && (!useRa3b || ra3bLive.ok);
     const ra3bLaddersVal =
       ra3bLadders.status === 'fulfilled' ? ra3bLadders.value : { '1v1': [], '2v2': [], '3v3': [] };
     const factions =
@@ -394,11 +427,31 @@ export class RA3StatsService {
       30,
       86_400_000,
     );
-    // New players per day: personas whose first ladder appearance was that
-    // day (tracked since the bot started watching the ladders).
+    // RA3 uses first ladder appearances. GenEvo has no public ladder API yet,
+    // so it tracks stable player identities observed inside confirmed GenEvo
+    // lobbies. Each platform's first sample is a baseline, never a fake spike.
+    const genevoPlatforms: StatsPlatform[] = [];
     if (game === 'ra3' && useRa3b) await this.trackSeenPlayers();
+    if (game === 'genevo') {
+      if (useCnc) {
+        genevoPlatforms.push('cnc_online');
+        if (cncLive.ok) {
+          gamePlayerRepository.recordPlayers('genevo', 'cnc_online', cncLive.playerIdentities);
+        }
+      }
+      if (useRa3b) {
+        genevoPlatforms.push('ra3battle');
+        if (ra3bLive.ok) {
+          gamePlayerRepository.recordPlayers('genevo', 'ra3battle', ra3bLive.playerIdentities);
+        }
+      }
+    }
     const newPlayersLast30d =
-      game === 'ra3' && useRa3b ? this.newPlayersByDay() : new Array(30).fill(null);
+      game === 'ra3' && useRa3b
+        ? this.newPlayersByDay()
+        : game === 'genevo'
+          ? gamePlayerRepository.newPlayersByDay('genevo', genevoPlatforms)
+          : new Array(30).fill(null);
     const tournamentWins = this.getTournamentWins(game);
     const masters = game === 'ra3' ? this.getMasters() : [];
 
@@ -421,8 +474,13 @@ export class RA3StatsService {
       online_last_30d: onlineLast30d,
       new_players_last_30d: newPlayersLast30d,
       history_started_at: history30[0]?.created_at,
-      new_player_tracking_started_at: this.getTrackingStart(),
+      new_player_tracking_started_at:
+        game === 'genevo'
+          ? gamePlayerRepository.getTrackingStart('genevo', genevoPlatforms)
+          : this.getTrackingStart(),
       faction_distribution: factions,
+      genevo_faction_distribution: emptyGenevoFactionDistribution(),
+      genevo_faction_source: 'unavailable',
       top_maps: topMaps,
       cnc_recent_matches: useCnc ? cnc.recentMatches : [],
       ra3battle_recent_matches: useRa3b ? ra3b.recentMatches : [],
@@ -749,7 +807,11 @@ export class RA3StatsService {
           : game.players && typeof game.players === 'object'
             ? Object.values(game.players)
             : [];
-        for (const player of players as any[]) {
+        for (const player of players as Array<{
+          id?: unknown;
+          nickname?: unknown;
+          name?: unknown;
+        }>) {
           if (player?.id != null) {
             genevoPlayers.add(`id:${player.id}`);
             genevoPlayerIds.add(String(player.id));
@@ -774,6 +836,22 @@ export class RA3StatsService {
               return !genevoPlayerIds.has(id) && !genevoPlayerNames.has(name);
             }).length;
       const activeGames = gameRows.length;
+      const observedPlayers = new Map<string, ObservedPlayer>();
+      for (const game of gameRows) {
+        const players = Array.isArray(game.players)
+          ? game.players
+          : game.players && typeof game.players === 'object'
+            ? Object.values(game.players)
+            : [];
+        for (const player of players as Array<{
+          id?: unknown;
+          nickname?: unknown;
+          name?: unknown;
+        }>) {
+          const identity = observedPlayer(player?.id, player?.nickname ?? player?.name);
+          if (identity) observedPlayers.set(identity.key, identity);
+        }
+      }
 
       const mapCounts: Record<string, number> = {};
       for (const game of gameRows) {
@@ -797,10 +875,24 @@ export class RA3StatsService {
         if (recentMatches.length >= 5) break;
       }
 
-      return { ok: true, players: playersOnline, activeGames, mapCounts, recentMatches };
+      return {
+        ok: true,
+        players: playersOnline,
+        activeGames,
+        mapCounts,
+        recentMatches,
+        playerIdentities: [...observedPlayers.values()],
+      };
     } catch (error) {
       logger.warn('C&C Online API failed:', error);
-      return { ok: false, players: 0, activeGames: 0, mapCounts: {}, recentMatches: [] };
+      return {
+        ok: false,
+        players: 0,
+        activeGames: 0,
+        mapCounts: {},
+        recentMatches: [],
+        playerIdentities: [],
+      };
     }
   }
 
@@ -816,7 +908,7 @@ export class RA3StatsService {
       const gameRows = games.filter((game: any) =>
         matchesGameLobby(game.mapname || '', game.mod, gameId),
       );
-      const identifiedPlayers = new Set<string>();
+      const observedPlayers = new Map<string, ObservedPlayer>();
       for (const game of gameRows) {
         const players = Array.isArray(game.players)
           ? game.players
@@ -824,15 +916,11 @@ export class RA3StatsService {
             ? Object.values(game.players)
             : [];
         for (const player of players as any[]) {
-          identifiedPlayers.add(
-            player?.id != null
-              ? `id:${player.id}`
-              : `name:${String(player?.name || '').toLowerCase()}`,
-          );
+          const identity = observedPlayer(player?.id, player?.name ?? player?.nickname);
+          if (identity) observedPlayers.set(identity.key, identity);
         }
       }
-      identifiedPlayers.delete('name:');
-      const players = gameId === 'genevo' ? identifiedPlayers.size : res.data.players?.length || 0;
+      const players = gameId === 'genevo' ? observedPlayers.size : res.data.players?.length || 0;
       const rooms = gameRows.length;
       const mapCounts: Record<string, number> = {};
       const recentMatches: Array<{ players: string; map: string; platform: string }> = [];
@@ -852,10 +940,24 @@ export class RA3StatsService {
           recentMatches.push({ players: playersStr, map, platform: 'RA3BattleNet' });
         }
       }
-      return { ok: true, players, rooms, mapCounts, recentMatches };
+      return {
+        ok: true,
+        players,
+        rooms,
+        mapCounts,
+        recentMatches,
+        playerIdentities: [...observedPlayers.values()],
+      };
     } catch (error) {
       logger.warn('RA3BattleNet status API failed:', error);
-      return { ok: false, players: 0, rooms: 0, mapCounts: {}, recentMatches: [] };
+      return {
+        ok: false,
+        players: 0,
+        rooms: 0,
+        mapCounts: {},
+        recentMatches: [],
+        playerIdentities: [],
+      };
     }
   }
 

@@ -52,7 +52,10 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     } catch (err) {
       logger.error('24h bar chart failed:', err);
     }
-  if (context.game === 'ra3' && context.sources.ra3BattleNet)
+  if (
+    (context.game === 'ra3' && context.sources.ra3BattleNet) ||
+    (context.game === 'genevo' && (context.sources.cncOnline || context.sources.ra3BattleNet))
+  )
     try {
       files.push({
         attachment: await generateBarChart(

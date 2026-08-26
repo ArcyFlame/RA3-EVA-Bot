@@ -20,6 +20,7 @@ import {
 } from '../../utils/emojis';
 import { sanitizeInput } from '../../utils/sanitize';
 import { GameId, GAME_CONFIGS } from '../../config/games';
+import { GENEVO_FACTIONS, genevoFactionTotal } from '../../data/genevo-factions';
 
 export type StatsPage = 0 | 1 | 2 | 3;
 export type StatsMode = '1v1' | '2v2' | '3v3';
@@ -74,7 +75,7 @@ export class StatsView {
           (seasonName ? `\n\n📅 **Current Season:** ${seasonName}` : ''),
       );
     } else if (this.page === 1) {
-      embed.setTitle(this.game === 'ra3' ? '🎮 Recent Matches & Factions' : '🎮 Recent Matches');
+      embed.setTitle('🎮 Recent Matches & Factions');
       const cncMatches =
         this._stats.cnc_recent_matches
           .slice(0, this.recentMatchCount)
@@ -118,6 +119,30 @@ export class StatsView {
                     `${FACTION_SOVIET} Soviets: ${pct(f.Soviets)}%`,
                     `${FACTION_EMPIRE} Empire: ${pct(f.Empire)}%`,
                   ].join('\n');
+                })(),
+                inline: false,
+              },
+            ]
+          : []),
+        ...(this.game === 'genevo'
+          ? [
+              {
+                name: '🎌 Faction & Sub-faction Popularity',
+                value: (() => {
+                  const total = genevoFactionTotal(this._stats.genevo_faction_distribution);
+                  if (total <= 0) {
+                    return 'Current lobby APIs identify GenEvo players but do not report their selected generals. The chart below includes all 12 factions and is ready for a compatible Shatabrick or platform API.';
+                  }
+                  return GENEVO_FACTIONS.flatMap(({ name }) => {
+                    const count = this._stats.genevo_faction_distribution[name];
+                    return count === null ? [] : [{ name, count }];
+                  })
+                    .sort((a, b) => b.count - a.count)
+                    .slice(0, 5)
+                    .map(
+                      ({ name, count }) => `• **${name}:** ${Math.round((count / total) * 100)}%`,
+                    )
+                    .join('\n');
                 })(),
                 inline: false,
               },

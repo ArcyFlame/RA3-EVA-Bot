@@ -25,6 +25,7 @@ import { up as up023, down as down023 } from './migrations/023_winner_marker_cle
 import { up as up024, down as down024 } from './migrations/024_game_modes_and_sources';
 import { up as up025, down as down025 } from './migrations/025_stats_baseline_repair';
 import { up as up026, down as down026 } from './migrations/026_tournament_manual_metadata';
+import { up as up027, down as down027 } from './migrations/027_game_seen_players';
 import { logger } from '../utils/logger';
 
 interface Migration {
@@ -62,6 +63,7 @@ const migrations: Migration[] = [
   { version: 24, name: '024_game_modes_and_sources', up: up024, down: down024 },
   { version: 25, name: '025_stats_baseline_repair', up: up025, down: down025 },
   { version: 26, name: '026_tournament_manual_metadata', up: up026, down: down026 },
+  { version: 27, name: '027_game_seen_players', up: up027, down: down027 },
 ];
 
 function ensureMigrationsTable(): void {

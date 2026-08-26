@@ -8,7 +8,10 @@ Each Discord server selects its game, sources and features in the setup wizard.
 
 - **Game-aware stats** - both games can use C&C Online and RA3BattleNet. Generals
   Evolution online counts include only players identified in its lobbies by map
-  or platform mod metadata; RA3BattleNet seasons and Masters remain RA3-only.
+  or platform mod metadata. First-seen GenEvo lobby identities power its New
+  Players chart, and its faction page is ready for USA, China, GLA and all nine
+  sub-factions when a compatible statistics API becomes available. RA3BattleNet seasons and
+  Masters remain RA3-only.
   Eight-player Generals Evolution games are shown as experimental, not as a
   supported 4v4 mode.
 - **Tournament pipeline** - scans the GameReplays.org RA3 esports portal and
@@ -84,6 +87,9 @@ Built for the Command & Conquer community by **Arcy**. Data from
 [C&C Online](https://cnc-online.net), Shatabrick and
 [Challonge](https://challonge.com), with Generals Evolution updates from its
 [official ModDB page](https://www.moddb.com/mods/command-and-conquer-generals-evolution).
+Generals Evolution charts use Miedinger Book by
+[indestructible type\*](https://github.com/indestructible-type/Miedinger), distributed under the
+SIL Open Font License 1.1.
 
 ## License
 

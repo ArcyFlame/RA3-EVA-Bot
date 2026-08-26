@@ -233,7 +233,10 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
         ),
         name: 'online_players_last_24_hours.png',
       });
-    if (context.game === 'ra3' && context.sources.ra3BattleNet)
+    if (
+      (context.game === 'ra3' && context.sources.ra3BattleNet) ||
+      (context.game === 'genevo' && (context.sources.cncOnline || context.sources.ra3BattleNet))
+    )
       charts.push({
         attachment: await generateBarChart(
           stats.new_players_last_30d,

@@ -3,7 +3,7 @@ import { RA3Bot } from '../../bot';
 import { ra3StatsService } from '../../services/ra3-stats.service';
 import { StatsView, STATS_MODES, STATS_PAGES, StatsPage } from '../../commands/stats/stats.view';
 import { statsPanelRepository } from '../../repositories/stats-panel.repository';
-import { generatePieChartBuffer } from '../../utils/charts';
+import { generateGenevoFactionChartBuffer, generatePieChartBuffer } from '../../utils/charts';
 import { logger } from '../../utils/logger';
 import { getGameContext } from '../../utils/game-context';
 
@@ -57,19 +57,24 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     const view = new StatsView(stats, context.game, context.sources);
     view.setPage(nextPage);
     view.setMode(mode);
-    // The faction data is RA3BattleNet's — hide it (and its pie) elsewhere.
     const payload: any = { embeds: [view.getEmbed()], components: view.getComponents() };
 
-    // The Recent Matches & Factions page carries the faction distribution pie
-    // in a separate follow-up message (attachments would render ABOVE the
-    // embed inside a single message).
-    let pieFiles: Array<{ attachment: Buffer; name: string }> | null = null;
+    // The Recent Matches & Factions page carries its chart in a separate
+    // follow-up message (attachments would render above the embed otherwise).
+    let factionFiles: Array<{ attachment: Buffer; name: string }> | null = null;
     if (nextPage === 1 && context.game === 'ra3' && context.sources.ra3BattleNet) {
       try {
         const pie = await generatePieChartBuffer(stats.faction_distribution);
-        pieFiles = [{ attachment: pie, name: 'faction_distribution.png' }];
+        factionFiles = [{ attachment: pie, name: 'faction_distribution.png' }];
       } catch (err) {
         logger.warn('Faction pie chart failed:', err);
+      }
+    } else if (nextPage === 1 && context.game === 'genevo') {
+      try {
+        const chart = await generateGenevoFactionChartBuffer(stats.genevo_faction_distribution);
+        factionFiles = [{ attachment: chart, name: 'genevo_faction_distribution.png' }];
+      } catch (err) {
+        logger.warn('Generals Evolution faction chart failed:', err);
       }
     }
 
@@ -86,8 +91,8 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
       await interaction.editReply(payload);
     }
 
-    if (pieFiles) {
-      await interaction.followUp({ files: pieFiles, ephemeral: true });
+    if (factionFiles) {
+      await interaction.followUp({ files: factionFiles, ephemeral: true });
     }
   } catch (error) {
     logger.error(`Stats nav ${action} error:`, error);

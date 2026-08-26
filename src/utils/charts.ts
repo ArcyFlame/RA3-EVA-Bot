@@ -1,8 +1,14 @@
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
-import { registerFont } from 'canvas';
+import { Canvas, registerFont } from 'canvas';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { GameId } from '../config/games';
+import {
+  GENEVO_FACTIONS,
+  GenevoFactionDistribution,
+  GenevoFactionGroup,
+  genevoFactionTotal,
+} from '../data/genevo-factions';
 import { logger } from './logger';
 
 // Stencil font. node-canvas only binds registerFont when it is called twice;
@@ -16,18 +22,18 @@ try {
   logger.warn('Red Alert font not found - using fallback font', error);
 }
 
-const miedingerPath = join(process.cwd(), 'fonts', 'Miedinger Medium W00 Regular.ttf');
+const miedingerPath = join(process.cwd(), 'fonts', 'Miedinger-Book.otf');
 if (existsSync(miedingerPath)) {
   try {
-    registerFont(miedingerPath, { family: 'Miedinger Medium W00 Regular' });
-    logger.info('Miedinger Medium font registered');
+    registerFont(miedingerPath, { family: 'Miedinger Book' });
+    logger.info('Open-source Miedinger Book font registered');
   } catch (error) {
-    logger.warn('Miedinger Medium font could not be registered - using fallback font', error);
+    logger.warn('Miedinger Book font could not be registered - using fallback font', error);
   }
 }
 
 const RED_ALERT = '"Red Alert", sans-serif';
-const MIEDINGER = '"Miedinger Medium W00 Regular", Arial, sans-serif';
+const MIEDINGER = '"Miedinger Book", Arial, sans-serif';
 
 // Classic style (from the original Python bot): transparent figure, peach
 // labels, gradient bars with value labels, dotted dark-red grid. Rendered at
@@ -67,7 +73,7 @@ export function getBarChartTheme(game: GameId, palette: BarChartPalette): BarCha
       palette === 'YlOrBr_r'
         ? { titleColor: '#D8B45B', deepColor: '#705621', lightColor: '#D9C27C' }
         : palette === 'Blues_r'
-          ? { titleColor: '#B7C9A8', deepColor: '#3A5A40', lightColor: '#A3B18A' }
+          ? { titleColor: '#60A5FA', deepColor: '#1D4ED8', lightColor: '#93C5FD' }
           : { titleColor: '#A7C957', deepColor: '#31572C', lightColor: '#90A955' };
     return {
       ...colors,
@@ -216,6 +222,105 @@ export async function generateBarChart(
     plugins: [createValueLabelsPlugin(theme)],
   };
   return chartJSNodeCanvas.renderToBuffer(configuration);
+}
+
+/**
+ * GenEvo's 12-faction chart. Null values render as unavailable rather than as
+ * invented zeroes, while the layout is ready for a future Shatabrick source.
+ */
+export async function generateGenevoFactionChartBuffer(
+  data: GenevoFactionDistribution,
+): Promise<Buffer> {
+  const canvas = new Canvas(1800, 1050);
+  const ctx = canvas.getContext('2d');
+  const total = genevoFactionTotal(data);
+  const values = Object.values(data).filter((value): value is number => typeof value === 'number');
+  const maxValue = Math.max(...values, 1);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#D8B45B';
+  ctx.font = `60px ${MIEDINGER}`;
+  ctx.fillText('Generals Evolution Factions', 900, 78);
+  ctx.fillStyle = '#EFE4C2';
+  ctx.font = `28px ${MIEDINGER}`;
+  ctx.fillText(
+    total > 0
+      ? `${total} recorded faction selections`
+      : 'Awaiting Shatabrick or another compatible faction statistics source',
+    900,
+    126,
+  );
+
+  const groups: GenevoFactionGroup[] = ['USA', 'China', 'GLA'];
+  const groupColors: Record<GenevoFactionGroup, string> = {
+    USA: '#3B82F6',
+    China: '#EF4444',
+    GLA: '#22C55E',
+  };
+  const margin = 48;
+  const gap = 30;
+  const columnWidth = (1800 - margin * 2 - gap * 2) / 3;
+  const panelTop = 170;
+  const panelHeight = 790;
+
+  for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+    const group = groups[groupIndex];
+    const x = margin + groupIndex * (columnWidth + gap);
+    const groupFactions = GENEVO_FACTIONS.filter((faction) => faction.group === group);
+
+    ctx.fillStyle = 'rgba(20, 25, 20, 0.72)';
+    ctx.fillRect(x, panelTop, columnWidth, panelHeight);
+    ctx.fillStyle = groupColors[group];
+    ctx.fillRect(x, panelTop, columnWidth, 8);
+    ctx.textAlign = 'left';
+    ctx.font = `44px ${MIEDINGER}`;
+    ctx.fillText(group, x + 34, panelTop + 68);
+
+    for (let row = 0; row < groupFactions.length; row++) {
+      const faction = groupFactions[row];
+      const value = data[faction.name];
+      const y = panelTop + 142 + row * 150;
+      const label = faction.name === group ? `${group} Base` : faction.name.slice(group.length + 3);
+
+      ctx.fillStyle = faction.color;
+      ctx.fillRect(x + 34, y - 20, 22, 22);
+      ctx.fillStyle = '#EFE4C2';
+      ctx.font = `27px ${MIEDINGER}`;
+      ctx.textAlign = 'left';
+      ctx.fillText(label, x + 70, y);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = typeof value === 'number' ? '#FFFFFF' : '#8B927F';
+      ctx.fillText(
+        typeof value === 'number'
+          ? `${value}  ${total > 0 ? `${Math.round((value / total) * 100)}%` : '0%'}`
+          : '—',
+        x + columnWidth - 34,
+        y,
+      );
+
+      const barX = x + 34;
+      const barY = y + 28;
+      const barWidth = columnWidth - 68;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+      ctx.fillRect(barX, barY, barWidth, 34);
+      if (typeof value === 'number' && value > 0) {
+        ctx.fillStyle = faction.color;
+        ctx.fillRect(barX, barY, Math.max(5, (value / maxValue) * barWidth), 34);
+      }
+    }
+  }
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#9CA38E';
+  ctx.font = `24px ${MIEDINGER}`;
+  ctx.fillText(
+    total > 0
+      ? 'Counts update when a compatible statistics source reports selected generals.'
+      : 'Faction names and colors are ready; unavailable values are shown as dashes.',
+    900,
+    1015,
+  );
+  return canvas.toBuffer('image/png');
 }
 
 /**
