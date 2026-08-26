@@ -137,11 +137,12 @@ export function extractSignUpUrl(html: string): string | undefined {
 }
 
 /** Extracts the article body (prize pool, map pool, format, …) from an article page.
- * Kept generous (4000 chars) — map pools often sit deep in the article body. */
+ * Combined events place their map pools deep in the article, so keep the full
+ * useful body while still putting a firm ceiling on stored source text. */
 export function extractArticleDescription(html: string): string | undefined {
   const $ = cheerio.load(html);
   const text = $('.contentpadding').first().text().replace(/\s+/g, ' ').trim();
-  return text.slice(0, 4000) || undefined;
+  return text.slice(0, 12_000) || undefined;
 }
 
 /**
@@ -216,18 +217,20 @@ export function extractEventFacts(
   // section, then pull out the KNOWN RA3 map names it mentions. Article
   // bodies are whitespace-collapsed, so splitting on lines/commas is
   // unreliable — matching against the map allowlist is not.
-  const mapsSection = description.match(
-    /map[s]?\s*(?:pool)?\s*[:-]?\s*([\s\S]{3,500}?)(?=(?:prize|format|date|schedule|rules)\b|$)/i,
-  );
-  if (mapsSection) {
+  const foundMaps: string[] = [];
+  for (const mapsSection of description.matchAll(
+    /\bmap\s+pool\b(?:\s*(?:for\s+(?:this|the)\s+event|,\s*using\s+[^!:.]{1,80}))?\s*[:!,.-]?\s*([\s\S]{3,1500}?)(?=(?:\bprize(?:\s+pool)?\b|\bformat\b|\bdate\b|\bschedule\b|\brules?\b|\bfair\s+play\b|\bregistration\b)|$)/gi,
+  )) {
     const section = mapsSection[1].toLowerCase();
-    const found = gameMapNames(game)
-      .map((name) => ({ name, idx: section.indexOf(name.toLowerCase()) }))
-      .filter((m) => m.idx !== -1)
-      .sort((a, b) => a.idx - b.idx)
-      .map((m) => m.name);
-    if (found.length > 0) facts.maps = [...new Set(found)].join(', ').slice(0, 300);
+    foundMaps.push(
+      ...gameMapNames(game)
+        .map((name) => ({ name, idx: section.indexOf(name.toLowerCase()) }))
+        .filter((map) => map.idx !== -1)
+        .sort((a, b) => a.idx - b.idx)
+        .map((map) => map.name),
+    );
   }
+  if (foundMaps.length > 0) facts.maps = [...new Set(foundMaps)].join(', ').slice(0, 300);
 
   return facts;
 }
@@ -252,22 +255,34 @@ export function extractEventStartDate(
   description: string,
   referenceDate?: string,
 ): string | undefined {
-  const match = description.match(
-    /\b(?:taking\s+place|takes\s+place|starts?|scheduled(?:\s+for)?|event\s+date(?:\s+is)?)\s+(?:on\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?(?:\s+at\s+(\d{1,2}:\d{2})\s*(GMT|UTC)?)?/i,
-  );
-  if (!match) return undefined;
   const referenceTimestamp = referenceDate
     ? (parsePortalDate(referenceDate) ?? Date.parse(referenceDate))
     : NaN;
-  const year =
-    match[3] ||
-    (Number.isFinite(referenceTimestamp)
-      ? String(new Date(referenceTimestamp).getUTCFullYear())
-      : String(new Date().getUTCFullYear()));
-  const month = MONTHS[match[1].toLowerCase()];
+  const reference = Number.isFinite(referenceTimestamp) ? new Date(referenceTimestamp) : new Date();
+
+  const numeric = description.match(
+    /\b(?:taking\s+place|takes\s+place|starts?|scheduled(?:\s+for)?|event\s+date(?:\s+is)?|beginning)\s+(?:on\s+)?(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:\s+(?:at\s+)?(\d{1,2}:\d{2})\s*(GMT|UTC)?)?/i,
+  );
+  if (numeric) {
+    const monthIndex = Number(numeric[2]) - 1;
+    if (monthIndex < 0 || monthIndex > 11) return undefined;
+    const month = Object.values(MONTHS)[monthIndex];
+    const time = numeric[4] ? `, ${numeric[4]} ${numeric[5]?.toUpperCase() || 'UTC'}` : '';
+    return `${Number(numeric[1])} ${month} ${numeric[3]}${time}`;
+  }
+
+  const named = description.match(
+    /\b(?:taking\s+place|takes\s+place|starts?|scheduled(?:\s+for)?|event\s+date(?:\s+is)?|beginning)\s+(?:on\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)\s+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?(?:\s+(?:at\s+)?(\d{1,2}:\d{2})\s*(GMT|UTC)?)?/i,
+  );
+  if (!named) return undefined;
+  const monthName = named[1].toLowerCase();
+  const month = MONTHS[monthName];
   if (!month) return undefined;
-  const time = match[4] ? `, ${match[4]} ${match[5]?.toUpperCase() || 'UTC'}` : '';
-  return `${Number(match[2])} ${month} ${year}${time}`;
+  const monthIndex = Object.keys(MONTHS).indexOf(monthName);
+  let year = named[3] ? Number(named[3]) : reference.getUTCFullYear();
+  if (!named[3] && monthIndex < reference.getUTCMonth()) year++;
+  const time = named[4] ? `, ${named[4]} ${named[5]?.toUpperCase() || 'UTC'}` : '';
+  return `${Number(named[2])} ${month} ${year}${time}`;
 }
 
 // ── Post-tournament results threads ─────────────────────────────────────
@@ -279,18 +294,20 @@ export interface ForumTopic {
 
 /** Parses an IPB forum listing into topic titles + URLs. */
 export function parseForumTopics(html: string): ForumTopic[] {
+  const $ = cheerio.load(html);
   const topics = new Map<string, ForumTopic>();
-  for (const m of html.matchAll(/href="([^"]*showtopic=(\d+)[^"]*)"[^>]*>([^<]{3,150})</g)) {
-    const url = m[1].startsWith('http') ? m[1] : `https://www.gamereplays.org/community/${m[1]}`;
-    const title = m[3]
-      .replace(/&amp;/g, '&')
-      .replace(/&#33;/g, '!')
-      .replace(/&quot;/g, '"')
-      .replace(/&raquo;/g, '')
-      .trim();
-    if (!title || title.length < 5) continue;
-    topics.set(m[2], { title, url });
-  }
+  const topicAnchors = $('.topic_title a[href*="showtopic="]');
+  const anchors = topicAnchors.length > 0 ? topicAnchors : $('a[href*="showtopic="]');
+  anchors.each((_, element) => {
+    const href = $(element).attr('href') || '';
+    const id = href.match(/showtopic=(\d+)/)?.[1];
+    const title = $(element).text().replace(/\s+/g, ' ').trim();
+    if (!id || !title || title.length < 5 || topics.has(id)) return;
+    topics.set(id, {
+      title,
+      url: `https://www.gamereplays.org/community/index.php?showtopic=${id}`,
+    });
+  });
   return [...topics.values()];
 }
 

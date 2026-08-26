@@ -12,7 +12,11 @@ import { RA3Bot } from '../../bot';
 import { tournamentRepository } from '../../repositories/tournament.repository';
 import { getSortedAnnouncements, renderEventPage } from '../../commands/tournaments/events.utils';
 import { renderResultsPage, matchesGuildGame } from '../../commands/tournaments/results.utils';
-import { baseName, editionsCompatible, forumScanner } from '../../services/forum-scanner.service';
+import {
+  editionsCompatible,
+  forumScanner,
+  tournamentNamesMatch,
+} from '../../services/forum-scanner.service';
 import { challongeService } from '../../services/challonge.service';
 import { parseIntSafe } from '../../utils/parse';
 import { logger } from '../../utils/logger';
@@ -70,17 +74,11 @@ function resolveChallongeUrl(eventId: number, title: string, game: GameId): stri
   // A known bracket row with a conflicting edition invalidates the legacy
   // event-level URL as well (for example FTW 90 pointing at FTW #88).
   if (own && !brackets.some((bracket) => bracket.challongeUrl === own)) return own;
-  const prefix = baseName(title).slice(0, 12);
-  if (!prefix) return null;
   const sibling = tournamentRepository
     .getEventsWithChallonge(game)
     .find(
       (e) =>
-        e.id !== eventId &&
-        matchesGuildGame(e.title, game) &&
-        editionsCompatible(e.title, title) &&
-        (baseName(e.title).startsWith(prefix) ||
-          baseName(title).startsWith(baseName(e.title).slice(0, 12))),
+        e.id !== eventId && matchesGuildGame(e.title, game) && tournamentNamesMatch(e.title, title),
     );
   if (sibling) {
     // Self-heal: remember the bracket on the announcement row itself.

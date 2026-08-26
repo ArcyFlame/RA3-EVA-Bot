@@ -9,6 +9,7 @@ import { contentDeliveryRepository } from '../repositories/content-delivery.repo
 import { GameId, GAME_CONFIGS } from '../config/games';
 
 const RA3_PORTAL_URL = 'https://www.gamereplays.org/redalert3/';
+export const RA3_NEWS_URL = 'https://www.gamereplays.org/redalert3/portals.php?show=news_index';
 
 const GAME_NEWS_FEEDS: Partial<Record<GameId, { url: string; filter?: RegExp }>> = {
   genevo: {
@@ -43,7 +44,7 @@ export function parseRa3PortalNews(html: string): ParsedNews[] {
   $('.content_list_item').each((_, element) => {
     const card = $(element);
     const type = card.find('.content_type').first().text().replace(/\s+/g, ' ').trim();
-    if (!/^(article|news)$/i.test(type)) return;
+    if (!/^news$/i.test(type)) return;
 
     const link = card.find('.content_list_title a').first();
     const title = link.text().replace(/\s+/g, ' ').trim();
@@ -91,7 +92,7 @@ async function fetchFeedItems(url: string, filter?: RegExp): Promise<ParsedNews[
 
 async function fetchGameItems(game: GameId): Promise<ParsedNews[]> {
   if (game === 'ra3') {
-    const html = await safeGetText(RA3_PORTAL_URL);
+    const html = await safeGetText(RA3_NEWS_URL);
     return html ? parseRa3PortalNews(html) : [];
   }
   const feed = GAME_NEWS_FEEDS[game];

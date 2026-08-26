@@ -63,6 +63,23 @@ function assertAllowed(rawUrl: string): URL {
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
+/** Decodes response bytes using the declared HTTP or HTML charset. */
+export function decodeResponseText(
+  data: ArrayBuffer | Uint8Array | string,
+  contentType = '',
+): string {
+  if (typeof data === 'string') return data;
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  const headerCharset = contentType.match(/charset\s*=\s*["']?([^;\s"']+)/i)?.[1];
+  const opening = Buffer.from(bytes.subarray(0, 2048)).toString('latin1');
+  const htmlCharset = opening.match(/charset\s*=\s*["']?([^;\s"'>]+)/i)?.[1];
+  const declared = (headerCharset || htmlCharset || 'utf-8').toLowerCase();
+  const encoding = /^(?:iso-8859-1|latin-?1|windows-1252|cp1252)$/.test(declared)
+    ? 'windows-1252'
+    : 'utf-8';
+  return new TextDecoder(encoding).decode(bytes);
+}
+
 /** GET text/HTML from an allowlisted host. Returns undefined on failure. */
 export async function safeGetText(
   url: string,
@@ -77,10 +94,10 @@ export async function safeGetText(
   try {
     let current = assertAllowed(url);
     for (let redirects = 0; redirects <= 4; redirects++) {
-      const res = await axios.get<string>(current.toString(), {
+      const res = await axios.get<ArrayBuffer>(current.toString(), {
         headers: { 'User-Agent': BROWSER_UA },
         timeout: opts.timeoutMs ?? 15_000,
-        responseType: 'text',
+        responseType: 'arraybuffer',
         maxRedirects: 0,
         validateStatus: (status) => status >= 200 && status < 400,
       });
@@ -90,7 +107,7 @@ export async function safeGetText(
         current = assertAllowed(new URL(location, current).toString());
         continue;
       }
-      return typeof res.data === 'string' ? res.data : String(res.data);
+      return decodeResponseText(res.data, String(res.headers['content-type'] ?? ''));
     }
     return undefined;
   } catch (err) {

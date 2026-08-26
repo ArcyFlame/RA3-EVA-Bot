@@ -26,6 +26,7 @@ import { up as up024, down as down024 } from './migrations/024_game_modes_and_so
 import { up as up025, down as down025 } from './migrations/025_stats_baseline_repair';
 import { up as up026, down as down026 } from './migrations/026_tournament_manual_metadata';
 import { up as up027, down as down027 } from './migrations/027_game_seen_players';
+import { up as up028, down as down028 } from './migrations/028_ra3_news_index';
 import { logger } from '../utils/logger';
 
 interface Migration {
@@ -64,6 +65,7 @@ const migrations: Migration[] = [
   { version: 25, name: '025_stats_baseline_repair', up: up025, down: down025 },
   { version: 26, name: '026_tournament_manual_metadata', up: up026, down: down026 },
   { version: 27, name: '027_game_seen_players', up: up027, down: down027 },
+  { version: 28, name: '028_ra3_news_index', up: up028, down: down028 },
 ];
 
 function ensureMigrationsTable(): void {

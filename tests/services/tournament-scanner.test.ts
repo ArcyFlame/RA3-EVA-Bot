@@ -96,6 +96,11 @@ describe('extractArticleDescription', () => {
     const html = '<div class="contentpadding">Greetings Comrades, prize pool 380$</div>';
     expect(extractArticleDescription(html)).toContain('prize pool 380$');
   });
+
+  it('keeps map pools that appear after the first 4,000 characters', () => {
+    const html = `<div class="contentpadding">${'Intro '.repeat(800)}Map pool: Corporate Warfare 1.12.6</div>`;
+    expect(extractArticleDescription(html)).toContain('Corporate Warfare');
+  });
 });
 
 describe('extractEventFacts', () => {
@@ -120,6 +125,22 @@ describe('extractEventFacts', () => {
     expect(facts.maps).toContain('Thermal Tension');
     // The map list must stop before the next section.
     expect(facts.maps).not.toContain('Prize');
+  });
+
+  it('reads the comma-style FTW map-pool heading', () => {
+    const facts = extractEventFacts(
+      'DE Map pool, using 1.12.6 versions! Battlebase Beta Cabana Republic Deep Sea V2 Fire Island Infinity Isle Industrial Strength Libration Freeze V2 Snow Plow Temple Prime Format Single Elimination',
+    );
+    expect(facts.maps).toContain('Battlebase Beta');
+    expect(facts.maps).toContain('Temple Prime');
+  });
+
+  it('merges the 2v2 and 1v1 map-pool sections from a combined XMAS event', () => {
+    const facts = extractEventFacts(
+      '2vs2 Map pool, using 1.12.6 versions! Corporate Warfare Isla Nooblar Shoguns Alley Format details. 1vs1 DE Map pool, using 1.12.6 versions! Battlebase Beta Cabana Republic Infinity Isle Fair Play rules.',
+    );
+    expect(facts.maps).toContain('Corporate Warfare');
+    expect(facts.maps).toContain('Battlebase Beta');
   });
 
   it('recognizes Generals Evolution map identifiers in its own event feed', () => {
@@ -153,6 +174,24 @@ describe('extractEventStartDate', () => {
         'Sunday, 1 Mar 2026',
       ),
     ).toBe('14 Mar 2026, 14:00 GMT');
+  });
+
+  it('reads the numeric date format used by Rise of the Patch and FTW 90', () => {
+    expect(
+      extractEventStartDate(
+        'FTW 90 will be a Single Elimination tournament beginning on 29.06.2025 12:45 GMT.',
+        'Wednesday, 17 Sep 2025',
+      ),
+    ).toBe('29 Jun 2025, 12:45 GMT');
+  });
+
+  it('reads "December the 21th" and keeps the publication year', () => {
+    expect(
+      extractEventStartDate(
+        '2vs2 Xmas 2025 will consist of a tourney beginning on December the 21th.',
+        'Monday, 15 Dec 2025',
+      ),
+    ).toBe('21 Dec 2025');
   });
 });
 

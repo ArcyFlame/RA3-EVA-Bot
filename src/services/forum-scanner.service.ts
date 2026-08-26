@@ -38,12 +38,29 @@ export function baseName(title: string): string {
   return title
     .toLowerCase()
     .replace(
-      /brackets?|results|replays|streams|registrations?|check[- ]?ins|prizes?|pool|and\b|for\b|sign[- ]?ups?/g,
+      /\b(?:brackets?|results?|replays?|streams?|registrations?|check[- ]?ins?|prizes?|pools?|and|for|sign[- ]?ups?|tournaments?|events?|announcements?|playoffs?)\b/g,
       ' ',
     )
     .replace(/[^a-z0-9 ]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function compactTournamentName(title: string): string {
+  return baseName(title)
+    .replace(/(\d)vs(\d)/g, '$1v$2')
+    .replace(/\s+/g, '');
+}
+
+/** Matches forum/portal title variants without merging numbered editions. */
+export function tournamentNamesMatch(topicTitle: string, eventTitle: string): boolean {
+  if (!editionsCompatible(topicTitle, eventTitle)) return false;
+  const topic = compactTournamentName(topicTitle);
+  const event = compactTournamentName(eventTitle);
+  if (!topic || !event) return false;
+  if (topic === event) return true;
+  const [shorter, longer] = topic.length <= event.length ? [topic, event] : [event, topic];
+  return shorter.length >= 6 && longer.startsWith(shorter);
 }
 
 export function classifyTopic(title: string): ForumTopic['kind'] {
@@ -79,7 +96,9 @@ export function parseForumTopics(html: string): ForumTopic[] {
   const $ = cheerio.load(html);
   const topics: ForumTopic[] = [];
   const seen = new Set<string>();
-  $('a').each((_, el) => {
+  const topicAnchors = $('.topic_title a[href*="showtopic="]');
+  const anchors = topicAnchors.length > 0 ? topicAnchors : $('a[href*="showtopic="]');
+  anchors.each((_, el) => {
     const href = $(el).attr('href') || '';
     if (!href.includes('showtopic=')) return;
     const title = $(el).text().replace(/\s+/g, ' ').trim();
@@ -323,14 +342,9 @@ export class ForumScannerService {
 
       // Pair topics with stored announcements by base name.
       for (const topic of topics) {
-        const base = baseName(topic.title);
-        if (!base) continue;
-        const prefix = base.slice(0, 12);
+        if (!baseName(topic.title)) continue;
         const candidates = events.filter((e) => {
-          // Edition guard: FTW 91 never pairs with "FTW #88 Brackets…".
-          if (!editionsCompatible(topic.title, e.title)) return false;
-          const eb = baseName(e.title);
-          return eb.startsWith(prefix) || base.startsWith(eb.slice(0, 12));
+          return tournamentNamesMatch(topic.title, e.title);
         });
         if (candidates.length === 0) {
           // Unpaired results topics still hold valuable history: record their
@@ -747,7 +761,7 @@ export class ForumScannerService {
 
   private forumPageUrl(offset: number): string {
     if (offset <= 0) return FORUM_URL;
-    return `${FORUM_URL}&prune_day=100&sort_by=Z-A&sort_key=last_post&topicfilter=all&st=${offset}`;
+    return `${FORUM_URL}&st=${offset}`;
   }
 
   private delay(ms: number): Promise<void> {

@@ -8,6 +8,8 @@ import {
   parseRegistrationRoster,
   parseTopicPage,
   parseExplicitForumWinner,
+  parseForumTopics,
+  tournamentNamesMatch,
 } from '../../src/services/forum-scanner.service';
 
 describe('extractPrize', () => {
@@ -38,9 +40,9 @@ describe('extractPrize', () => {
   it('splits amounts glued to ordinals in collapsed prize tables', () => {
     // Real Gathering Storm text after whitespace collapse: "1st $1111" +
     // "2nd $456" + "3rd $234" + "4th $123" + "5th/6th $99" + "7th/8th $50".
-    expect(extractPrize('1st $11112nd $4563rd $2344th $1235th/6th $997th/8th $50 Each qualifier')).toBe(
-      '1111$',
-    );
+    expect(
+      extractPrize('1st $11112nd $4563rd $2344th $1235th/6th $997th/8th $50 Each qualifier'),
+    ).toBe('1111$');
   });
 
   it('prefers an explicit total prize pool', () => {
@@ -118,9 +120,53 @@ describe('baseName pairing', () => {
   });
 
   it('pairs editions only when numbers agree', () => {
-    expect(editionsCompatible('FTW #88 Brackets, Results and Replays', 'FTW 91 Registration')).toBe(false);
-    expect(editionsCompatible('FTW 91 Brackets, Results and Replays', 'FTW 91 Registration')).toBe(true);
-    expect(editionsCompatible('Rise of the Patch, Bracket Results and Replays', 'Rise of the patch')).toBe(true);
+    expect(editionsCompatible('FTW #88 Brackets, Results and Replays', 'FTW 91 Registration')).toBe(
+      false,
+    );
+    expect(editionsCompatible('FTW 91 Brackets, Results and Replays', 'FTW 91 Registration')).toBe(
+      true,
+    );
+    expect(
+      editionsCompatible('Rise of the Patch, Bracket Results and Replays', 'Rise of the patch'),
+    ).toBe(true);
+  });
+
+  it('pairs portal and forum spacing variants without merging FTW editions', () => {
+    expect(tournamentNamesMatch('XMAS 2025 Brackets, Replays and Streams', 'XMAS2025')).toBe(true);
+    expect(tournamentNamesMatch('FTW 90 Bracket, Results and Replays', 'FTW 90 Registration')).toBe(
+      true,
+    );
+    expect(tournamentNamesMatch('FTW 88 Bracket, Results and Replays', 'FTW 90 Registration')).toBe(
+      false,
+    );
+  });
+});
+
+describe('parseForumTopics', () => {
+  it('uses the forum topic-title cells and ignores timestamps and sidebar duplicates', () => {
+    const html = `
+      <a href="index.php?showtopic=1083797">11th April 2026 - 17:22 PM</a>
+      <div class="topic_title"><a href="https://www.gamereplays.org/community/index.php?s=0&amp;showtopic=1083797">Rise of the Patch Bracket, Results and Replays</a></div>
+      <div class="topic_title"><a href="https://www.gamereplays.org/community/index.php?s=0&amp;showtopic=1083683">Registration for: Rise of the patch</a></div>
+      <div class="topic_title"><a href="https://www.gamereplays.org/community/index.php?s=0&amp;showtopic=1081597">FTW 90 Bracket, Results and Replays</a></div>`;
+
+    expect(parseForumTopics(html)).toEqual([
+      {
+        title: 'Rise of the Patch Bracket, Results and Replays',
+        url: 'https://www.gamereplays.org/community/index.php?showtopic=1083797',
+        kind: 'results',
+      },
+      {
+        title: 'Registration for: Rise of the patch',
+        url: 'https://www.gamereplays.org/community/index.php?showtopic=1083683',
+        kind: 'registration',
+      },
+      {
+        title: 'FTW 90 Bracket, Results and Replays',
+        url: 'https://www.gamereplays.org/community/index.php?showtopic=1081597',
+        kind: 'results',
+      },
+    ]);
   });
 });
 
@@ -156,7 +202,7 @@ describe('parseExplicitForumWinner', () => {
     expect(parseExplicitForumWinner(html)).toBe('DutchArmy');
   });
 
-  it('does not guess from an organizer posting somebody else\'s score', () => {
+  it("does not guess from an organizer posting somebody else's score", () => {
     const html = post('Referee', 'Finals<br>DutchArmy 4-1 GreenAlert');
     expect(parseExplicitForumWinner(html)).toBeUndefined();
   });
@@ -208,12 +254,21 @@ describe('parseRegistrations', () => {
     `<div class="comment_wrapper"><div class="comment_header"><span class="member_name"><a href="showuser=1">${author}</a></span></div><div class="comment">${body}</div></div>`;
 
   it('collects short affirmative replies by author', () => {
-    const html = [post('Arcy', 'in'), post('Andrey', 'Andrey in too'), post('Mod', 'Read the rules please, registration closes Friday')].join('');
+    const html = [
+      post('Arcy', 'in'),
+      post('Andrey', 'Andrey in too'),
+      post('Mod', 'Read the rules please, registration closes Friday'),
+    ].join('');
     expect(parseRegistrations(html)).toEqual(['Arcy', 'Andrey']);
   });
 
   it('accepts more sign-up phrasings', () => {
-    const html = [post('Alex', 'count me in'), post('Boris', 'sign me up'), post('Carl', "I'm in!"), post('Drew', '+1')].join('');
+    const html = [
+      post('Alex', 'count me in'),
+      post('Boris', 'sign me up'),
+      post('Carl', "I'm in!"),
+      post('Drew', '+1'),
+    ].join('');
     expect(parseRegistrations(html)).toEqual(['Alex', 'Boris', 'Carl', 'Drew']);
   });
 });
