@@ -18,8 +18,9 @@ Each Discord server selects its game, sources and features in the setup wizard.
   forum plus official Generals Evolution announcements: sign-up links, rosters, prize
   pools, map pools and Challonge brackets (including multi-bracket events like
   qualifiers + playoffs). `/results`, `/matches` and `/events` show podium and
-  standings; check-ins, score reports and referee review are built in. Older
-  tournament winners are indexed from the full esports forum history.
+  standings, source-post artwork and the correct registration or score topic;
+  check-ins, score reports and referee review are built in. Older tournament
+  winners are indexed from the full esports forum history.
 - **Player profiles** - `/link` manages Shatabrick and RA3BattleNet identities.
   `/profile` reads Shatabrick's public rank pages and shows separate Unranked,
   Ranked and Clan records alongside RA3BattleNet records. Season history is
@@ -27,8 +28,8 @@ Each Discord server selects its game, sources and features in the setup wizard.
 - **News & content feeds** - current GameReplays RA3 news or the official
   Generals Evolution ModDB feed, plus game-filtered ModDB, Twitch and YouTube
   posts. Feeds are deduplicated and seed only their newest item in empty channels.
-- **Community tools** - `/pickmap` with verified tournament map pools, clan
-  manager, tips, moderation utilities, per-guild
+- **Community tools** - `/pickmap` with verified tournament pools and the
+  official alternating map-elimination order, clan manager, tips, moderation utilities, per-guild
   game selection (RA3 / Generals Evolution), game-specific maps and tips,
   i18n (EN/RU/ZH)
   and an admin setup wizard.

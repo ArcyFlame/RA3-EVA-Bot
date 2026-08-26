@@ -65,7 +65,8 @@ export function buildTournamentsEmbed(game: GameId = 'ra3'): EmbedBuilder {
       },
       {
         name: '🗺️ Map Picker',
-        value: '`/pickmap [event]` - Pick a verified map from the current or selected tournament',
+        value:
+          '`/pickmap [event]` - Show the verified event pool and official map-elimination order',
         inline: false,
       },
       {

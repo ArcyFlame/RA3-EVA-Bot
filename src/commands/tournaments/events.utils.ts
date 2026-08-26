@@ -33,7 +33,12 @@ export function isEventEnded(startDate: string | null | undefined): boolean {
 function renderEventEmbed(
   eventId: number,
   announcements?: ReturnType<typeof getSortedAnnouncements>,
-): { embed: EmbedBuilder; index: number; actionUrl: string; isActive: boolean } | null {
+): {
+  embed: EmbedBuilder;
+  index: number;
+  actionUrl: string;
+  actionKind: 'register' | 'score' | 'post' | 'results';
+} | null {
   const detail = tournamentRepository.getEventDetail(eventId);
   if (!detail) return null;
   const config = GAME_CONFIGS[detail.game];
@@ -51,8 +56,16 @@ function renderEventEmbed(
     checkinsUrl: detail?.checkinsUrl,
   });
   const isActive = status !== 'ended';
-  const actionUrl =
-    registrationUrl ?? detail?.topicUrl ?? a.eventUrl ?? config.tournamentFallbackUrl;
+  let actionKind: 'register' | 'score' | 'post' | 'results' = 'register';
+  let actionUrl = registrationUrl ?? a.eventUrl ?? config.tournamentFallbackUrl;
+  if (status === 'ended') {
+    actionKind = 'results';
+  } else if (status === 'in_progress' && detail?.topicUrl) {
+    actionKind = 'score';
+    actionUrl = detail.topicUrl;
+  } else if (!registrationUrl) {
+    actionKind = 'post';
+  }
 
   // Short description: full sentences only, never cut mid-word.
   const shortDesc = truncateSentences(
@@ -66,6 +79,7 @@ function renderEventEmbed(
     .setURL(a.eventUrl)
     .setColor(isActive ? config.color : 0xed4245)
     .setThumbnail(config.artworkUrl);
+  if (detail.imageUrl) embed.setImage(detail.imageUrl);
   const validPrize =
     detail?.prizePool &&
     ((/\d/.test(detail.prizePool) && /[$€£]|USD/i.test(detail.prizePool)) ||
@@ -100,14 +114,24 @@ function renderEventEmbed(
     },
   );
   embed.setFooter({ text: `${config.shortLabel} Esports • ${index + 1}/${announcements.length}` });
-  return { embed, index, actionUrl, isActive };
+  return { embed, index, actionUrl, actionKind };
 }
 
 /** The action button every event view shares (Sign Up while open, Results after). */
-function actionButton(eventId: number, actionUrl: string, isActive: boolean): ButtonBuilder {
-  if (isActive) {
+function actionButton(
+  eventId: number,
+  actionUrl: string,
+  actionKind: 'register' | 'score' | 'post' | 'results',
+): ButtonBuilder {
+  if (actionKind !== 'results') {
+    const label =
+      actionKind === 'score'
+        ? 'Submit Score / Add Reply'
+        : actionKind === 'register'
+          ? 'Join / Register'
+          : 'Tournament Post';
     return new ButtonBuilder()
-      .setLabel('Join / Register')
+      .setLabel(label)
       .setStyle(ButtonStyle.Link)
       .setURL(actionUrl);
   }
@@ -128,7 +152,7 @@ export function renderEventCard(
   const rendered = renderEventEmbed(eventId);
   if (!rendered) return null;
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    actionButton(eventId, rendered.actionUrl, rendered.isActive),
+    actionButton(eventId, rendered.actionUrl, rendered.actionKind),
   );
   return { embeds: [rendered.embed], components: [row] };
 }
@@ -143,7 +167,7 @@ export function renderEventPage(
   if (!rendered) return null;
 
   const row = new ActionRowBuilder<ButtonBuilder>();
-  row.addComponents(actionButton(eventId, rendered.actionUrl, rendered.isActive));
+  row.addComponents(actionButton(eventId, rendered.actionUrl, rendered.actionKind));
   // Wrap-around navigation with Refresh in the middle: prev on the first
   // item loops to the last and vice versa, so every event is reachable.
   row.addComponents(

@@ -7,8 +7,6 @@ import {
   ButtonBuilder,
   ButtonStyle,
 } from 'discord.js';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { RA3Bot } from '../../bot';
 import { guildRepository } from '../../repositories/guild.repository';
 import { isKnownSkirmishMap } from '../../services/ra3-stats.service';
@@ -25,7 +23,7 @@ const DEFAULT_PATCH_MAPS = [...RA3_TOURNAMENT_MAPS];
 
 export const data = new SlashCommandBuilder()
   .setName('pickmap')
-  .setDescription('Pick a verified map for a tournament or the 1.12.8 patch')
+  .setDescription('Show a tournament map pool and the official elimination order')
   .addStringOption((option) =>
     option
       .setName('event')
@@ -41,10 +39,14 @@ function gameFor(interaction: ChatInputCommandInteraction | AutocompleteInteract
   return guildRepository.findByDiscordId(interaction.guildId)?.game ?? 'ra3';
 }
 
-function minimapPath(mapName: string): string | undefined {
-  const slug = mapName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-  const path = join(process.cwd(), 'images', 'maps', `${slug}.png`);
-  return existsSync(path) ? path : undefined;
+export function mapEliminationInstructions(): string {
+  return [
+    '**1.** Agree who starts. If you cannot decide quickly, the player with the lower seed number starts.',
+    '**2.** Player A removes one map, then Player B removes one map.',
+    '**3.** Player A removes another map, then Player B removes another map. Continue alternating if more than three maps remain.',
+    '**4.** With three maps left, Player A chooses the first map and Player B chooses the second map.',
+    '**5.** Use the same alternating principle for a BO5 series.',
+  ].join('\n');
 }
 
 export async function autocomplete(_bot: RA3Bot, interaction: AutocompleteInteraction) {
@@ -71,6 +73,23 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
             .setLabel(`View ${gameConfig.shortLabel}`)
             .setStyle(ButtonStyle.Link)
             .setURL(gameConfig.tournamentFallbackUrl),
+        ),
+      ],
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (!event && game === 'genevo') {
+    await interaction.reply({
+      content:
+        'I could not find a current Generals Evolution tournament with a verified map pool.',
+      components: [
+        new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setLabel('Generals Evolution Downloads')
+            .setStyle(ButtonStyle.Link)
+            .setURL(gameConfig.moddbDownloadsUrl),
         ),
       ],
       ephemeral: true,
@@ -108,21 +127,20 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     }
   }
 
-  const map = maps[Math.floor(Math.random() * maps.length)];
+  const mapPool = maps.map((map, index) => `${index + 1}. ${map}`).join('\n').slice(0, 1024);
   const embed = new EmbedBuilder()
-    .setTitle('🗺️ Map Pick')
+    .setTitle('🗺️ Map Elimination')
     .setDescription(
-      `**${map}**${event ? `\nFrom **${event.title}**` : game === 'ra3' ? '\nFrom the default tournament pool' : '\nFrom the Generals Evolution 0.33 map catalog'}`,
+      event
+        ? `Official elimination order for **${event.title}**.`
+        : 'Official elimination order for the default Red Alert 3 tournament pool.',
     )
     .setColor(gameConfig.color)
-    .setThumbnail(gameConfig.artworkUrl);
-
-  const minimap = minimapPath(map);
-  const files: Array<{ attachment: string; name: string }> = [];
-  if (minimap) {
-    files.push({ attachment: minimap, name: 'minimap.png' });
-    embed.setImage('attachment://minimap.png');
-  }
+    .setThumbnail(gameConfig.artworkUrl)
+    .addFields(
+      { name: 'Map Pool', value: mapPool, inline: false },
+      { name: 'NEW Map Elimination Guide', value: mapEliminationInstructions(), inline: false },
+    );
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
@@ -130,5 +148,5 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       .setStyle(ButtonStyle.Link)
       .setURL(game === 'ra3' ? PATCH_1_12_8_URL : gameConfig.moddbDownloadsUrl),
   );
-  await interaction.reply({ embeds: [embed], components: [row], files });
+  await interaction.reply({ embeds: [embed], components: [row] });
 }

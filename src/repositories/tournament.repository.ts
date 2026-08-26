@@ -14,6 +14,7 @@ export interface TournamentEvent {
   prizePool?: string;
   maps?: string;
   startDate?: string;
+  imageUrl?: string;
   signUpUrl?: string;
   announcementChannelId?: string;
   announcementMessageId?: string;
@@ -71,10 +72,13 @@ export interface MatchReport {
 export class TournamentRepository extends BaseRepository {
   // Events
   hasEventUrl(eventUrl: string): boolean {
-    const row = this.query<{ id: number }>('SELECT id FROM tournament_events WHERE event_url = ?', [
+    return this.findEventIdByUrl(eventUrl) !== undefined;
+  }
+
+  findEventIdByUrl(eventUrl: string): number | undefined {
+    return this.query<{ id: number }>('SELECT id FROM tournament_events WHERE event_url = ?', [
       eventUrl,
-    ]);
-    return !!row;
+    ])?.id;
   }
 
   /**
@@ -88,17 +92,19 @@ export class TournamentRepository extends BaseRepository {
     signUpUrl: string | null,
     description: string | null,
     facts?: { format?: string; prizePool?: string; maps?: string; startDate?: string } | null,
+    imageUrl?: string | null,
   ): void {
     if (facts === undefined) {
       this.run(
-        'UPDATE tournament_events SET sign_up_url = ?, description = ? WHERE event_url = ?',
-        [signUpUrl, description, eventUrl],
+        'UPDATE tournament_events SET sign_up_url = ?, description = ?, image_url = COALESCE(?, image_url) WHERE event_url = ?',
+        [signUpUrl, description, imageUrl ?? null, eventUrl],
       );
       return;
     }
     this.run(
       `UPDATE tournament_events
        SET sign_up_url = ?, description = ?,
+           image_url = COALESCE(?, image_url),
            format = CASE WHEN manual_format = 1 THEN format ELSE ? END,
            prize_pool = CASE WHEN manual_prize_pool = 1 THEN prize_pool ELSE ? END,
            maps = CASE WHEN manual_maps = 1 THEN maps ELSE ? END,
@@ -110,6 +116,7 @@ export class TournamentRepository extends BaseRepository {
       [
         signUpUrl,
         description,
+        imageUrl ?? null,
         facts?.format ?? null,
         facts?.prizePool ?? null,
         facts?.maps ?? null,
@@ -122,8 +129,8 @@ export class TournamentRepository extends BaseRepository {
 
   createEvent(data: Omit<TournamentEvent, 'id'>): number {
     const result = this.run(
-      `INSERT INTO tournament_events (event_url, title, description, announced_at, format, prize_pool, maps, start_date, sign_up_url, announcement_channel_id, announcement_message_id, game)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tournament_events (event_url, title, description, announced_at, format, prize_pool, maps, start_date, image_url, sign_up_url, announcement_channel_id, announcement_message_id, game)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.eventUrl,
         data.title,
@@ -133,6 +140,7 @@ export class TournamentRepository extends BaseRepository {
         data.prizePool,
         data.maps,
         data.startDate,
+        data.imageUrl,
         data.signUpUrl,
         data.announcementChannelId,
         data.announcementMessageId,
@@ -158,6 +166,7 @@ export class TournamentRepository extends BaseRepository {
     eventUrl: string;
     description: string | null;
     startDate: string | null;
+    imageUrl: string | null;
     signUpUrl: string | null;
   }> {
     return this.queryAll<{
@@ -167,9 +176,10 @@ export class TournamentRepository extends BaseRepository {
       event_url: string;
       description: string | null;
       start_date: string | null;
+      image_url: string | null;
       sign_up_url: string | null;
     }>(
-      `SELECT id, game, title, event_url, description, start_date, sign_up_url FROM tournament_events${game ? ' WHERE game = ?' : ''} ORDER BY id ASC`,
+      `SELECT id, game, title, event_url, description, start_date, image_url, sign_up_url FROM tournament_events${game ? ' WHERE game = ?' : ''} ORDER BY id ASC`,
       game ? [game] : [],
     ).map((r) => ({
       id: r.id,
@@ -178,6 +188,7 @@ export class TournamentRepository extends BaseRepository {
       eventUrl: r.event_url,
       description: r.description,
       startDate: r.start_date,
+      imageUrl: r.image_url,
       signUpUrl: r.sign_up_url,
     }));
   }
@@ -207,6 +218,7 @@ export class TournamentRepository extends BaseRepository {
       prize_pool: string | null;
       maps: string | null;
       start_date: string | null;
+      image_url: string | null;
       challonge_url: string | null;
       checkins_url: string | null;
       registration_url: string | null;
@@ -214,7 +226,7 @@ export class TournamentRepository extends BaseRepository {
       status: string | null;
       game: GameId;
     }>(
-      'SELECT title, event_url, description, format, prize_pool, maps, start_date, challonge_url, checkins_url, registration_url, topic_url, status, game FROM tournament_events WHERE id = ?',
+      'SELECT title, event_url, description, format, prize_pool, maps, start_date, image_url, challonge_url, checkins_url, registration_url, topic_url, status, game FROM tournament_events WHERE id = ?',
       [eventId],
     );
     if (!row) return undefined;
@@ -226,6 +238,7 @@ export class TournamentRepository extends BaseRepository {
       prizePool: row.prize_pool,
       maps: row.maps,
       startDate: row.start_date,
+      imageUrl: row.image_url,
       challongeUrl: row.challonge_url,
       checkinsUrl: row.checkins_url,
       registrationUrl: row.registration_url,

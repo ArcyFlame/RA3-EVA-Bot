@@ -8,14 +8,14 @@ import { isKnownSkirmishMap } from './ra3-stats.service';
 import { extractPrizeValue, truncateSentences } from '../utils/text';
 import { statusFromChallonge } from '../utils/tournament-status';
 import { checkinNotificationService } from './checkin-notification.service';
+import { GameId } from '../config/games';
 
 export { truncateSentences };
 
 /**
- * Scrapes the GameReplays RA3 esports forum (showforum=2364) for the topics
- * around every tournament — registration threads (participants + prize) and
- * results threads (challonge links) — and links them to the stored portal
- * announcements by normalized name.
+ * Scrapes the shared GameReplays tournament forum (showforum=2364) for Red
+ * Alert 3 and Generals Evolution registration/results topics, then links them
+ * to the correct game event by normalized name.
  */
 
 const FORUM_URL = 'https://www.gamereplays.org/community/index.php?showforum=2364';
@@ -182,7 +182,9 @@ export function parseExplicitForumWinner(html: string): string | undefined {
     const author = post.find('.member_name a').first().text().replace(/\s+/g, ' ').trim();
     if (!author || author.length < 2 || author.length > 40) return;
 
-    const comment = post.find('.comment').first().clone();
+    const liveBody = post.find('.comment_display_content').first();
+    const comment = (liveBody.length > 0 ? liveBody : post.find('.comment').first()).clone();
+    comment.find('script, style').remove();
     comment.find('br').replaceWith('\n');
     const text = comment.text().replace(/\u00a0/g, ' ');
     const finalAt = text.search(/\b(?:grand\s+)?finals?\b/i);
@@ -213,8 +215,10 @@ export function parseRegistrations(html: string): string[] {
     if (!author || author.length < 2 || author.length > 40) return;
 
     // Body = comment text minus the header bits (author name, timestamps).
+    const liveBody = $post.find('.comment_display_content').first();
+    const bodyElement = liveBody.length > 0 ? liveBody : $post.find('.comment').first();
     const body =
-      $post.find('.comment').first().text().replace(/\s+/g, ' ').trim() ||
+      bodyElement.clone().find('script, style').remove().end().text().replace(/\s+/g, ' ').trim() ||
       $post.text().replace(/\s+/g, ' ').trim();
     const normalized = body
       .toLowerCase()
@@ -246,19 +250,51 @@ export function parseRegistrations(html: string): string[] {
  */
 export function parseRegistrationRoster(html: string): string[] {
   const $ = cheerio.load(html);
-  const firstPost = $('.comment_wrapper').first().find('.comment').first().text() || '';
-  if (!/registered for/i.test(firstPost)) return [];
+  const firstPostElement = $('.comment_wrapper').first();
+  const liveBody = firstPostElement.find('.comment_display_content').first();
+  const comment = (
+    liveBody.length > 0 ? liveBody : firstPostElement.find('.comment').first()
+  ).clone();
+  comment.find('script, style').remove();
+  comment.find('br').replaceWith('\n');
+  const firstPostText = comment.text() || '';
+  if (!/registered(?:\s+for)?[^:\n]{0,30}:/i.test(firstPostText)) return [];
+  const teamRows = comment
+    .find('li')
+    .map((_, element) => $(element).text().replace(/\s+/g, ' ').trim())
+    .get()
+    .filter((line) => {
+      const players = line.match(/\(([^)]*)\)/)?.[1];
+      return Boolean(players && /\s(?:and|&|vs)\s|\+/i.test(players));
+    });
+  // Current GenEvo topics use an ordered list for the maintained team roster.
+  // Prefer those rows so unrelated prize and footer text in the first post can
+  // never be interpreted as registrations. Older topics remain line-based.
+  const rosterLines = teamRows.length > 0 ? teamRows : firstPostText.split(/\n+/);
   const names: string[] = [];
-  for (const rawLine of firstPost.split(/\n+/)) {
-    const clean = rawLine.replace(/\s+/g, ' ').trim();
+  for (const rawLine of rosterLines) {
+    const clean = rawLine
+      .replace(/\s+/g, ' ')
+      .replace(/^\d{1,3}\.\s*/, '')
+      .trim();
     if (!clean) continue;
-    // Strip "(team name - X)" parentheticals, then split partner separators.
-    const rosterPart = clean.replace(/\([^)]*\)/g, ' ').trim();
-    if (/^(registered|registration|closes|closed|team|note|edit)/i.test(rosterPart)) continue;
-    for (const token of rosterPart.split(/\s+(?:and|&|\+|vs)\s+|\s*[,;]\s*/i)) {
+    // GenEvo team lists put the player pair inside parentheses, while older
+    // XMAS lists put the team name there. Select the side that contains the
+    // actual partner separator.
+    const parenthetical = clean.match(/\(([^)]*)\)/)?.[1]?.trim();
+    const rosterPart =
+      parenthetical &&
+      !/team\s*name/i.test(parenthetical) &&
+      /\s(?:and|&|vs)\s|\+/i.test(parenthetical)
+        ? parenthetical
+        : clean.replace(/\([^)]*\)/g, ' ').trim();
+    if (/^(?:registered|registration|closes|closed|note|edit)\b|^team\s*:/i.test(rosterPart)) {
+      continue;
+    }
+    for (const token of rosterPart.split(/\s+(?:and|&|vs)\s+|\s*\+\s*|\s*[,;]\s*/i)) {
       const name = token.trim();
       if (!name || name.length < 2 || name.length > 25) continue;
-      if (/^(in|the|team|name|closed|opens?|register)/i.test(name)) continue;
+      if (/^(?:in|the|team|name|closed|opens?|register)$/i.test(name)) continue;
       names.push(name);
     }
   }
@@ -325,7 +361,7 @@ export class ForumScannerService {
     logger.info('Forum scanner started');
   }
 
-  async scan(): Promise<{ results: number; registrations: number }> {
+  async scan(game?: GameId): Promise<{ results: number; registrations: number }> {
     if (this.scanning) return { results: 0, registrations: 0 };
     this.scanning = true;
     try {
@@ -337,8 +373,8 @@ export class ForumScannerService {
       // posting a card per bracket would flood the channels. Suppress the
       // per-bracket cards; the portal scanner's announce() posts ONE card for
       // the newest tournament.
-      const hadEvents = tournamentRepository.getAnnouncements('ra3').length > 0;
-      const events = tournamentRepository.getAnnouncements('ra3');
+      const events = tournamentRepository.getAnnouncements(game);
+      const hadEvents = events.length > 0;
 
       // Pair topics with stored announcements by base name.
       for (const topic of topics) {
@@ -481,10 +517,13 @@ export class ForumScannerService {
   /** Records the champion of every completed bracket that has none yet. */
   private async syncWinners(): Promise<void> {
     // Brackets discovered before the brackets table existed.
-    for (const e of tournamentRepository.getEventsWithChallonge('ra3')) {
-      tournamentRepository.addBracket(e.id, e.challongeUrl);
+    for (const game of ['ra3', 'genevo'] as const) {
+      for (const event of tournamentRepository.getEventsWithChallonge(game)) {
+        tournamentRepository.addBracket(event.id, event.challongeUrl);
+      }
     }
-    for (const bracket of tournamentRepository.getAllBrackets('ra3')) {
+    for (const bracket of tournamentRepository.getAllBrackets()) {
+      if (bracket.game !== 'ra3' && bracket.game !== 'genevo') continue;
       try {
         const ref = challongeService.parseTournamentRef(bracket.challongeUrl);
         if (!ref) continue;
@@ -506,7 +545,7 @@ export class ForumScannerService {
             (await challongeService.inferWinnerByMatches(ref).catch(() => null)) ?? undefined;
         }
         if (winner) {
-          tournamentRepository.recordWinner(canonicalUrl, winner, bracket.eventTitle, 'ra3');
+          tournamentRepository.recordWinner(canonicalUrl, winner, bracket.eventTitle, bracket.game);
           logger.info(`Forum scanner: recorded winner ${winner} for ${canonicalUrl}`);
         }
       } catch (error) {
@@ -600,11 +639,12 @@ export class ForumScannerService {
         winner = (await challongeService.inferWinnerByMatches(ref).catch(() => null)) ?? undefined;
       }
       if (winner) {
+        const game = tournamentRepository.getEventDetail(eventId)?.game ?? 'ra3';
         tournamentRepository.recordWinner(
           challongeService.bracketUrl(ref),
           winner,
           eventTitle,
-          'ra3',
+          game,
         );
       }
     }

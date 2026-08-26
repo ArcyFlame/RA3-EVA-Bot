@@ -40,6 +40,7 @@ export interface FeedTournament {
   url: string;
   publishedAt: string;
   description: string;
+  imageUrl?: string;
 }
 
 const EVENT_WORDS =
@@ -52,6 +53,28 @@ function rssText(value: unknown): string {
   return String(value).trim();
 }
 
+const ARTWORK_HOSTS = new Set([
+  'www.gamereplays.org',
+  'gamereplays.org',
+  'media.moddb.com',
+  'www.moddb.com',
+  'moddb.com',
+]);
+
+function sourceImageUrl(value: string | undefined, baseUrl: string): string | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = new URL(value, baseUrl);
+    if (parsed.protocol === 'http:') parsed.protocol = 'https:';
+    if (parsed.protocol !== 'https:' || !ARTWORK_HOSTS.has(parsed.hostname.toLowerCase())) {
+      return undefined;
+    }
+    return parsed.toString();
+  } catch {
+    return undefined;
+  }
+}
+
 /** Parses official Generals Evolution articles and keeps event announcements only. */
 export async function parseGenevoTournaments(xml: string): Promise<FeedTournament[]> {
   try {
@@ -61,6 +84,12 @@ export async function parseGenevoTournaments(xml: string): Promise<FeedTournamen
     return items
       .map((item: any) => {
         const html = rssText(item.description);
+        const $ = cheerio.load(`<div>${html}</div>`);
+        const mediaUrl =
+          rssText(item?.enclosure?.$?.url) ||
+          rssText(item?.['media:content']?.$?.url) ||
+          rssText(item?.['media:thumbnail']?.$?.url) ||
+          $('img').first().attr('src');
         const description = cheerio
           .load(`<div>${html}</div>`)('div')
           .text()
@@ -72,6 +101,7 @@ export async function parseGenevoTournaments(xml: string): Promise<FeedTournamen
           url: rssText(item.link),
           publishedAt: rssText(item.pubDate) || new Date().toISOString(),
           description,
+          imageUrl: sourceImageUrl(mediaUrl, rssText(item.link) || 'https://www.moddb.com/'),
         };
       })
       .filter((item: FeedTournament) => item.title && item.url)
@@ -119,19 +149,55 @@ export function parseTournaments(html: string): ParsedTournament[] {
   return items;
 }
 
-/** Extracts the forum "Sign up now!" thread URL from an article page. */
-export function extractSignUpUrl(html: string): string | undefined {
+export interface ArticleActions {
+  registrationUrl?: string;
+  discussionUrl?: string;
+  scoreUrl?: string;
+}
+
+/** Extracts registration/discussion/score topic links from article buttons. */
+export function extractArticleActions(html: string): ArticleActions {
   const $ = cheerio.load(html);
-  let result: string | undefined;
+  const result: ArticleActions = {};
   $('a').each((_, el) => {
-    if (result) return;
     const $a = $(el);
     const text = $a.text().trim();
     const imgAlt = ($a.find('img').attr('alt') || '').trim();
     const href = $a.attr('href') || '';
-    if (/sign\s*up/i.test(`${text} ${imgAlt}`) && href.includes('showtopic=')) {
-      result = href.startsWith('http') ? href : `https://www.gamereplays.org${href}`;
+    const topicId = href.match(/showtopic=(\d+)/)?.[1];
+    if (!topicId) return;
+    const topic = `https://www.gamereplays.org/community/index.php?showtopic=${topicId}`;
+    const label = `${text} ${imgAlt}`.replace(/\s+/g, ' ').trim();
+    if (!result.scoreUrl && /submit\s+(?:the\s+)?score/i.test(label)) result.scoreUrl = topic;
+    if (!result.registrationUrl && /sign\s*up|register/i.test(label)) {
+      result.registrationUrl = topic;
     }
+    if (!result.discussionUrl && /view\s+comments|add\s+reply|discuss/i.test(label)) {
+      result.discussionUrl = topic;
+    }
+  });
+  return result;
+}
+
+/** Extracts the forum sign-up thread URL from an article page. */
+export function extractSignUpUrl(html: string): string | undefined {
+  return extractArticleActions(html).registrationUrl;
+}
+
+function scoreTopicUrl(actions: ArticleActions, title: string): string | undefined {
+  if (actions.scoreUrl) return actions.scoreUrl;
+  return /bracket|results|replays|playoffs/i.test(title) ? actions.discussionUrl : undefined;
+}
+
+/** Uses the first source-post image as the event artwork. */
+export function extractArticleImage(html: string, articleUrl = ESPORTS_URL): string | undefined {
+  const $ = cheerio.load(html);
+  let result: string | undefined;
+  $('.contentpadding img').each((_, element) => {
+    if (result) return;
+    const src = $(element).attr('src');
+    if (/style_images|icon_|favicon|twitter|discord/i.test(src || '')) return;
+    result = sourceImageUrl(src, articleUrl);
   });
   return result;
 }
@@ -446,12 +512,17 @@ export class TournamentScannerService {
 
       // Enrich with the article body (description) + sign-up thread URL.
       const articleHtml = await this.fetchHtml(t.url);
-      const signUpUrl = articleHtml ? extractSignUpUrl(articleHtml) : undefined;
+      const actions = articleHtml ? extractArticleActions(articleHtml) : {};
+      const signUpUrl =
+        actions.registrationUrl ??
+        (/registration|sign[ -]?up/i.test(t.title) ? actions.discussionUrl : undefined);
+      const imageUrl = articleHtml ? extractArticleImage(articleHtml, t.url) : undefined;
       const description =
         (articleHtml ? extractArticleDescription(articleHtml) : undefined) || t.excerpt;
       const facts = extractEventFacts(description, 'ra3', t.dateText);
 
-      if (tournamentRepository.hasEventUrl(t.url)) {
+      const existingId = tournamentRepository.findEventIdByUrl(t.url);
+      if (existingId !== undefined) {
         // Already known — refresh the sign-up URL, description and facts.
         // Facts are only rewritten when the article was actually fetched;
         // a failed fetch must not wipe existing values.
@@ -461,7 +532,12 @@ export class TournamentScannerService {
           signUpUrl ?? null,
           description,
           articleHtml ? facts : undefined,
+          imageUrl,
         );
+        tournamentRepository.updateEventLinks(existingId, {
+          registrationUrl: signUpUrl,
+          topicUrl: scoreTopicUrl(actions, t.title),
+        });
         continue;
       }
 
@@ -472,10 +548,15 @@ export class TournamentScannerService {
         description,
         announcedAt: new Date().toISOString(),
         startDate: (facts.startDate ?? t.dateText) || undefined,
+        imageUrl,
         signUpUrl,
         format: facts.format,
         prizePool: facts.prizePool,
         maps: facts.maps,
+      });
+      tournamentRepository.updateEventLinks(eventId, {
+        registrationUrl: signUpUrl,
+        topicUrl: scoreTopicUrl(actions, t.title),
       });
       if (signUpUrl) tournamentRepository.setEventStatus(eventId, 'registration');
       newCount++;
@@ -497,8 +578,15 @@ export class TournamentScannerService {
     let newCount = 0;
     for (const item of [...(await parseGenevoTournaments(xml))].reverse()) {
       const facts = extractEventFacts(item.description, 'genevo', item.publishedAt);
-      if (tournamentRepository.hasEventUrl(item.url)) {
-        tournamentRepository.updateEventDetails(item.url, item.url, item.description, facts);
+      const existingId = tournamentRepository.findEventIdByUrl(item.url);
+      if (existingId !== undefined) {
+        tournamentRepository.updateEventDetails(
+          item.url,
+          item.url,
+          item.description,
+          facts,
+          item.imageUrl,
+        );
         continue;
       }
       const eventId = tournamentRepository.createEvent({
@@ -508,6 +596,7 @@ export class TournamentScannerService {
         description: item.description,
         announcedAt: item.publishedAt,
         startDate: facts.startDate ?? item.publishedAt,
+        imageUrl: item.imageUrl,
         signUpUrl: item.url,
         format: facts.format,
         prizePool: facts.prizePool,
@@ -529,18 +618,28 @@ export class TournamentScannerService {
       if (published !== null && published < Date.now() - RECENT_WINDOW_DAYS * 86_400_000) continue;
 
       const articleHtml = await this.fetchHtml(item.url);
-      const signUpUrl = articleHtml ? extractSignUpUrl(articleHtml) : undefined;
+      const actions = articleHtml ? extractArticleActions(articleHtml) : {};
+      const signUpUrl =
+        actions.registrationUrl ??
+        (/registration|sign[ -]?up/i.test(item.title) ? actions.discussionUrl : undefined);
+      const imageUrl = articleHtml ? extractArticleImage(articleHtml, item.url) : undefined;
       const description =
         (articleHtml ? extractArticleDescription(articleHtml) : undefined) || item.excerpt;
       const facts = extractEventFacts(description, 'genevo', item.dateText);
 
-      if (tournamentRepository.hasEventUrl(item.url)) {
+      const existingId = tournamentRepository.findEventIdByUrl(item.url);
+      if (existingId !== undefined) {
         tournamentRepository.updateEventDetails(
           item.url,
           signUpUrl ?? null,
           description,
           articleHtml ? facts : undefined,
+          imageUrl,
         );
+        tournamentRepository.updateEventLinks(existingId, {
+          registrationUrl: signUpUrl,
+          topicUrl: scoreTopicUrl(actions, item.title),
+        });
         continue;
       }
 
@@ -551,10 +650,15 @@ export class TournamentScannerService {
         description,
         announcedAt: new Date().toISOString(),
         startDate: (facts.startDate ?? item.dateText) || undefined,
+        imageUrl,
         signUpUrl,
         format: facts.format,
         prizePool: facts.prizePool,
         maps: facts.maps,
+      });
+      tournamentRepository.updateEventLinks(eventId, {
+        registrationUrl: signUpUrl,
+        topicUrl: scoreTopicUrl(actions, item.title),
       });
       if (signUpUrl) tournamentRepository.setEventStatus(eventId, 'registration');
       newCount++;

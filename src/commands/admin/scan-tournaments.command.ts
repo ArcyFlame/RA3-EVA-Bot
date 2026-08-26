@@ -22,18 +22,15 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   await interaction.deferReply({ ephemeral: true });
   const context = getGameContext(interaction.guildId);
   const count = await tournamentScanner.scan(context.game);
-  const forum =
-    context.game === 'ra3' ? await forumScanner.scan() : { results: 0, registrations: 0 };
+  const forum = await forumScanner.scan(context.game);
   const parts = [
     count > 0 ? `found ${count} new tournament(s)` : 'no new tournament announcements',
   ];
-  if (context.game === 'ra3') {
-    parts.push(
-      forum.results > 0 ? `linked ${forum.results} Challonge bracket(s)` : 'no new brackets',
-      forum.registrations > 0
-        ? `added ${forum.registrations} registration(s)`
-        : 'no new registrations',
-    );
-  }
+  parts.push(
+    forum.results > 0 ? `linked ${forum.results} Challonge bracket(s)` : 'no new brackets',
+    forum.registrations > 0
+      ? `added ${forum.registrations} registration(s)`
+      : 'no new registrations',
+  );
   await interaction.editReply({ content: `✅ ${parts.join(', ')}.` });
 }

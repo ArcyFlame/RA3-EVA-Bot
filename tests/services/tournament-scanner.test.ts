@@ -4,6 +4,8 @@ import {
   parsePortalDate,
   isTournamentRelevant,
   extractSignUpUrl,
+  extractArticleActions,
+  extractArticleImage,
   extractArticleDescription,
   extractEventFacts,
   findResultsTopic,
@@ -88,6 +90,42 @@ describe('extractSignUpUrl', () => {
 
   it('returns undefined when no sign-up link', () => {
     expect(extractSignUpUrl('<a href="/other">x</a>')).toBeUndefined();
+  });
+
+  it('recognizes the Generals Evolution Register / Discuss button', () => {
+    const html =
+      '<a href="/community/index.php?showtopic=1083416">Register / Discuss</a>';
+    expect(extractSignUpUrl(html)).toBe(
+      'https://www.gamereplays.org/community/index.php?showtopic=1083416',
+    );
+  });
+});
+
+describe('extractArticleActions', () => {
+  it('keeps generic reply links separate from explicit sign-up and score links', () => {
+    const generic = extractArticleActions(
+      '<a href="/community/index.php?showtopic=1081597">View Comments / Add Reply</a>',
+    );
+    expect(generic.registrationUrl).toBeUndefined();
+    expect(generic.discussionUrl).toContain('showtopic=1081597');
+
+    const score = extractArticleActions(
+      '<a href="/community/index.php?showtopic=1081597">Submit The Score / Add Reply</a>',
+    );
+    expect(score.scoreUrl).toContain('showtopic=1081597');
+  });
+});
+
+describe('extractArticleImage', () => {
+  it('uses the tournament banner and upgrades old HTTP image links to HTTPS', () => {
+    const html = `
+      <div class="contentpadding">
+        <img src="/community/style_images/beta/icon_msg_nonew.gif">
+        <img src="http://www.gamereplays.org/community/uploads/tournament-banner.png">
+      </div>`;
+    expect(extractArticleImage(html)).toBe(
+      'https://www.gamereplays.org/community/uploads/tournament-banner.png',
+    );
   });
 });
 
@@ -205,6 +243,14 @@ describe('parseGenevoTournaments', () => {
     expect(items).toHaveLength(1);
     expect(items[0].title).toBe('Summer Cup Registration');
     expect(items[0].description).toContain('next Generals Evolution tournament');
+  });
+
+  it('keeps ModDB artwork from the event feed', async () => {
+    const xml = `<?xml version="1.0"?><rss><channel>
+      <item><title>GenEvo Summer Tournament</title><link>https://www.moddb.com/mods/example/news/cup</link><description><![CDATA[<img src="https://media.moddb.com/images/cup.jpg">Register for the event.]]></description></item>
+    </channel></rss>`;
+    const items = await parseGenevoTournaments(xml);
+    expect(items[0].imageUrl).toBe('https://media.moddb.com/images/cup.jpg');
   });
 });
 

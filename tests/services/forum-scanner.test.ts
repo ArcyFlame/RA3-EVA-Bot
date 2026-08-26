@@ -247,6 +247,29 @@ describe('parseRegistrationRoster', () => {
     const html = firstPost('Sign up by replying IN to this thread!');
     expect(parseRegistrationRoster(html)).toEqual([]);
   });
+
+  it('parses Generals Evolution team rosters whose players are in parentheses', () => {
+    const html = firstPost(
+      `Registered:<ol>` +
+        `<li>2 Brains, 0 Plan (Lemon+ Spectacular)</li>` +
+        `<li>Khaibar Lemonade (Boofff + kylerino)</li>` +
+        `<li>Hot Peppers (MasterPurple+bikerushownz)</li>` +
+        `<li>MOABed_like_a_CLOUD (Team sgor00 and TheDoctor)</li>` +
+        `<li>GenevoSuggestion (Giraffecob and SpamAltF4)</li></ol>`,
+    );
+    expect(parseRegistrationRoster(html)).toEqual([
+      'Lemon',
+      'Spectacular',
+      'Boofff',
+      'kylerino',
+      'MasterPurple',
+      'bikerushownz',
+      'Team sgor00',
+      'TheDoctor',
+      'Giraffecob',
+      'SpamAltF4',
+    ]);
+  });
 });
 
 describe('parseRegistrations', () => {

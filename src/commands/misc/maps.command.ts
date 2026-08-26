@@ -88,8 +88,8 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
         inline: false,
       },
       {
-        name: '🎲 Random Pick',
-        value: `Use \`/pickmap\` to pick from an event pool. The bot recognizes **${gameMapNames('ra3').length}** official, bonus and community maps.`,
+        name: '🏁 Tournament Elimination',
+        value: `Use \`/pickmap [event]\` to show the verified pool and official elimination order. The bot recognizes **${gameMapNames('ra3').length}** official, bonus and community maps.`,
         inline: false,
       },
     )
