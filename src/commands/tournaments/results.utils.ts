@@ -3,11 +3,16 @@ import {
   challongeService,
   ChallongeMatch,
   ChallongeParticipant,
+  ChallongeRanking,
+  ChallongeTournament,
 } from '../../services/challonge.service';
-import { tournamentRepository } from '../../repositories/tournament.repository';
+import {
+  CachedTournamentResult,
+  tournamentRepository,
+} from '../../repositories/tournament.repository';
 import { parseForumTopics, RESULTS_FORUM_URL } from '../../services/tournament-scanner.service';
 import { safeGetText } from '../../utils/safe-fetch';
-import { editionsCompatible } from '../../services/forum-scanner.service';
+import { editionsCompatible, tournamentNamesMatch } from '../../services/forum-scanner.service';
 import { GameId, matchesGameContent } from '../../config/games';
 
 /**
@@ -38,6 +43,10 @@ export interface ResultsEntry {
   title: string;
   url: string;
   challongeId?: string;
+  eventId?: number;
+  forumUrl?: string;
+  resultsUrl?: string;
+  imageUrl?: string;
 }
 
 export interface ResultsList {
@@ -145,48 +154,74 @@ function forumEntries(topics: Array<{ title: string; url: string }>, game: GameI
  * (that's what the event card's Results button links to).
  */
 export async function fetchResultsList(game: GameId = 'ra3'): Promise<ResultsList> {
-  const challongeEntries: ResultsEntry[] = [];
+  const entries: ResultsEntry[] = [];
+  const seenBracketUrls = new Set<string>();
   for (const a of tournamentRepository.getAnnouncements(game)) {
+    const detail = tournamentRepository.getEventDetail(a.id);
     const brackets = tournamentRepository.getBrackets(a.id);
-    const seen = new Set<string>();
+    const entryCountBefore = entries.length;
     for (const bracket of brackets) {
       if (bracket.bracketName && !editionsCompatible(bracket.bracketName, a.title)) continue;
       const ref = challongeService.parseTournamentRef(bracket.challongeUrl);
-      if (!ref || seen.has(bracket.challongeUrl)) continue;
-      seen.add(bracket.challongeUrl);
+      if (!ref || seenBracketUrls.has(bracket.challongeUrl)) continue;
+      seenBracketUrls.add(bracket.challongeUrl);
       const label =
         bracket.bracketName &&
         bracket.bracketName.toLowerCase() !== a.title.toLowerCase() &&
         !a.title.toLowerCase().includes(bracket.bracketName.toLowerCase())
           ? `${a.title} - ${bracket.bracketName}`
           : a.title;
-      challongeEntries.push({
-        id: bracket.isPrimary ? a.id : -(a.id * 1000 + challongeEntries.length),
+      entries.push({
+        id: bracket.isPrimary ? a.id : -(a.id * 1000 + entries.length),
         kind: 'challonge',
         title: label,
         url: bracket.challongeUrl,
         challongeId: ref,
+        eventId: a.id,
+        forumUrl: detail?.topicUrl ?? undefined,
+        resultsUrl: detail?.resultUrl ?? undefined,
+        imageUrl: detail?.resultImageUrl ?? undefined,
       });
     }
     // Events whose bracket predates the brackets table.
-    if (seen.size === 0) {
-      const detail = tournamentRepository.getEventDetail(a.id);
-      const ref = detail?.challongeUrl
-        ? challongeService.parseTournamentRef(detail.challongeUrl)
-        : null;
-      if (ref && detail?.challongeUrl) {
-        challongeEntries.push({
+    if (entries.length === entryCountBefore) {
+      const siblingBracket = tournamentRepository
+        .getEventsWithChallonge(game)
+        .find((event) => event.id !== a.id && tournamentNamesMatch(event.title, a.title));
+      const legacyBracketUrl = detail?.challongeUrl ?? siblingBracket?.challongeUrl;
+      const ref = legacyBracketUrl ? challongeService.parseTournamentRef(legacyBracketUrl) : null;
+      if (ref && legacyBracketUrl && !seenBracketUrls.has(legacyBracketUrl)) {
+        seenBracketUrls.add(legacyBracketUrl);
+        entries.push({
           id: a.id,
           kind: 'challonge',
           title: a.title,
           url: challongeService.bracketUrl(ref),
           challongeId: ref,
+          eventId: a.id,
+          forumUrl: detail?.topicUrl ?? undefined,
+          resultsUrl: detail?.resultUrl ?? undefined,
+          imageUrl: detail?.resultImageUrl ?? undefined,
+        });
+      } else if (detail?.topicUrl) {
+        entries.push({
+          id: a.id,
+          kind: 'forum',
+          title: a.title,
+          url: detail.resultUrl ?? detail.topicUrl,
+          eventId: a.id,
+          forumUrl: detail.topicUrl,
+          resultsUrl: detail.resultUrl ?? undefined,
+          imageUrl: detail.resultImageUrl ?? undefined,
         });
       }
     }
   }
-  if (challongeEntries.length > 0) {
-    return { source: 'challonge', entries: challongeEntries.reverse() };
+  if (entries.length > 0) {
+    return {
+      source: entries.some((entry) => entry.kind === 'challonge') ? 'challonge' : 'forum',
+      entries: entries.reverse(),
+    };
   }
 
   if (game === 'genevo') return { source: 'forum', entries: [] };
@@ -227,23 +262,120 @@ export function buildStandingsFields(
   return fields;
 }
 
+interface LoadedBracketData {
+  tournament?: ChallongeTournament;
+  rankings: ChallongeRanking[];
+  matches: ChallongeMatch[];
+  participants: ChallongeParticipant[];
+  fromCache: boolean;
+}
+
+const RESULT_CACHE_MAX_AGE_MS = 15 * 60 * 1000;
+
+function cacheTimestamp(value: string): number {
+  const normalized = /Z$|[+-]\d\d:\d\d$/.test(value) ? value : `${value.replace(' ', 'T')}Z`;
+  return Date.parse(normalized);
+}
+
+async function loadBracketData(entry: ResultsEntry): Promise<LoadedBracketData> {
+  const cacheUrl = challongeService.bracketUrl(entry.challongeId!);
+  const cached = tournamentRepository.getResultCache(cacheUrl);
+  const cachedTournament = cached?.tournament as ChallongeTournament | undefined;
+  const cachedComplete = ['complete', 'awaiting_review'].includes(
+    String(cachedTournament?.state ?? ''),
+  );
+  const cacheFresh =
+    !!cached && Date.now() - cacheTimestamp(cached.updatedAt) < RESULT_CACHE_MAX_AGE_MS;
+  if (cached && (cachedComplete || cacheFresh)) {
+    return {
+      tournament: cachedTournament,
+      rankings: cached.rankings ?? [],
+      matches: cached.matches ?? [],
+      participants: cached.participants ?? [],
+      fromCache: true,
+    };
+  }
+
+  const [tournamentResult, matchesResult, participantResult] = await Promise.allSettled([
+    challongeService.getTournament(entry.challongeId!),
+    challongeService.getMatches(entry.challongeId!),
+    challongeService.getParticipantSnapshot(entry.challongeId!),
+  ]);
+  const tournament =
+    tournamentResult.status === 'fulfilled' ? tournamentResult.value : cachedTournament;
+  const matches =
+    matchesResult.status === 'fulfilled' ? matchesResult.value : (cached?.matches ?? []);
+  const participants =
+    participantResult.status === 'fulfilled'
+      ? participantResult.value.participants
+      : (cached?.participants ?? []);
+  const rankings =
+    participantResult.status === 'fulfilled'
+      ? participantResult.value.rankings
+      : (cached?.rankings ?? []);
+  const apiWorked = [tournamentResult, matchesResult, participantResult].some(
+    (result) => result.status === 'fulfilled',
+  );
+  if (apiWorked) {
+    tournamentRepository.saveResultCache(cacheUrl, {
+      eventId: entry.eventId,
+      sourceType: 'challonge',
+      tournament: tournamentResult.status === 'fulfilled' ? tournamentResult.value : undefined,
+      matches: matchesResult.status === 'fulfilled' ? matchesResult.value : undefined,
+      participants:
+        participantResult.status === 'fulfilled' ? participantResult.value.participants : undefined,
+      rankings:
+        participantResult.status === 'fulfilled' ? participantResult.value.rankings : undefined,
+    });
+  }
+  return {
+    tournament,
+    rankings,
+    matches,
+    participants,
+    fromCache: !apiWorked && !!cached,
+  };
+}
+
+function forumMatchField(cache: CachedTournamentResult | undefined) {
+  const matches = cache?.forumMatches ?? [];
+  if (matches.length === 0) return undefined;
+  return {
+    name: 'Reported Matches',
+    value: matches
+      .slice(-8)
+      .reverse()
+      .map(
+        (match) =>
+          `${match.player1} **${match.player1Score}–${match.player2Score}** ${match.player2} → **${match.winner}**`,
+      )
+      .join('\n')
+      .slice(0, 1024),
+    inline: false,
+  };
+}
+
 export async function renderResultsPage(
   entry: ResultsEntry,
+  showStaffControls = false,
 ): Promise<{ embeds: [EmbedBuilder]; components: [ActionRowBuilder<ButtonBuilder>] } | null> {
   const embed = new EmbedBuilder().setColor(0xffd700);
 
   if (entry.kind === 'challonge' && entry.challongeId) {
-    const [tournament, storedRankings, matches, participants] = await Promise.all([
-      challongeService.getTournament(entry.challongeId!).catch(() => null),
-      challongeService.getFinalRankings(entry.challongeId!).catch(() => []),
-      challongeService.getMatches(entry.challongeId!).catch(() => []),
-      challongeService.getParticipants(entry.challongeId!).catch(() => []),
-    ]);
+    const {
+      tournament,
+      rankings: storedRankings,
+      matches,
+      participants,
+      fromCache,
+    } = await loadBracketData(entry);
 
     embed
       .setTitle(`🏆 ${tournament?.name || entry.title}`)
       .setURL(entry.url)
-      .setDescription('Final results from Challonge.');
+      .setDescription(
+        fromCache ? 'Saved tournament results.' : 'Tournament results from Challonge.',
+      );
 
     const infoBits: string[] = [];
     if (tournament?.tournament_type) {
@@ -286,29 +418,65 @@ export async function renderResultsPage(
         });
       }
     } else {
+      const forumFallback = entry.forumUrl
+        ? forumMatchField(tournamentRepository.getResultCache(entry.forumUrl))
+        : undefined;
       embed.addFields({
         name: 'Standings',
-        value: 'No final rankings recorded on Challonge for this tournament.',
+        value: forumFallback
+          ? 'Final rankings are not available, but reported match scores were recovered from GameReplays.'
+          : 'No final rankings have been recorded for this tournament.',
         inline: false,
       });
+      if (forumFallback) embed.addFields(forumFallback);
     }
   } else {
     embed
       .setTitle(`📊 ${entry.title}`)
       .setURL(entry.url)
       .setDescription('Brackets, results and replays for this tournament.');
+    const forumFallback = entry.forumUrl
+      ? forumMatchField(tournamentRepository.getResultCache(entry.forumUrl))
+      : undefined;
+    if (forumFallback) embed.addFields(forumFallback);
   }
+
+  if (entry.imageUrl) embed.setImage(entry.imageUrl);
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`resultspg_prev_${entry.id}`)
       .setLabel('◀ Previous')
       .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setLabel('Open').setStyle(ButtonStyle.Link).setURL(entry.url),
+  );
+  if (entry.kind === 'challonge') {
+    row.addComponents(
+      new ButtonBuilder().setLabel('Challonge').setStyle(ButtonStyle.Link).setURL(entry.url),
+    );
+  }
+  const gameReplaysUrl =
+    entry.resultsUrl ?? entry.forumUrl ?? (entry.kind === 'forum' ? entry.url : undefined);
+  if (gameReplaysUrl) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setLabel('GameReplays Results')
+        .setStyle(ButtonStyle.Link)
+        .setURL(gameReplaysUrl),
+    );
+  }
+  row.addComponents(
     new ButtonBuilder()
       .setCustomId(`resultspg_next_${entry.id}`)
       .setLabel('Next ▶')
       .setStyle(ButtonStyle.Secondary),
   );
+  if (showStaffControls && entry.eventId && row.components.length < 5) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`eventpg_edit_${entry.eventId}`)
+        .setLabel('Edit Details')
+        .setStyle(ButtonStyle.Secondary),
+    );
+  }
   return { embeds: [embed], components: [row] };
 }

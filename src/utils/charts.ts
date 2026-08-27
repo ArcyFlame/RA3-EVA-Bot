@@ -56,6 +56,13 @@ const COLOR_TITLE_GOLD = '#FFD700';
 
 export type BarChartPalette = 'Reds_r' | 'Blues_r' | 'YlOrBr_r';
 
+/** Display order: RA3 red/blue/gold; GenEvo blue/gold/green. */
+export function statsChartPalettes(
+  game: GameId,
+): [BarChartPalette, BarChartPalette, BarChartPalette] {
+  return game === 'genevo' ? ['Blues_r', 'YlOrBr_r', 'Reds_r'] : ['Reds_r', 'Blues_r', 'YlOrBr_r'];
+}
+
 export interface BarChartTheme {
   titleColor: string;
   deepColor: string;
@@ -231,16 +238,14 @@ export async function generateBarChart(
 export async function generateGenevoFactionChartBuffer(
   data: GenevoFactionDistribution,
 ): Promise<Buffer> {
-  const canvas = new Canvas(1800, 1050);
+  const canvas = new Canvas(1800, 1200);
   const ctx = canvas.getContext('2d');
   const total = genevoFactionTotal(data);
-  const values = Object.values(data).filter((value): value is number => typeof value === 'number');
-  const maxValue = Math.max(...values, 1);
 
   ctx.textAlign = 'center';
   ctx.fillStyle = '#D8B45B';
   ctx.font = `60px ${MIEDINGER}`;
-  ctx.fillText('Generals Evolution Factions', 900, 78);
+  ctx.fillText('Generals Evolution Factions', 900, 82);
   ctx.fillStyle = '#EFE4C2';
   ctx.font = `28px ${MIEDINGER}`;
   ctx.fillText(
@@ -248,65 +253,73 @@ export async function generateGenevoFactionChartBuffer(
       ? `${total} recorded faction selections`
       : 'Awaiting Shatabrick or another compatible faction statistics source',
     900,
-    126,
+    132,
   );
 
-  const groups: GenevoFactionGroup[] = ['USA', 'China', 'GLA'];
-  const groupColors: Record<GenevoFactionGroup, string> = {
-    USA: '#3B82F6',
-    China: '#EF4444',
-    GLA: '#22C55E',
-  };
-  const margin = 48;
-  const gap = 30;
-  const columnWidth = (1800 - margin * 2 - gap * 2) / 3;
-  const panelTop = 170;
-  const panelHeight = 790;
+  const centerX = 570;
+  const centerY = 650;
+  const radius = 350;
+  const innerRadius = 205;
+  const values = GENEVO_FACTIONS.map((faction) => data[faction.name]);
+  const denominator = total > 0 ? total : GENEVO_FACTIONS.length;
+  let startAngle = -Math.PI / 2;
+  for (let index = 0; index < GENEVO_FACTIONS.length; index++) {
+    const faction = GENEVO_FACTIONS[index];
+    const value = values[index];
+    const wedgeValue = total > 0 ? (typeof value === 'number' ? value : 0) : 1;
+    const angle = (wedgeValue / denominator) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, startAngle, startAngle + angle);
+    ctx.arc(centerX, centerY, innerRadius, startAngle + angle, startAngle, true);
+    ctx.closePath();
+    ctx.globalAlpha = total > 0 ? 1 : 0.32;
+    ctx.fillStyle = faction.color;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#111827';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    startAngle += angle;
+  }
 
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = `bold 64px ${MIEDINGER}`;
+  ctx.fillText(total > 0 ? String(total) : '—', centerX, centerY - 8);
+  ctx.fillStyle = '#9CA38E';
+  ctx.font = `25px ${MIEDINGER}`;
+  ctx.fillText(total > 0 ? 'TOTAL PICKS' : 'NO DATA YET', centerX, centerY + 40);
+
+  const groups: GenevoFactionGroup[] = ['USA', 'China', 'GLA'];
+  const legendX = 1030;
   for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
     const group = groups[groupIndex];
-    const x = margin + groupIndex * (columnWidth + gap);
     const groupFactions = GENEVO_FACTIONS.filter((faction) => faction.group === group);
-
-    ctx.fillStyle = 'rgba(20, 25, 20, 0.72)';
-    ctx.fillRect(x, panelTop, columnWidth, panelHeight);
-    ctx.fillStyle = groupColors[group];
-    ctx.fillRect(x, panelTop, columnWidth, 8);
+    const top = 225 + groupIndex * 305;
     ctx.textAlign = 'left';
-    ctx.font = `44px ${MIEDINGER}`;
-    ctx.fillText(group, x + 34, panelTop + 68);
-
+    ctx.fillStyle = groupFactions[1].color;
+    ctx.font = `bold 38px ${MIEDINGER}`;
+    ctx.fillText(group, legendX, top);
     for (let row = 0; row < groupFactions.length; row++) {
       const faction = groupFactions[row];
       const value = data[faction.name];
-      const y = panelTop + 142 + row * 150;
-      const label = faction.name === group ? `${group} Base` : faction.name.slice(group.length + 3);
-
+      const y = top + 58 + row * 55;
+      const label = faction.name === group ? 'Base Faction' : faction.name.slice(group.length + 3);
       ctx.fillStyle = faction.color;
-      ctx.fillRect(x + 34, y - 20, 22, 22);
+      ctx.fillRect(legendX, y - 20, 26, 26);
       ctx.fillStyle = '#EFE4C2';
-      ctx.font = `27px ${MIEDINGER}`;
-      ctx.textAlign = 'left';
-      ctx.fillText(label, x + 70, y);
+      ctx.font = `25px ${MIEDINGER}`;
+      ctx.fillText(label, legendX + 45, y);
       ctx.textAlign = 'right';
       ctx.fillStyle = typeof value === 'number' ? '#FFFFFF' : '#8B927F';
       ctx.fillText(
-        typeof value === 'number'
-          ? `${value}  ${total > 0 ? `${Math.round((value / total) * 100)}%` : '0%'}`
+        typeof value === 'number' && total > 0
+          ? `${value} (${((value / total) * 100).toFixed(1)}%)`
           : '—',
-        x + columnWidth - 34,
+        1720,
         y,
       );
-
-      const barX = x + 34;
-      const barY = y + 28;
-      const barWidth = columnWidth - 68;
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-      ctx.fillRect(barX, barY, barWidth, 34);
-      if (typeof value === 'number' && value > 0) {
-        ctx.fillStyle = faction.color;
-        ctx.fillRect(barX, barY, Math.max(5, (value / maxValue) * barWidth), 34);
-      }
+      ctx.textAlign = 'left';
     }
   }
 
@@ -316,9 +329,9 @@ export async function generateGenevoFactionChartBuffer(
   ctx.fillText(
     total > 0
       ? 'Counts update when a compatible statistics source reports selected generals.'
-      : 'Faction names and colors are ready; unavailable values are shown as dashes.',
+      : 'The circular layout is ready; unavailable values are shown as dashes.',
     900,
-    1015,
+    1160,
   );
   return canvas.toBuffer('image/png');
 }

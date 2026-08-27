@@ -21,6 +21,29 @@ export interface ChallongeParticipant {
   tournamentId: number;
 }
 
+export interface ChallongeRanking {
+  rank: number | null;
+  name: string;
+  id: number;
+}
+
+export interface ChallongeTournament {
+  name?: string;
+  state?: string;
+  winner_id?: number;
+  tournament_type?: string;
+  participants_count?: number;
+  game_name?: string;
+  started_at?: string;
+  start_at?: string;
+  [key: string]: unknown;
+}
+
+export interface ChallongeParticipantSnapshot {
+  participants: ChallongeParticipant[];
+  rankings: ChallongeRanking[];
+}
+
 export class ChallongeService {
   private readonly baseUrl = 'https://api.challonge.com/v1';
 
@@ -36,9 +59,25 @@ export class ChallongeService {
     if (/^\d{1,12}$/.test(raw)) return raw;
 
     const reserved = new Set([
-      'about', 'api', 'assets', 'communities', 'contact', 'dashboard', 'features',
-      'images', 'login', 'pricing', 'privacy', 'search', 'settings', 'signup',
-      'static', 'teams', 'terms', 'tournaments', 'users',
+      'about',
+      'api',
+      'assets',
+      'communities',
+      'contact',
+      'dashboard',
+      'features',
+      'images',
+      'login',
+      'pricing',
+      'privacy',
+      'search',
+      'settings',
+      'signup',
+      'static',
+      'teams',
+      'terms',
+      'tournaments',
+      'users',
     ]);
     const validSlug = (value: string | undefined): value is string =>
       !!value && /^[a-z0-9][a-z0-9-]{0,60}$/i.test(value) && !reserved.has(value.toLowerCase());
@@ -89,8 +128,10 @@ export class ChallongeService {
     }
   }
 
-  async getTournament(tournamentId: string): Promise<any> {
-    const data = await this.request<{ tournament: any }>(`/tournaments/${tournamentId}.json`);
+  async getTournament(tournamentId: string): Promise<ChallongeTournament> {
+    const data = await this.request<{ tournament: ChallongeTournament }>(
+      `/tournaments/${tournamentId}.json`,
+    );
     return data.tournament;
   }
 
@@ -115,14 +156,23 @@ export class ChallongeService {
   }
 
   async getParticipants(tournamentId: string): Promise<ChallongeParticipant[]> {
+    return (await this.getParticipantSnapshot(tournamentId)).participants;
+  }
+
+  /** One participant request supplies both names and final ranks, conserving API quota. */
+  async getParticipantSnapshot(tournamentId: string): Promise<ChallongeParticipantSnapshot> {
     const data = await this.request<any[]>(`/tournaments/${tournamentId}/participants.json`);
-    return (Array.isArray(data) ? data : [])
-      .map((entry) => entry.participant ?? entry)
-      .map((p: any) => ({
-        id: p.id as number,
-        name: p.name as string,
-        tournamentId: p.tournament_id as number,
-      }));
+    const rows = (Array.isArray(data) ? data : []).map((entry) => entry.participant ?? entry);
+    const participants = rows.map((p: any) => ({
+      id: p.id as number,
+      name: p.name as string,
+      tournamentId: p.tournament_id as number,
+    }));
+    const rankings = rows
+      .map((p: any) => ({ rank: p.final_rank ?? null, name: p.name, id: p.id }))
+      .filter((p) => p.rank !== null && p.rank > 0)
+      .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
+    return { participants, rankings };
   }
 
   async updateMatchScore(
@@ -145,15 +195,8 @@ export class ChallongeService {
   }
 
   /** Final rankings for a tournament (participants with final_rank, 1 = winner). */
-  async getFinalRankings(
-    tournamentId: string,
-  ): Promise<Array<{ rank: number | null; name: string; id: number }>> {
-    const data = await this.request<any[]>(`/tournaments/${tournamentId}/participants.json`);
-    return (Array.isArray(data) ? data : [])
-      .map((entry) => entry.participant ?? entry)
-      .map((p: any) => ({ rank: p.final_rank ?? null, name: p.name, id: p.id }))
-      .filter((p) => p.rank !== null && p.rank > 0)
-      .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
+  async getFinalRankings(tournamentId: string): Promise<ChallongeRanking[]> {
+    return (await this.getParticipantSnapshot(tournamentId)).rankings;
   }
 
   /**

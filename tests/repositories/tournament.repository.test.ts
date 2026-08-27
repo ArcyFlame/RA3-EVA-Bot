@@ -9,9 +9,11 @@ import { up as up015 } from '../../src/database/migrations/015_tournament_workfl
 import { up as up024 } from '../../src/database/migrations/024_game_modes_and_sources';
 import { up as up026 } from '../../src/database/migrations/026_tournament_manual_metadata';
 import { up as up029 } from '../../src/database/migrations/029_tournament_artwork';
+import { up as up030 } from '../../src/database/migrations/030_results_and_news_media';
 import { TournamentRepository } from '../../src/repositories/tournament.repository';
 import { ClanRepository } from '../../src/repositories/clan.repository';
 import { renderEventPage } from '../../src/commands/tournaments/events.utils';
+import { renderResultsPage } from '../../src/commands/tournaments/results.utils';
 
 const tournamentRepo = new TournamentRepository();
 const clanRepo = new ClanRepository();
@@ -27,6 +29,7 @@ beforeAll(() => {
   up024();
   up026();
   up029();
+  up030();
 });
 
 describe('TournamentRepository', () => {
@@ -127,6 +130,64 @@ describe('TournamentRepository', () => {
     const page = JSON.stringify(renderEventPage(eventId));
     expect(page).toContain('Submit Score / Add Reply');
     expect(page).toContain('showtopic=200');
+  });
+
+  it('keeps results articles out of the tournament announcement browser', () => {
+    tournamentRepo.createEvent({
+      game: 'ra3',
+      eventUrl: 'https://www.gamereplays.org/redalert3/results-article',
+      title: 'Rise of the Patch, Bracket Results and Replays',
+      description: 'Results only.',
+      announcedAt: '2026-04-12T00:00:00.000Z',
+    });
+    expect(tournamentRepo.getAnnouncements('ra3').map((event) => event.title)).not.toContain(
+      'Rise of the Patch, Bracket Results and Replays',
+    );
+  });
+
+  it('renders saved Challonge results with GameReplays artwork and staff controls', async () => {
+    const eventId = tournamentRepo.createEvent({
+      game: 'ra3',
+      eventUrl: 'https://www.gamereplays.org/redalert3/saved-results',
+      title: 'Saved Results Cup',
+      description: 'Tournament announcement.',
+      announcedAt: '2026-08-21T00:00:00.000Z',
+    });
+    const bracketUrl = 'https://challonge.com/saved-results-cup';
+    const forumUrl = 'https://www.gamereplays.org/community/index.php?showtopic=300';
+    const resultsUrl =
+      'https://www.gamereplays.org/redalert3/portals.php?show=page&name=saved_results';
+    const imageUrl = 'https://www.gamereplays.org/community/uploads/post-1247008-1774699014.jpg';
+    tournamentRepo.saveResultCache(bracketUrl, {
+      eventId,
+      sourceType: 'challonge',
+      tournament: { name: 'Saved Results Cup', state: 'complete', participants_count: 2 },
+      rankings: [
+        { rank: 1, name: 'Winner', id: 1 },
+        { rank: 2, name: 'Runner-up', id: 2 },
+      ],
+      matches: [],
+      participants: [],
+    });
+    const entry = {
+      id: eventId,
+      kind: 'challonge' as const,
+      title: 'Saved Results Cup',
+      url: bracketUrl,
+      challongeId: 'saved-results-cup',
+      eventId,
+      forumUrl,
+      resultsUrl,
+      imageUrl,
+    };
+    const publicPage = JSON.stringify(await renderResultsPage(entry, false));
+    const staffPage = JSON.stringify(await renderResultsPage(entry, true));
+    expect(publicPage).toContain('Winner');
+    expect(publicPage).toContain('GameReplays Results');
+    expect(publicPage).toContain(imageUrl);
+    expect(publicPage).not.toContain(`eventpg_edit_${eventId}`);
+    expect(staffPage).toContain(`eventpg_edit_${eventId}`);
+    expect(tournamentRepo.getResultCache(bracketUrl)?.rankings?.[0].name).toBe('Winner');
   });
 });
 

@@ -15,24 +15,24 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     const tip = GENEVO_TIPS[Math.floor(Math.random() * GENEVO_TIPS.length)];
     const factionEmoji =
       tip.faction === 'usa'
-        ? '🇺🇸'
+        ? '<:USALogo:1542304495990476880>'
         : tip.faction === 'china'
-          ? '🇨🇳'
+          ? '<:ChinaLogo:1542304501250265178>'
           : tip.faction === 'gla'
-            ? '☣️'
-            : '💡';
+            ? '<:GLALogo:1542304503439695903>'
+            : '';
     const embed = new EmbedBuilder()
       .setColor(context.config.color)
       .setTitle('💡 Generals Evolution Tip')
-      .setDescription(`${factionEmoji} ${tip.text}`)
+      .setDescription(`${factionEmoji ? `${factionEmoji} ` : ''}${tip.text}`)
       .setThumbnail(context.config.artworkUrl)
-      .setFooter({ text: 'Generals-style strategy adapted to the Red Alert 3 engine' });
+      .setFooter({ text: getGenevoQuote(tip.faction) });
     await interaction.reply({ embeds: [embed] });
     return;
   }
   const tips = getTips();
   const tip = tips[Math.floor(Math.random() * tips.length)];
-  const quote = getRandomQuoteForTip(tip);
+  const quote = getQuoteForTip(tip);
   const tipWithEmoji = addEmojiToTip(tip);
   const embedColor = getColorForFaction(tip.faction);
 
@@ -80,6 +80,22 @@ const GENEVO_TIPS: Array<{ text: string; faction: 'usa' | 'china' | 'gla' | 'gen
   },
 ];
 
+function getGenevoQuote(faction: 'usa' | 'china' | 'gla' | 'general'): string {
+  const quotes = {
+    usa: ['“Let’s give ’em an airshow.” — Raptor', '“Made in the U.S. of A.” — USA Dozer'],
+    china: [
+      '“China will grow larger.” — China Dozer',
+      '“I have many bullets to spare.” — Gatling Tank',
+    ],
+    gla: ['“Can I have some shoes?” — GLA Worker', '“Load the SCUD!” — SCUD Launcher'],
+    general: [
+      '“Tanks are the key to any victory.” — General Kwai',
+      '“In the end, all fall before me.” — General Leang',
+    ],
+  }[faction];
+  return quotes[Math.floor(Math.random() * quotes.length)];
+}
+
 function addEmojiToTip(tip: { text: string; faction: string }): string {
   switch (tip.faction) {
     case 'allies':
@@ -106,52 +122,39 @@ function getColorForFaction(faction: string): number {
   }
 }
 
-function getRandomQuoteForTip(tip: { text: string; faction: string }): string {
-  const quotes = getQuotesByFaction(tip.faction);
-  return quotes[Math.floor(Math.random() * quotes.length)];
-}
-
-function getQuotesByFaction(faction: string): string[] {
-  const quotes: Record<string, string[]> = {
-    allies: [
-      '"Shake it baby!" - Tanya',
-      '"Keeping the peace!" - Peacekeeper',
-      '"Just kick the tires and light the fires!" - Apollo Fighter',
-      '"Time to chill!" - Cryocopter',
-      '"Nothing to see here!" - Mirage Tank',
-      '"Death from above!" - Aircraft Carrier',
-      '"I got their attention!" - Tanya',
-    ],
-    soviets: [
-      '"Kirov reporting!" - Kirov Airship',
-      '"For Mother Russia!" - Conscript',
-      '"The seas will run RED!" - Dreadnought',
-      '"Apocalypse has begun!" - Apocalypse Tank',
-      '"Electrician in the field!" - Tesla Trooper',
-      '"One less infant." - Natasha',
-      '"We will bury them!" - Apocalypse Tank',
-    ],
-    empire: [
-      '"For the Emperor!" - Imperial Warrior',
-      '"Transform and roll out!" - Tengu',
-      '"Bow before us!" - Shogun Battleship',
-      '"Their end is near." - Rocket Angel',
-      '"Destruction is honorable!" - King Oni',
-      '"I am not a weapon!" - Yuriko Omega',
-    ],
-    general: [
-      '"Knowledge is power." - Community wisdom',
-      '"Practice makes perfect." - Veteran advice',
-      '"Watch your replays to improve." - Pro tip',
-      '"Use /help to discover all commands." - E.V.A.',
-    ],
-    trivia: [
-      '"Did you know?" - Fun fact',
-      '"History is written by the victors." - RA3 loading screen',
-      '"The more you know!" - Community trivia',
-    ],
-  };
-  return quotes[faction] || quotes.general;
+export function getQuoteForTip(tip: { text: string; faction: string }): string {
+  const text = tip.text.toLowerCase();
+  const contextual: Array<[RegExp, string]> = [
+    [/cryo|frozen|freeze/, '“Time to chill!” — Cryocopter'],
+    [/tanya|century bomber/, '“Shake it, baby!” — Tanya'],
+    [/apollo|vindicator|airfield|airbase/, '“Light the fires!” — Apollo Fighter'],
+    [/mirage/, '“Nothing to see here.” — Mirage Tank'],
+    [/peacekeeper|riot shield/, '“Keeping the peace!” — Peacekeeper'],
+    [/kirov/, '“Kirov reporting!” — Kirov Airship'],
+    [/conscript|molotov|garrison/, '“For Mother Russia!” — Conscript'],
+    [/apocalypse/, '“Apocalypse has begun!” — Apocalypse Tank'],
+    [/tesla|stingray/, '“Electrician in the field!” — Tesla Trooper'],
+    [/natasha/, '“One less infantry.” — Natasha'],
+    [/imperial warrior|emperor/, '“For the Emperor!” — Imperial Warrior'],
+    [/tengu/, '“Transform and roll out!” — Tengu'],
+    [/shogun|naval|sea/, '“Bow before us!” — Shogun Battleship'],
+    [/rocket angel/, '“Their end is near.” — Rocket Angel'],
+    [/king oni/, '“Destruction is honorable!” — King Oni'],
+    [/yuriko/, '“I am not a weapon!” — Yuriko Omega'],
+    [/economy|ore|refiner|harvester|collector/, '“Protect the ore; control the battle.” — E.V.A.'],
+    [/scout|vision|map control/, '“Information wins battles before they begin.” — E.V.A.'],
+    [/replay|loss/, '“Study the defeat, then change the outcome.” — E.V.A.'],
+    [/hotkey|control group|select|scatter|attack-move/, '“Speed comes from preparation.” — E.V.A.'],
+    [/engineer|capture/, '“Secure the objective.” — E.V.A.'],
+    [/artillery|defen|turtl/, '“Static defenses cannot hold every front.” — E.V.A.'],
+  ];
+  const match = contextual.find(([pattern]) => pattern.test(text));
+  if (match) return match[1];
+  if (tip.faction === 'allies') return '“Clear skies, commander.” — Allied Command';
+  if (tip.faction === 'soviets') return '“We will bury them!” — Soviet Command';
+  if (tip.faction === 'empire') return '“Victory is honorable.” — Imperial Command';
+  if (tip.faction === 'trivia') return '“Battlefield archive updated.” — E.V.A.';
+  return '“Adapt, scout, and keep moving.” — E.V.A.';
 }
 
 function getTips(): { text: string; faction: string }[] {

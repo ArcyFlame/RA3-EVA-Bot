@@ -8,7 +8,7 @@ import { matchReminderService } from '../services/match-reminder.service';
 import { tournamentScanner } from '../services/tournament-scanner.service';
 import { forumScanner } from '../services/forum-scanner.service';
 import { newsScanner } from '../services/news-scanner.service';
-import { generateBarChart } from '../utils/charts';
+import { generateBarChart, statsChartPalettes } from '../utils/charts';
 import { guildRepository } from '../repositories/guild.repository';
 import { ra3StatsService } from '../services/ra3-stats.service';
 import { StatsView } from '../commands/stats/stats.view';
@@ -216,6 +216,7 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
   const context = getGameContext(cfg.guildId);
   const stats = await ra3StatsService.fetch(context.game, context.sources);
   const view = new StatsView(stats, context.game, context.sources);
+  const [online24Palette, newPlayersPalette, online30Palette] = statsChartPalettes(context.game);
   view.setPage(0);
   const embedPayload: any = { embeds: [view.getEmbed()], components: view.getComponents() };
 
@@ -228,7 +229,7 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
         attachment: await generateBarChart(
           stats.online_last_24h,
           'Online Players (Last 24 Hours)',
-          'Reds_r',
+          online24Palette,
           context.game,
         ),
         name: 'online_players_last_24_hours.png',
@@ -241,7 +242,7 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
         attachment: await generateBarChart(
           stats.new_players_last_30d,
           'New Players (Last 30 Days)',
-          'Blues_r',
+          newPlayersPalette,
           context.game,
         ),
         name: 'new_players_last_30_days.png',
@@ -251,7 +252,7 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
         attachment: await generateBarChart(
           stats.online_last_30d,
           'Online Players (Last 30 Days)',
-          'YlOrBr_r',
+          online30Palette,
           context.game,
         ),
         name: 'online_players_last_30_days.png',

@@ -6,6 +6,7 @@ describe('parseRa3PortalNews', () => {
     const html = `
       <div class="content_list_item">
         <span class="content_type">News</span>
+        <div class="content_list_thumbnail" style="background: url(https://www.gamereplays.org/community/uploads/news-card.jpg);"></div>
         <h3 class="content_list_title"><a href="/redalert3/portals.php?show=news&amp;news_id=1">C&amp;C:Online Server Changes</a></h3>
         <div class="content_list_infobar">May 24, 2026</div>
         Connection details for Red Alert 3 players.
@@ -30,6 +31,7 @@ describe('parseRa3PortalNews', () => {
       'https://www.gamereplays.org/redalert3/portals.php?show=news&news_id=1',
     );
     expect(parsed[0].excerpt).toBe('Connection details for Red Alert 3 players.');
+    expect(parsed[0].imageUrl).toBe('https://www.gamereplays.org/community/uploads/news-card.jpg');
     expect(parsed[1].url.startsWith('https://')).toBe(true);
   });
 

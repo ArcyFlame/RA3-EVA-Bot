@@ -23,6 +23,29 @@ export interface ParsedNews {
   title: string;
   url: string;
   excerpt: string;
+  imageUrl?: string;
+}
+
+function rssText(value: unknown): string {
+  if (value == null) return '';
+  if (Array.isArray(value)) return rssText(value[0]);
+  if (typeof value === 'object') return rssText((value as { _?: unknown })._);
+  return String(value).trim();
+}
+
+function safeImageUrl(value: string | undefined, baseUrl: string): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value, baseUrl);
+    if (url.protocol === 'http:') url.protocol = 'https:';
+    if (url.protocol !== 'https:') return undefined;
+    if (!/(?:^|\.)(?:gamereplays\.org|moddb\.com)$/.test(url.hostname.toLowerCase())) {
+      return undefined;
+    }
+    return url.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 function absolutePortalUrl(href: string): string {
@@ -58,7 +81,12 @@ export function parseRa3PortalNews(html: string): ParsedNews[] {
       )
       .remove();
     const excerpt = copy.text().replace(/\s+/g, ' ').trim().slice(0, 300);
-    items.push({ title, url, excerpt });
+    const thumbnailStyle = card.find('.content_list_thumbnail').first().attr('style') || '';
+    const imageUrl = safeImageUrl(
+      thumbnailStyle.match(/url\((['"]?)(.*?)\1\)/i)?.[2],
+      RA3_PORTAL_URL,
+    );
+    items.push({ title, url, excerpt, imageUrl });
     seen.add(url);
   });
 
@@ -78,14 +106,22 @@ async function fetchFeedItems(url: string, filter?: RegExp): Promise<ParsedNews[
   let items = result?.rss?.channel?.item ?? [];
   if (!Array.isArray(items)) items = [items];
   return items
-    .map((item: any) => ({
-      title: String(item.title || '').trim(),
-      url: String(item.link || '').trim(),
-      excerpt: String(item.description || '')
-        .replace(/<[^>]+>/g, '')
-        .trim()
-        .slice(0, 300),
-    }))
+    .map((item: any) => {
+      const url = rssText(item.link);
+      const description = rssText(item.description);
+      const $ = cheerio.load(`<div>${description}</div>`);
+      const image =
+        rssText(item?.['media:content']?.$?.url) ||
+        rssText(item?.['media:thumbnail']?.$?.url) ||
+        rssText(item?.enclosure?.$?.url) ||
+        $('img').first().attr('src');
+      return {
+        title: rssText(item.title),
+        url,
+        excerpt: $('div').text().replace(/\s+/g, ' ').trim().slice(0, 300),
+        imageUrl: safeImageUrl(image, url || 'https://www.moddb.com/'),
+      };
+    })
     .filter((item: ParsedNews) => item.title && item.url)
     .filter((item: ParsedNews) => (filter ? filter.test(`${item.title} ${item.excerpt}`) : true));
 }
@@ -136,13 +172,15 @@ export class NewsScannerService {
         // Sources are newest-first. Insert oldest-first so the newest item has
         // the highest local id and /news opens on it.
         for (const item of [...items].reverse()) {
-          if (newsRepository.hasNewsUrl(item.url, game)) continue;
+          const existed = newsRepository.hasNewsUrl(item.url, game);
           newsRepository.create({
             game,
             newsUrl: item.url,
             title: item.title,
             excerpt: item.excerpt,
+            imageUrl: item.imageUrl,
           });
+          if (existed) continue;
           fresh.push(item);
           newCount++;
         }
@@ -164,22 +202,24 @@ export class NewsScannerService {
   }
 
   private buildEmbed(
-    latest: { title: string; newsUrl?: string; url: string; excerpt?: string },
+    latest: { title: string; newsUrl?: string; url: string; excerpt?: string; imageUrl?: string },
     game: GameId,
   ): EmbedBuilder {
     const link = latest.newsUrl || latest.url;
     const config = GAME_CONFIGS[game];
-    return new EmbedBuilder()
+    const embed = new EmbedBuilder()
       .setTitle(`📰 ${latest.title}`)
       .setURL(link)
       .setColor(config.color)
       .setThumbnail(config.artworkUrl)
       .setDescription(latest.excerpt?.slice(0, 300) || `New ${config.shortLabel} news.`);
+    if (latest.imageUrl) embed.setImage(latest.imageUrl);
+    return embed;
   }
 
   private async announceItemToGuild(
     guildId: string,
-    latest: { title: string; newsUrl?: string; url: string; excerpt?: string },
+    latest: { title: string; newsUrl?: string; url: string; excerpt?: string; imageUrl?: string },
   ): Promise<boolean> {
     const link = latest.newsUrl || latest.url;
     if (!link) return false;
@@ -203,7 +243,9 @@ export class NewsScannerService {
   /** Posts the newest relevant item to one server, used for a newly selected empty channel. */
   async postLatestToGuild(guildId: string): Promise<boolean> {
     const guildData = guildRepository.findByDiscordId(guildId);
-    let latest: { title: string; newsUrl?: string; url: string; excerpt?: string } | undefined;
+    let latest:
+      | { title: string; newsUrl?: string; url: string; excerpt?: string; imageUrl?: string }
+      | undefined;
     latest = (await fetchGameItems(guildData?.game ?? 'ra3').catch(() => []))[0];
     if (!latest) {
       const stored = newsRepository.getLatest(1, guildData?.game ?? 'ra3')[0];
@@ -214,7 +256,7 @@ export class NewsScannerService {
 
   /** Posts one news item to every guild with a bound news channel. */
   private async announceItem(
-    latest: { title: string; newsUrl?: string; url: string; excerpt?: string },
+    latest: { title: string; newsUrl?: string; url: string; excerpt?: string; imageUrl?: string },
     game: GameId,
   ): Promise<void> {
     if (!(latest.newsUrl || latest.url)) return;

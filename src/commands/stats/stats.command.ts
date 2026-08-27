@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { ra3StatsService } from '../../services/ra3-stats.service';
-import { generateBarChart } from '../../utils/charts';
+import { generateBarChart, statsChartPalettes } from '../../utils/charts';
 import { StatsView } from './stats.view';
 import { logger } from '../../utils/logger';
 import { getGameContext } from '../../utils/game-context';
@@ -27,6 +27,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   const context = getGameContext(interaction.guildId);
   const stats = await ra3StatsService.fetch(context.game, context.sources);
   const view = new StatsView(stats, context.game, context.sources);
+  const [online24Palette, newPlayersPalette, online30Palette] = statsChartPalettes(context.game);
   const matchCount = interaction.options.getInteger('matches');
   if (matchCount) view.setRecentMatchCount(matchCount);
 
@@ -44,7 +45,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
         attachment: await generateBarChart(
           stats.online_last_24h,
           'Online Players (Last 24 Hours)',
-          'Reds_r',
+          online24Palette,
           context.game,
         ),
         name: 'online_players_last_24_hours.png',
@@ -61,7 +62,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
         attachment: await generateBarChart(
           stats.new_players_last_30d,
           'New Players (Last 30 Days)',
-          'Blues_r',
+          newPlayersPalette,
           context.game,
         ),
         name: 'new_players_last_30_days.png',
@@ -75,7 +76,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
         attachment: await generateBarChart(
           stats.online_last_30d,
           'Online Players (Last 30 Days)',
-          'YlOrBr_r',
+          online30Palette,
           context.game,
         ),
         name: 'online_players_last_30_days.png',

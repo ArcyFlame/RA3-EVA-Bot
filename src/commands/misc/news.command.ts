@@ -41,6 +41,7 @@ export function renderNewsPage(
         `${GAME_CONFIGS[item.game].shortLabel} news from the community.`,
     )
     .setFooter({ text: `${GAME_CONFIGS[item.game].shortLabel} News • ${index + 1}/${total}` });
+  if (item.imageUrl) embed.setImage(item.imageUrl);
 
   // Wrap-around navigation: prev on the newest loops to the oldest.
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(

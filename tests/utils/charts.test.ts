@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { generateGenevoFactionChartBuffer, getBarChartTheme } from '../../src/utils/charts';
+import {
+  generateGenevoFactionChartBuffer,
+  getBarChartTheme,
+  statsChartPalettes,
+} from '../../src/utils/charts';
 import { emptyGenevoFactionDistribution, GENEVO_FACTIONS } from '../../src/data/genevo-factions';
 
 describe('bar chart themes', () => {
+  it('uses blue, gold and green for the three GenEvo charts', () => {
+    expect(statsChartPalettes('genevo')).toEqual(['Blues_r', 'YlOrBr_r', 'Reds_r']);
+    expect(statsChartPalettes('ra3')).toEqual(['Reds_r', 'Blues_r', 'YlOrBr_r']);
+  });
   it('uses the Miedinger military theme for Generals Evolution', () => {
     const theme = getBarChartTheme('genevo', 'Reds_r');
     expect(theme.fontFamily).toContain('Miedinger Book');

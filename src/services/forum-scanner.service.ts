@@ -2,7 +2,11 @@ import * as cheerio from 'cheerio';
 import { logger } from '../utils/logger';
 import { safeGetText } from '../utils/safe-fetch';
 import { tournamentRepository } from '../repositories/tournament.repository';
-import { isTournamentRelevant, tournamentScanner } from './tournament-scanner.service';
+import {
+  extractArticleImage,
+  isTournamentRelevant,
+  tournamentScanner,
+} from './tournament-scanner.service';
 import { challongeService } from './challonge.service';
 import { isKnownSkirmishMap } from './ra3-stats.service';
 import { extractPrizeValue, truncateSentences } from '../utils/text';
@@ -117,6 +121,7 @@ export interface TopicLinks {
   challonge: string[];
   checkins?: string;
   registration?: string;
+  resultPage?: string;
   mapLines: string[];
   bodyText: string;
 }
@@ -151,6 +156,19 @@ export function parseTopicPage(html: string): TopicLinks {
     if (text.includes('registration') && href.includes('showtopic=')) {
       links.registration = canonicalTopicUrl(href);
     }
+    if (
+      /bracket|results?|streams?/i.test(text) &&
+      /gamereplays\.org\/redalert3\/portals\.php/i.test(href) &&
+      /show=page/i.test(href)
+    ) {
+      try {
+        const resultPage = new URL(href, 'https://www.gamereplays.org/');
+        resultPage.protocol = 'https:';
+        links.resultPage = resultPage.toString();
+      } catch {
+        // Ignore malformed source links.
+      }
+    }
   });
 
   // Some old forum posts contain broken BBCode such as
@@ -164,6 +182,90 @@ export function parseTopicPage(html: string): TopicLinks {
 
   links.bodyText = $.text().replace(/\r/g, '');
   return links;
+}
+
+export interface ForumReportedMatch {
+  player1: string;
+  player1Score: number;
+  player2: string;
+  player2Score: number;
+  winner: string;
+}
+
+function cleanForumPlayer(value: string, author: string): string {
+  const clean = value
+    .replace(/^[\s:–—-]+|[\s:–—-]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return /^(?:me|myself)$/i.test(clean) ? author : clean;
+}
+
+/** Extracts the human-written score line at the start of each results reply. */
+export function parseForumMatchResults(html: string): ForumReportedMatch[] {
+  const $ = cheerio.load(html);
+  const results: ForumReportedMatch[] = [];
+  const seen = new Set<string>();
+  $('.comment_wrapper')
+    .slice(1)
+    .each((_, post) => {
+      const author = $(post).find('.member_name a').first().text().replace(/\s+/g, ' ').trim();
+      const liveBody = $(post).find('.comment_display_content').first();
+      const body = liveBody.length > 0 ? liveBody : $(post).find('.comment').first();
+      if (!author || body.length === 0) return;
+      const copy = body.clone();
+      copy.find('script, style, img').remove();
+      copy.find('br').replaceWith('\n');
+      const text = copy
+        .text()
+        .replace(/\u00a0/g, ' ')
+        .split(/Attached File|Size:|Player Name/i)[0]
+        .replace(/[ \t]+/g, ' ')
+        .trim()
+        .slice(0, 300);
+
+      let player1 = '';
+      let player2 = '';
+      let player1Score = 0;
+      let player2Score = 0;
+      const direct = text.match(
+        /^([^\n]{1,40}?)\s+(\d{1,2})\s*[-–]\s*(\d{1,2})\s+([^\n]{1,40}?)(?:\n|$)/i,
+      );
+      const trailingScore = text.match(
+        /^([^\n]{1,40}?)\s+(\d{1,2})\s*[-–]\s*([^\n]{1,40}?)\s+(\d{1,2})(?:\n|$)/i,
+      );
+      const versus = text.match(
+        /^(\d{1,2})\s*[-–]\s*(\d{1,2})\s+(?:vs\.?\s+)?([^\n]{1,40}?)(?:\n|$)/i,
+      );
+      if (direct) {
+        player1 = cleanForumPlayer(direct[1], author);
+        player1Score = Number(direct[2]);
+        player2Score = Number(direct[3]);
+        player2 = cleanForumPlayer(direct[4], author);
+      } else if (trailingScore) {
+        player1 = cleanForumPlayer(trailingScore[1], author);
+        player1Score = Number(trailingScore[2]);
+        player2 = cleanForumPlayer(trailingScore[3], author);
+        player2Score = Number(trailingScore[4]);
+      } else if (versus) {
+        player1 = author;
+        player1Score = Number(versus[1]);
+        player2Score = Number(versus[2]);
+        player2 = cleanForumPlayer(versus[3], author);
+      } else {
+        return;
+      }
+      if (!player1 || !player2 || player1.length > 40 || player2.length > 40) return;
+      if (player1Score === player2Score) return;
+      const winner = player1Score > player2Score ? player1 : player2;
+      const loser = player1Score > player2Score ? player2 : player1;
+      const winnerScore = Math.max(player1Score, player2Score);
+      const loserScore = Math.min(player1Score, player2Score);
+      const key = `${winner.toLowerCase()}|${loser.toLowerCase()}|${winnerScore}|${loserScore}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      results.push({ player1, player1Score, player2, player2Score, winner });
+    });
+  return results.slice(-20);
 }
 
 /**
@@ -398,6 +500,19 @@ export class ForumScannerService {
           const html = await safeGetText(topic.url);
           if (!html) continue;
           const parsed = parseTopicPage(html);
+          const forumMatches = parseForumMatchResults(html);
+          let resultImageUrl: string | undefined;
+          if (parsed.resultPage) {
+            const resultPageHtml = await safeGetText(parsed.resultPage);
+            resultImageUrl = resultPageHtml
+              ? extractArticleImage(resultPageHtml, parsed.resultPage)
+              : undefined;
+          }
+          tournamentRepository.saveResultCache(topic.url, {
+            eventId: match.id,
+            sourceType: 'forum',
+            forumMatches,
+          });
           let hadChallonge = false;
           let primaryUrl: string | undefined;
           const validChallonge: string[] = [];
@@ -432,6 +547,8 @@ export class ForumScannerService {
             checkinsUrl: parsed.checkins,
             registrationUrl: parsed.registration,
             topicUrl: topic.url,
+            resultUrl: parsed.resultPage,
+            resultImageUrl,
           });
           // Results topics usually carry the real prize + map pool list.
           const prize = extractPrize(parsed.bodyText, topic.title);
@@ -530,7 +647,8 @@ export class ForumScannerService {
         const canonicalUrl = challongeService.bracketUrl(ref);
         if (tournamentRepository.hasWinnerFor(canonicalUrl)) continue;
         const tournament = await challongeService.getTournament(ref).catch(() => null);
-        if (!tournament || !['complete', 'awaiting_review'].includes(tournament.state)) continue;
+        if (!tournament || !['complete', 'awaiting_review'].includes(tournament.state ?? ''))
+          continue;
         if (tournament.name && !editionsCompatible(String(tournament.name), bracket.eventTitle)) {
           logger.warn(
             `Winner sync: ignored bracket "${tournament.name}" for "${bracket.eventTitle}"`,
@@ -620,23 +738,41 @@ export class ForumScannerService {
       }
     }
 
-    const participants = await challongeService.getParticipants(ref).catch(() => []);
+    const snapshot = await challongeService
+      .getParticipantSnapshot(ref)
+      .catch(() => ({ participants: [], rankings: [] }));
+    const participants = snapshot.participants;
     for (const p of participants) {
       tournamentRepository.addParticipant(eventId, p.name, 'challonge');
     }
+
+    const completed = tournament.state === 'complete' || tournament.state === 'awaiting_review';
+    const matches = completed ? await challongeService.getMatches(ref).catch(() => []) : [];
+    tournamentRepository.saveResultCache(challongeService.bracketUrl(ref), {
+      eventId,
+      sourceType: 'challonge',
+      tournament,
+      participants,
+      rankings: snapshot.rankings,
+      matches: completed ? matches : undefined,
+    });
 
     // Finished bracket → record the champion for Tournament Wins (Top 10).
     // "awaiting_review" means the organizer hasn't confirmed yet; final_rank
     // may be empty, so the last completed match decides. Some never fill
     // Challonge's winner_id either.
-    if (tournament.state === 'complete' || tournament.state === 'awaiting_review') {
+    if (completed) {
       let winner = participants.find((p) => p.id === tournament.winner_id)?.name;
       if (!winner) {
-        const rankings = await challongeService.getFinalRankings(ref).catch(() => []);
-        winner = rankings.find((r) => r.rank === 1)?.name ?? rankings[0]?.name;
+        winner =
+          snapshot.rankings.find((ranking) => ranking.rank === 1)?.name ??
+          snapshot.rankings[0]?.name;
       }
       if (!winner) {
-        winner = (await challongeService.inferWinnerByMatches(ref).catch(() => null)) ?? undefined;
+        const final = matches
+          .filter((match) => match.state === 'complete' && match.winnerId)
+          .sort((a, b) => (b.round ?? 0) - (a.round ?? 0) || b.id - a.id)[0];
+        winner = participants.find((participant) => participant.id === final?.winnerId)?.name;
       }
       if (winner) {
         const game = tournamentRepository.getEventDetail(eventId)?.game ?? 'ra3';
@@ -666,7 +802,8 @@ export class ForumScannerService {
       const canonicalUrl = challongeService.bracketUrl(ref);
       if (tournamentRepository.hasWinnerFor(canonicalUrl)) continue;
       const tournament = await challongeService.getTournament(ref).catch(() => null);
-      if (!tournament || !['complete', 'awaiting_review'].includes(tournament.state)) continue;
+      if (!tournament || !['complete', 'awaiting_review'].includes(tournament.state ?? ''))
+        continue;
       if (tournament.name && !editionsCompatible(String(tournament.name), topicTitle)) continue;
       const rankings = await challongeService.getFinalRankings(ref).catch(() => []);
       let winner: string | undefined =

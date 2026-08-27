@@ -57,6 +57,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       )
       .setFooter({ text: `Source: ModDB ${context.config.shortLabel} • newest first` })
       .setTimestamp();
+    if (items[0].imageUrl) embed.setImage(items[0].imageUrl);
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()

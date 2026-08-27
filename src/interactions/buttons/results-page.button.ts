@@ -4,6 +4,8 @@ import { fetchResultsList, renderResultsPage } from '../../commands/tournaments/
 import { parseIntSafe } from '../../utils/parse';
 import { logger } from '../../utils/logger';
 import { guildRepository } from '../../repositories/guild.repository';
+import { resolveMember } from '../../utils/members';
+import { isTournamentStaff } from '../../utils/permissions';
 
 /**
  * /results navigation: `resultspg_{prev|next}_{entryId}`. Wrap-around in both
@@ -23,7 +25,7 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
   await interaction.deferUpdate();
   try {
     const game = interaction.guildId
-      ? guildRepository.findByDiscordId(interaction.guildId)?.game ?? 'ra3'
+      ? (guildRepository.findByDiscordId(interaction.guildId)?.game ?? 'ra3')
       : 'ra3';
     const list = await fetchResultsList(game);
     const index = list.entries.findIndex((e) => e.id === entryId);
@@ -33,7 +35,11 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     }
     const count = list.entries.length;
     const nextIndex = action === 'prev' ? (index - 1 + count) % count : (index + 1) % count;
-    const rendered = await renderResultsPage(list.entries[nextIndex]);
+    const member = await resolveMember(interaction);
+    const rendered = await renderResultsPage(
+      list.entries[nextIndex],
+      !!member && isTournamentStaff(member),
+    );
     if (rendered) await interaction.editReply(rendered);
   } catch (error) {
     logger.error(`resultspg_${action}: failed:`, error);

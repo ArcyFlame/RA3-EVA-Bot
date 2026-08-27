@@ -8,13 +8,66 @@ import { contentDeliveryRepository } from '../repositories/content-delivery.repo
 import { safeGetText } from '../utils/safe-fetch';
 import { GameId, GAME_CONFIGS } from '../config/games';
 
-interface RSSItem {
+export interface RSSItem {
   title: string;
   link: string;
   pubDate: string;
   description?: string;
   guid: string;
   category?: string;
+  imageUrl?: string;
+}
+
+function decodedModdbMarkup(value: string): string {
+  let current = value;
+  for (let pass = 0; pass < 3; pass++) {
+    const text = cheerio.load(`<div>${current}</div>`)('div').text();
+    if (!/<(?:img|br|p|a|div)\b/i.test(text) || text === current) return current;
+    current = text;
+  }
+  return current;
+}
+
+export function cleanModdbDescription(value: string | undefined, maxLength = 300): string {
+  if (!value) return 'Open the post on ModDB for screenshots, downloads and full details.';
+  const markup = decodedModdbMarkup(value);
+  const $ = cheerio.load(`<div>${markup}</div>`);
+  $('script, style').remove();
+  const cleaned = $('div')
+    .text()
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\b(?:read|view) more\b.*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const fallback = 'Open the post on ModDB for full details.';
+  const text = cleaned || fallback;
+  return text.length <= maxLength ? text : `${text.slice(0, maxLength - 3)}...`;
+}
+
+export function extractModdbImage(value: string | undefined, baseUrl: string): string | undefined {
+  if (!value) return undefined;
+  const normalize = (candidate: string): string | undefined => {
+    try {
+      const url = new URL(candidate, baseUrl);
+      if (url.protocol === 'http:') url.protocol = 'https:';
+      return url.protocol === 'https:' && /(?:^|\.)moddb\.com$/.test(url.hostname)
+        ? url.toString()
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  if (!/[<>]/.test(value)) {
+    const direct = normalize(value);
+    if (direct) return direct;
+  }
+  for (const markup of [value, decodedModdbMarkup(value)]) {
+    const src = cheerio.load(`<div>${markup}</div>`)('img').first().attr('src');
+    if (!src) continue;
+    const image = normalize(src);
+    if (image) return image;
+  }
+  return undefined;
 }
 
 export class ModDBNotifierService {
@@ -199,17 +252,26 @@ export class ModDBNotifierService {
     let items = result.rss.channel.item;
     if (!Array.isArray(items)) items = [items];
 
-    return items.map((item: any) => ({
-      title: ModDBNotifierService.flattenRssValue(item.title) || 'Untitled',
-      link: ModDBNotifierService.flattenRssValue(item.link),
-      pubDate: ModDBNotifierService.flattenRssValue(item.pubDate) || new Date().toISOString(),
-      description: ModDBNotifierService.flattenRssValue(item.description),
-      guid:
-        ModDBNotifierService.flattenRssValue(item.guid) ||
-        ModDBNotifierService.flattenRssValue(item.link) ||
-        ModDBNotifierService.flattenRssValue(item.title),
-      category: item.category,
-    }));
+    return items.map((item: any) => {
+      const link = ModDBNotifierService.flattenRssValue(item.link);
+      const description = ModDBNotifierService.flattenRssValue(item.description);
+      const feedImage =
+        ModDBNotifierService.flattenRssValue(item?.['media:content']?.$?.url) ||
+        ModDBNotifierService.flattenRssValue(item?.['media:thumbnail']?.$?.url) ||
+        ModDBNotifierService.flattenRssValue(item?.enclosure?.$?.url);
+      return {
+        title: ModDBNotifierService.flattenRssValue(item.title) || 'Untitled',
+        link,
+        pubDate: ModDBNotifierService.flattenRssValue(item.pubDate) || new Date().toISOString(),
+        description,
+        guid:
+          ModDBNotifierService.flattenRssValue(item.guid) ||
+          link ||
+          ModDBNotifierService.flattenRssValue(item.title),
+        category: item.category,
+        imageUrl: extractModdbImage(feedImage || description, link || 'https://www.moddb.com/'),
+      };
+    });
   }
 
   private async isAlreadyNotified(guid: string): Promise<boolean> {
@@ -229,13 +291,7 @@ export class ModDBNotifierService {
   }
 
   private cleanDescription(value: string | undefined): string {
-    if (!value) return 'Open the post on ModDB for screenshots, downloads and full details.';
-    const text = cheerio.load(`<div>${value}</div>`)('div').text();
-    const cleaned = text
-      .replace(/\b(?:read|view) more\b.*$/i, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    return this.truncate(cleaned || 'Open the post on ModDB for full details.', 300);
+    return cleanModdbDescription(value, 300);
   }
 
   private buildEmbed(item: RSSItem, feedUrl: string, game: GameId): EmbedBuilder {
@@ -249,11 +305,8 @@ export class ModDBNotifierService {
       .setAuthor({ name: 'ModDB', iconURL: 'https://www.moddb.com/favicon.ico' })
       .setThumbnail(config.artworkUrl)
       .setFooter({ text: `ModDB • ${config.shortLabel}` });
-    const image = cheerio
-      .load(`<div>${item.description ?? ''}</div>`)('img')
-      .first()
-      .attr('src');
-    if (image && /^https:\/\//i.test(image)) embed.setImage(image);
+    const image = item.imageUrl ?? extractModdbImage(item.description, item.link);
+    if (image) embed.setImage(image);
     const timestamp = new Date(item.pubDate);
     if (!Number.isNaN(timestamp.getTime())) embed.setTimestamp(timestamp);
     return embed;
@@ -366,12 +419,6 @@ export class ModDBNotifierService {
       update: 0x5865f2,
     };
     return map[type] || 0x5865f2;
-  }
-
-  private truncate(text: string, maxLength: number): string {
-    if (!text) return 'Click to view on ModDB';
-    if (text.length <= maxLength) return text;
-    return text.substring(0, maxLength - 3) + '...';
   }
 
   private delay(ms: number): Promise<void> {

@@ -3,6 +3,8 @@ import { RA3Bot } from '../../bot';
 import { guildRepository } from '../../repositories/guild.repository';
 import { fetchResultsList, renderResultsPage } from './results.utils';
 import { logger } from '../../utils/logger';
+import { resolveMember } from '../../utils/members';
+import { isTournamentStaff } from '../../utils/permissions';
 
 export const data = new SlashCommandBuilder()
   .setName('results')
@@ -15,7 +17,10 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     ? guildRepository.findByDiscordId(interaction.guildId)
     : undefined;
   if (guildData?.tournamentsEnabled === 0) {
-    await interaction.reply({ content: '❌ Tournaments are disabled on this server.', ephemeral: true });
+    await interaction.reply({
+      content: '❌ Tournaments are disabled on this server.',
+      ephemeral: true,
+    });
     return;
   }
 
@@ -27,7 +32,11 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       await interaction.editReply({ content: 'No tournament results found yet.' });
       return;
     }
-    const rendered = await renderResultsPage(list.entries[0]);
+    const member = await resolveMember(interaction);
+    const rendered = await renderResultsPage(
+      list.entries[0],
+      !!member && isTournamentStaff(member),
+    );
     if (!rendered) {
       await interaction.editReply({ content: 'Could not load tournament results.' });
       return;

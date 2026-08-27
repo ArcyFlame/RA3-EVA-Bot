@@ -1,9 +1,6 @@
 import {
   ButtonInteraction,
-  EmbedBuilder,
   ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -179,19 +176,27 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     if (action === 'results') {
       await interaction.deferReply({ ephemeral: true });
       const current = announcements[index];
+      const detail = tournamentRepository.getEventDetail(current.id);
       // Same view as /results: the event's own bracket, or the sibling
       // event's bracket when the forum topic paired with the twin row.
       const challongeUrl = resolveChallongeUrl(current.id, current.title, guildGame);
       if (challongeUrl) {
         const ref = challongeService.parseTournamentRef(challongeUrl);
         const rendered = ref
-          ? await renderResultsPage({
-              id: current.id,
-              kind: 'challonge',
-              title: current.title,
-              url: challongeService.bracketUrl(ref),
-              challongeId: ref,
-            }).catch((error) => {
+          ? await renderResultsPage(
+              {
+                id: current.id,
+                kind: 'challonge',
+                title: current.title,
+                url: challongeService.bracketUrl(ref),
+                challongeId: ref,
+                eventId: current.id,
+                forumUrl: detail?.topicUrl ?? undefined,
+                resultsUrl: detail?.resultUrl ?? undefined,
+                imageUrl: detail?.resultImageUrl ?? undefined,
+              },
+              tournamentStaff,
+            ).catch((error) => {
               logger.warn('eventpg_results: Challonge fetch failed:', error);
               return null;
             })
@@ -203,27 +208,24 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
       }
 
       // Fall back to the results forum topic if one was linked.
-      const detail = tournamentRepository.getEventDetail(current.id);
       if (detail?.topicUrl) {
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder()
-            .setLabel('Open Tournament Post')
-            .setStyle(ButtonStyle.Link)
-            .setURL(detail.topicUrl),
+        const rendered = await renderResultsPage(
+          {
+            id: current.id,
+            kind: 'forum',
+            title: current.title,
+            url: detail.resultUrl ?? detail.topicUrl,
+            eventId: current.id,
+            forumUrl: detail.topicUrl,
+            resultsUrl: detail.resultUrl ?? undefined,
+            imageUrl: detail.resultImageUrl ?? undefined,
+          },
+          tournamentStaff,
         );
-        await interaction.editReply({
-          embeds: [
-            new EmbedBuilder()
-              .setTitle(`📊 ${current.title}`)
-              .setURL(detail.topicUrl)
-              .setDescription(
-                'The tournament post is available, but no verified results bracket was found.',
-              )
-              .setColor(0x5865f2),
-          ],
-          components: [row],
-        });
-        return;
+        if (rendered) {
+          await interaction.editReply(rendered);
+          return;
+        }
       }
 
       await interaction.editReply({

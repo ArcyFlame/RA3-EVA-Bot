@@ -22,8 +22,45 @@ export interface TournamentEvent {
   checkinsUrl?: string;
   registrationUrl?: string;
   topicUrl?: string;
+  resultUrl?: string;
+  resultImageUrl?: string;
   status?: 'unknown' | 'registration' | 'checkin' | 'in_progress' | 'ended';
 }
+
+export interface CachedTournamentResult {
+  sourceUrl: string;
+  eventId?: number;
+  sourceType: 'challonge' | 'forum';
+  tournament?: Record<string, unknown>;
+  rankings?: Array<{ rank: number | null; name: string; id: number }>;
+  matches?: Array<{
+    id: number;
+    tournamentId: number;
+    state: 'pending' | 'open' | 'complete';
+    player1Id?: number;
+    player2Id?: number;
+    winnerId?: number;
+    scoresCsv?: string;
+    scheduledTime?: string;
+    round?: number;
+    identifier?: string;
+  }>;
+  participants?: Array<{ id: number; name: string; tournamentId: number }>;
+  forumMatches?: Array<{
+    player1: string;
+    player1Score: number;
+    player2: string;
+    player2Score: number;
+    winner: string;
+  }>;
+  updatedAt: string;
+}
+
+const ANNOUNCEMENT_ONLY_SQL = `
+  lower(title) NOT LIKE '%bracket%'
+  AND lower(title) NOT LIKE '%results%'
+  AND lower(title) NOT LIKE '%replays%'
+  AND lower(title) NOT LIKE '%streams%'`;
 
 /** A registered (and optionally checked-in) tournament participant. */
 export interface TournamentParticipant {
@@ -153,7 +190,7 @@ export class TournamentRepository extends BaseRepository {
   /** Lightweight event list for the /events command (id + title only). */
   getEventSummaries(limit = 3, game?: GameId): Array<{ id: number; title: string }> {
     return this.queryAll<{ id: number; title: string }>(
-      `SELECT id, title FROM tournament_events${game ? ' WHERE game = ?' : ''} ORDER BY announced_at DESC LIMIT ?`,
+      `SELECT id, title FROM tournament_events WHERE ${ANNOUNCEMENT_ONLY_SQL}${game ? ' AND game = ?' : ''} ORDER BY announced_at DESC LIMIT ?`,
       game ? [game, limit] : [limit],
     );
   }
@@ -179,7 +216,7 @@ export class TournamentRepository extends BaseRepository {
       image_url: string | null;
       sign_up_url: string | null;
     }>(
-      `SELECT id, game, title, event_url, description, start_date, image_url, sign_up_url FROM tournament_events${game ? ' WHERE game = ?' : ''} ORDER BY id ASC`,
+      `SELECT id, game, title, event_url, description, start_date, image_url, sign_up_url FROM tournament_events WHERE ${ANNOUNCEMENT_ONLY_SQL}${game ? ' AND game = ?' : ''} ORDER BY id ASC`,
       game ? [game] : [],
     ).map((r) => ({
       id: r.id,
@@ -223,10 +260,12 @@ export class TournamentRepository extends BaseRepository {
       checkins_url: string | null;
       registration_url: string | null;
       topic_url: string | null;
+      result_url: string | null;
+      result_image_url: string | null;
       status: string | null;
       game: GameId;
     }>(
-      'SELECT title, event_url, description, format, prize_pool, maps, start_date, image_url, challonge_url, checkins_url, registration_url, topic_url, status, game FROM tournament_events WHERE id = ?',
+      'SELECT title, event_url, description, format, prize_pool, maps, start_date, image_url, challonge_url, checkins_url, registration_url, topic_url, result_url, result_image_url, status, game FROM tournament_events WHERE id = ?',
       [eventId],
     );
     if (!row) return undefined;
@@ -243,6 +282,8 @@ export class TournamentRepository extends BaseRepository {
       checkinsUrl: row.checkins_url,
       registrationUrl: row.registration_url,
       topicUrl: row.topic_url,
+      resultUrl: row.result_url,
+      resultImageUrl: row.result_image_url,
       status: row.status ?? 'unknown',
       game: row.game,
     };
@@ -393,16 +434,89 @@ export class TournamentRepository extends BaseRepository {
       checkinsUrl?: string;
       registrationUrl?: string;
       topicUrl?: string;
+      resultUrl?: string;
+      resultImageUrl?: string;
     },
   ): void {
     this.run(
-      'UPDATE tournament_events SET challonge_url = COALESCE(?, challonge_url), checkins_url = COALESCE(?, checkins_url), registration_url = COALESCE(?, registration_url), topic_url = COALESCE(?, topic_url) WHERE id = ?',
+      'UPDATE tournament_events SET challonge_url = COALESCE(?, challonge_url), checkins_url = COALESCE(?, checkins_url), registration_url = COALESCE(?, registration_url), topic_url = COALESCE(?, topic_url), result_url = COALESCE(?, result_url), result_image_url = COALESCE(?, result_image_url) WHERE id = ?',
       [
         links.challongeUrl ?? null,
         links.checkinsUrl ?? null,
         links.registrationUrl ?? null,
         links.topicUrl ?? null,
+        links.resultUrl ?? null,
+        links.resultImageUrl ?? null,
         eventId,
+      ],
+    );
+  }
+
+  getResultCache(sourceUrl: string): CachedTournamentResult | undefined {
+    const row = this.query<{
+      source_url: string;
+      event_id: number | null;
+      source_type: 'challonge' | 'forum';
+      tournament_json: string | null;
+      rankings_json: string | null;
+      matches_json: string | null;
+      participants_json: string | null;
+      forum_matches_json: string | null;
+      updated_at: string;
+    }>('SELECT * FROM tournament_result_cache WHERE source_url = ?', [sourceUrl]);
+    if (!row) return undefined;
+    const parse = <T>(value: string | null): T | undefined => {
+      if (!value) return undefined;
+      try {
+        return JSON.parse(value) as T;
+      } catch {
+        return undefined;
+      }
+    };
+    return {
+      sourceUrl: row.source_url,
+      eventId: row.event_id ?? undefined,
+      sourceType: row.source_type,
+      tournament: parse<Record<string, unknown>>(row.tournament_json),
+      rankings: parse<CachedTournamentResult['rankings']>(row.rankings_json),
+      matches: parse<CachedTournamentResult['matches']>(row.matches_json),
+      participants: parse<CachedTournamentResult['participants']>(row.participants_json),
+      forumMatches: parse<CachedTournamentResult['forumMatches']>(row.forum_matches_json),
+      updatedAt: row.updated_at,
+    };
+  }
+
+  saveResultCache(
+    sourceUrl: string,
+    data: Omit<Partial<CachedTournamentResult>, 'sourceUrl' | 'updatedAt'> & {
+      sourceType: 'challonge' | 'forum';
+    },
+  ): void {
+    const json = (value: unknown): string | null =>
+      value === undefined ? null : JSON.stringify(value);
+    this.run(
+      `INSERT INTO tournament_result_cache
+         (source_url, event_id, source_type, tournament_json, rankings_json,
+          matches_json, participants_json, forum_matches_json, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(source_url) DO UPDATE SET
+         event_id = COALESCE(excluded.event_id, event_id),
+         source_type = excluded.source_type,
+         tournament_json = COALESCE(excluded.tournament_json, tournament_json),
+         rankings_json = COALESCE(excluded.rankings_json, rankings_json),
+         matches_json = COALESCE(excluded.matches_json, matches_json),
+         participants_json = COALESCE(excluded.participants_json, participants_json),
+         forum_matches_json = COALESCE(excluded.forum_matches_json, forum_matches_json),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        sourceUrl,
+        data.eventId ?? null,
+        data.sourceType,
+        json(data.tournament),
+        json(data.rankings),
+        json(data.matches),
+        json(data.participants),
+        json(data.forumMatches),
       ],
     );
   }

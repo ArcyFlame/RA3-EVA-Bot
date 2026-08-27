@@ -7,6 +7,7 @@ import {
   parseRegistrations,
   parseRegistrationRoster,
   parseTopicPage,
+  parseForumMatchResults,
   parseExplicitForumWinner,
   parseForumTopics,
   tournamentNamesMatch,
@@ -186,6 +187,39 @@ describe('parseTopicPage', () => {
   it('ignores Challonge website assets', () => {
     const parsed = parseTopicPage('<img src="https://challonge.com/images/logo.svg">');
     expect(parsed.challonge).toEqual([]);
+  });
+
+  it('keeps the separate GameReplays results article', () => {
+    const parsed = parseTopicPage(
+      '<a href="https://www.gamereplays.org/redalert3/portals.php?show=page&amp;name=rise_of_the_patch_brackets_replays_streams__">Rise of the Patch, Bracket Results and Replays</a>',
+    );
+    expect(parsed.resultPage).toContain('name=rise_of_the_patch_brackets_replays_streams__');
+  });
+});
+
+describe('parseForumMatchResults', () => {
+  const post = (author: string, body: string) =>
+    `<div class="comment_wrapper"><span class="member_name"><a>${author}</a></span>` +
+    `<div class="comment">${body}</div></div>`;
+
+  it('recovers player-posted results when Challonge is unavailable', () => {
+    const html = [
+      post('Referee', 'Bracket and streams'),
+      post('Pika', 'Pika 4-0 Merdo<br>Attached File'),
+      post('Maximmoz', 'cordelia 2 - me 4'),
+      post('Zaid', '4 - 0 vs BlackHand'),
+    ].join('');
+    expect(parseForumMatchResults(html)).toEqual([
+      { player1: 'Pika', player1Score: 4, player2: 'Merdo', player2Score: 0, winner: 'Pika' },
+      {
+        player1: 'cordelia',
+        player1Score: 2,
+        player2: 'Maximmoz',
+        player2Score: 4,
+        winner: 'Maximmoz',
+      },
+      { player1: 'Zaid', player1Score: 4, player2: 'BlackHand', player2Score: 0, winner: 'Zaid' },
+    ]);
   });
 });
 
