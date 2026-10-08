@@ -29,6 +29,7 @@ import { up as up027, down as down027 } from './migrations/027_game_seen_players
 import { up as up028, down as down028 } from './migrations/028_ra3_news_index';
 import { up as up029, down as down029 } from './migrations/029_tournament_artwork';
 import { up as up030, down as down030 } from './migrations/030_results_and_news_media';
+import { up as up031, down as down031 } from './migrations/031_activity_ranks';
 import { logger } from '../utils/logger';
 
 interface Migration {
@@ -70,6 +71,7 @@ const migrations: Migration[] = [
   { version: 28, name: '028_ra3_news_index', up: up028, down: down028 },
   { version: 29, name: '029_tournament_artwork', up: up029, down: down029 },
   { version: 30, name: '030_results_and_news_media', up: up030, down: down030 },
+  { version: 31, name: '031_activity_ranks', up: up031, down: down031 },
 ];
 
 function ensureMigrationsTable(): void {

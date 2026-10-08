@@ -34,6 +34,8 @@ export interface Guild {
   game: GameId;
   cncOnlineEnabled: number;
   ra3BattleNetEnabled: number;
+  activityRanksEnabled: number;
+  cncPingRoleId?: string;
   /** JSON array of help-category values hidden from /help on this server. */
   hiddenHelpCategories?: string;
   createdAt: string;
@@ -67,6 +69,7 @@ const FEATURE_COLUMNS: Record<string, string> = {
   news: 'news_enabled',
   cncOnline: 'cnc_online_enabled',
   ra3BattleNet: 'ra3battle_net_enabled',
+  activityRanks: 'activity_ranks_enabled',
 };
 
 export class GuildRepository extends BaseRepository {
@@ -114,6 +117,8 @@ export class GuildRepository extends BaseRepository {
       game: normalizeGame(row.game),
       cncOnlineEnabled: row.cnc_online_enabled ?? 1,
       ra3BattleNetEnabled: row.ra3battle_net_enabled ?? 1,
+      activityRanksEnabled: row.activity_ranks_enabled ?? 0,
+      cncPingRoleId: row.cnc_ping_role_id ?? undefined,
       hiddenHelpCategories: row.hidden_help_categories,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -152,6 +157,7 @@ export class GuildRepository extends BaseRepository {
           game = COALESCE(?, game),
           cnc_online_enabled = COALESCE(?, cnc_online_enabled),
           ra3battle_net_enabled = COALESCE(?, ra3battle_net_enabled),
+          activity_ranks_enabled = COALESCE(?, activity_ranks_enabled),
           updated_at = CURRENT_TIMESTAMP
         WHERE discord_id = ?`,
         [
@@ -182,6 +188,7 @@ export class GuildRepository extends BaseRepository {
           data.game,
           data.cncOnlineEnabled,
           data.ra3BattleNetEnabled,
+          data.activityRanksEnabled,
           discordId,
         ],
       );
@@ -195,8 +202,8 @@ export class GuildRepository extends BaseRepository {
           clan_channel_id, tournament_disputes_channel_id, twitch_channel_id,
           youtube_channel_id, tournament_events_channel_id, moddb_channel_id, lobby_channel_id,
           stats_panel_enabled, stats_panel_channel_id, stats_panel_message_id, stats_panel_interval,
-          game, cnc_online_enabled, ra3battle_net_enabled
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          game, cnc_online_enabled, ra3battle_net_enabled, activity_ranks_enabled
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           discordId,
           data.prefix || '!',
@@ -226,6 +233,7 @@ export class GuildRepository extends BaseRepository {
           data.game ?? 'ra3',
           data.cncOnlineEnabled ?? 1,
           data.ra3BattleNetEnabled ?? 1,
+          data.activityRanksEnabled ?? 0,
         ],
       );
     }
@@ -271,6 +279,13 @@ export class GuildRepository extends BaseRepository {
     this.run(
       `UPDATE guilds SET menus_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ?`,
       [enabled ? 1 : 0, discordId],
+    );
+  }
+
+  setCncPingRole(discordId: string, roleId: string | null): void {
+    this.run(
+      `UPDATE guilds SET cnc_ping_role_id = ?, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ?`,
+      [roleId, discordId],
     );
   }
 

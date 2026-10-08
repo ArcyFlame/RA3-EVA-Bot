@@ -33,6 +33,11 @@ Each Discord server selects its game, sources and features in the setup wizard.
   game selection (RA3 / Generals Evolution), game-specific maps and tips,
   i18n (EN/RU/ZH)
   and an admin setup wizard.
+- **Discord activity ranks** - opt-in Private-to-General role progression with
+  `/activity` profiles and a server leaderboard. Message cooldowns, duplicate
+  detection and a daily cap prevent XP farming; the configured C&C role ping
+  contributes at most once per member per UTC day. Admins can auto-detect roles
+  named `Online Rank 1` through `Online Rank 9`, adjust points and resync roles.
 - **Direct messages** - safe public commands work in DMs by default. The bot
   owner can switch this off from `/toggle`; server-only and staff commands stay
   locked to servers.

@@ -24,6 +24,7 @@ export type FeatureKey =
   | 'news'
   | 'cncOnline'
   | 'ra3BattleNet'
+  | 'activityRanks'
   | 'menusMode'
   | 'dmPublicCommands';
 
@@ -129,6 +130,13 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     enabled: (g) => g.ra3BattleNetEnabled === 1,
   },
   {
+    key: 'activityRanks',
+    label: 'Discord activity ranks',
+    emoji: '🎖️',
+    description: 'Anti-spam activity points and Online Rank roles',
+    enabled: (g) => g.activityRanksEnabled === 1,
+  },
+  {
     key: 'menusMode',
     label: 'Interactive menus',
     emoji: '🎛️',
@@ -158,6 +166,7 @@ const GUILD_FEATURE_KEYS = new Set<FeatureKey>([
   'news',
   'cncOnline',
   'ra3BattleNet',
+  'activityRanks',
 ]);
 
 export function isFeatureKey(value: string): value is FeatureKey {

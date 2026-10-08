@@ -19,6 +19,17 @@ describe('GuildRepository — column whitelists', () => {
     expect(repo.findByDiscordId('guild1')?.clansEnabled).toBe(1);
   });
 
+  it('activity ranks are opt-in and use a whitelisted feature toggle', () => {
+    repo.upsert('activity-guild', {});
+    expect(repo.findByDiscordId('activity-guild')?.activityRanksEnabled).toBe(0);
+    repo.toggleFeature('activity-guild', 'activityRanks', true);
+    expect(repo.findByDiscordId('activity-guild')?.activityRanksEnabled).toBe(1);
+    repo.setCncPingRole('activity-guild', 'cnc-role');
+    expect(repo.findByDiscordId('activity-guild')?.cncPingRoleId).toBe('cnc-role');
+    repo.setCncPingRole('activity-guild', null);
+    expect(repo.findByDiscordId('activity-guild')?.cncPingRoleId).toBeUndefined();
+  });
+
   it('updateNotifyChannel rejects unknown categories (SQL-injection guard)', () => {
     expect(() => repo.updateNotifyChannel('guild1', 'clans; DROP TABLE guilds', null)).toThrow();
   });

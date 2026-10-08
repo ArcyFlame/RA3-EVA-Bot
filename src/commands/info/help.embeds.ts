@@ -126,6 +126,12 @@ export function buildCommunityEmbed(game: GameId = 'ra3'): EmbedBuilder {
         inline: false,
       },
       {
+        name: '🎖️ Discord Activity Ranks',
+        value:
+          '`/activity rank [member]` - View activity points and rank\n`/activity leaderboard` - Top 10 active members',
+        inline: false,
+      },
+      {
         name: `${TWITCH} ${YOUTUBE} Stream Notifications`,
         value:
           '`/notifications` - Choose which streams and events you get notified about.\nAdmins can add tracked streamers and set channels there too.',
@@ -234,6 +240,12 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
         name: '👤 Player Profiles',
         value:
           '`/profile_admin view <user>` - Inspect a member profile\n`/profile_admin unlink <user> <platform>` - Remove one link\n`/profile_admin clear <user> <confirm>` - Clear linked identities',
+        inline: false,
+      },
+      {
+        name: '🎖️ Activity Ranks',
+        value:
+          '`/activity_admin enable` - Detect Online Rank 1-9 roles and start tracking\n`/activity_admin status` - View role thresholds and anti-spam settings\n`/activity_admin role` - Configure one role\n`/activity_admin ping_role` - Set the daily C&C ping\n`/activity_admin adjust|reset|sync` - Manage points and roles',
         inline: false,
       },
       {
