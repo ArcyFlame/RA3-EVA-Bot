@@ -1,3 +1,4 @@
+import { Events } from 'discord.js';
 import { readdirSync } from 'fs';
 import { join } from 'path';
 import { RA3Bot } from '../bot';
@@ -30,7 +31,10 @@ export async function registerEvents(bot: RA3Bot): Promise<void> {
       await event.execute!(bot, ...args);
     });
     if (event.once) {
-      bot.client.once(event.name, listener);
+      if (event.name === Events.ClientReady && bot.client.isReady()) {
+        // Managed update probation logs in before registering guild handlers.
+        listener(bot.client);
+      } else bot.client.once(event.name, listener);
     } else {
       bot.client.on(event.name, listener);
     }

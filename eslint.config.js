@@ -20,11 +20,23 @@ const nodeGlobals = {
   __filename: 'readonly',
   global: 'readonly',
   URL: 'readonly',
+  AbortController: 'readonly',
 };
 
 module.exports = [
   { ignores: ['dist/**', 'node_modules/**', 'data/**', 'coverage/**'] },
   js.configs.recommended,
+  {
+    files: [
+      'scripts/host-bot.js',
+      'scripts/host-worker.js',
+      'scripts/lib/updater.js',
+      'scripts/stop-host.js',
+      'scripts/check-update.js',
+      'scripts/validate-update.js',
+    ],
+    languageOptions: { sourceType: 'commonjs', globals: nodeGlobals },
+  },
   {
     files: ['src/**/*.ts'],
     languageOptions: {

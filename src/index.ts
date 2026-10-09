@@ -43,7 +43,32 @@ function registerSignalHandlers(): void {
 
 registerSignalHandlers();
 
-bot.start().catch((error) => {
-  logger.error('Failed to start bot:', error);
-  process.exit(1);
-});
+if (process.send) {
+  process.on('message', (message: unknown) => {
+    const type = (message as { type?: unknown } | null)?.type;
+    if (type === 'activate') {
+      bot.activate().catch((error) => {
+        logger.error('Managed activation failed:', error);
+        process.exit(1);
+      });
+    } else if (type === 'stop') {
+      const timeout = setTimeout(() => process.exit(1), 10_000);
+      timeout.unref();
+      bot.stop().finally(() => process.exit(0));
+    }
+  });
+  process.on('disconnect', () => {
+    bot.stop().finally(() => process.exit(0));
+    setTimeout(() => process.exit(1), 10_000).unref();
+  });
+}
+
+bot
+  .start()
+  .then(() => {
+    if (process.connected) process.send?.({ type: 'bot-ready' }, () => {});
+  })
+  .catch((error) => {
+    logger.error('Failed to start bot:', error);
+    process.exit(1);
+  });

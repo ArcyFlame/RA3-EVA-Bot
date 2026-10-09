@@ -13,7 +13,7 @@ import { logger } from './logger';
 
 // Stencil font. node-canvas only binds registerFont when it is called twice;
 // "Red Alert" is the family that canvas resolves.
-const fontPath = join(process.cwd(), 'fonts', 'RedAlert.ttf');
+const fontPath = join(__dirname, '../../fonts', 'RedAlert.ttf');
 try {
   registerFont(fontPath, { family: 'Red Alert' });
   registerFont(fontPath, { family: 'Red Alert Extended' });
@@ -22,7 +22,7 @@ try {
   logger.warn('Red Alert font not found - using fallback font', error);
 }
 
-const miedingerPath = join(process.cwd(), 'fonts', 'Miedinger-Book.otf');
+const miedingerPath = join(__dirname, '../../fonts', 'Miedinger-Book.otf');
 if (existsSync(miedingerPath)) {
   try {
     registerFont(miedingerPath, { family: 'Miedinger Book' });

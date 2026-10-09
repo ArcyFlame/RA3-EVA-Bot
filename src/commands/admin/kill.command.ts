@@ -23,7 +23,7 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
     bot
       .stop()
       .catch((error) => logger.error('Error during kill shutdown:', error))
-      .finally(() => process.exit(0));
+      .finally(() => process.exit(process.send ? 64 : 0));
   }, 1500);
   timer.unref();
 }

@@ -88,8 +88,17 @@ function ensureMigrationsTable(): void {
   `);
 }
 
+export const LATEST_SCHEMA_VERSION = migrations[migrations.length - 1].version;
+
 export async function connectDatabase(): Promise<void> {
   ensureMigrationsTable();
+
+  const newest = db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as {
+    version: number | null;
+  };
+  if ((newest.version ?? 0) > LATEST_SCHEMA_VERSION) {
+    throw new Error('Database schema is newer than this bot version; refusing an unsafe downgrade');
+  }
 
   const applied = new Set(
     (db.prepare('SELECT version FROM schema_migrations').all() as Array<{ version: number }>).map(

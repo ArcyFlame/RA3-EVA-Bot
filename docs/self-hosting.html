@@ -27,13 +27,14 @@
     <main class="content">
       <h1>Self-Hosting</h1>
       <p>
-        E.V.A is a Node.js + TypeScript application with an SQLite database — one process, no
-        external services required.
+        E.V.A is a Node.js + TypeScript application with an SQLite database. The managed host runs
+        one Discord bot alongside its private supervisor; no external database service is required.
       </p>
 
       <h2>Requirements</h2>
       <ul>
-        <li>Node.js 20.18.1 or newer</li>
+        <li>Node.js 22.12.0 or newer (Node 22 and 24 are checked in CI)</li>
+        <li>Git and npm for automatic release updates</li>
         <li>A Discord bot token (Developer Portal → Bot)</li>
         <li>Optional: Challonge API key, Twitch app credentials</li>
       </ul>
@@ -41,10 +42,10 @@
       <h2>Install &amp; run</h2>
       <pre><code>git clone &lt;repository&gt;
 cd ra3-eva-bot
-npm install
+npm ci
 cp .env.example .env    # fill in DISCORD_TOKEN
 npm run build
-node dist/index.js</code></pre>
+npm start</code></pre>
 
       <p>
         <code>.env.example</code> documents every variable. Only <code>DISCORD_TOKEN</code> is
@@ -87,6 +88,153 @@ node dist/index.js</code></pre>
         <code>fonts/</code>. Generals Evolution charts use the bundled
         <code>fonts/Miedinger-Book.otf</code> from indestructible type*. It is distributed under the
         SIL Open Font License in <code>fonts/OFL-Miedinger.txt</code>.
+      </p>
+
+      <h2>Automatic updates</h2>
+      <p>
+        <code>npm start</code> runs a private process supervisor on Windows or Linux. It restarts
+        the current bot after <code>/restart</code> or a crash, with bounded retries.
+        <code>/kill</code> and <code>npm stop</code> stop the supervisor too. There is no public
+        update endpoint and Discord administrators cannot change the trusted repository or run
+        hosting commands.
+      </p>
+      <p>
+        Updates are off by default. To enable them, add these settings to the hosting machine's
+        <code>.env</code> and restart the host:
+      </p>
+      <pre><code>AUTO_UPDATE_ENABLED=true
+AUTO_UPDATE_INTERVAL_MINUTES=360</code></pre>
+      <p>
+        Only a newer, published stable release from
+        <a href="https://github.com/ArcyFlame/RA3-EVA-Bot/releases">ArcyFlame/RA3-EVA-Bot</a>
+        is accepted. Branch commits, drafts, prereleases and downgrades are not deployed. No GitHub
+        token is needed. Run <code>npm run update:check</code> for a read-only check. Version,
+        active commit and the latest update error are saved in <code>.updates/state.json</code>.
+      </p>
+      <ol>
+        <li>
+          The release tag's commit is resolved through GitHub, then checked against the downloaded
+          Git commit.
+        </li>
+        <li>
+          A separate release directory is built with the locked dependencies. Only canvas and SQLite
+          native install scripts are enabled. The production dependency audit, build, lint and tests
+          must pass.
+        </li>
+        <li>
+          Migrations and native modules are rehearsed on a disposable database snapshot while the
+          current bot remains online.
+        </li>
+        <li>
+          The old bot stops, a final checked database backup is taken, and the candidate starts in
+          probation. It cannot handle guild events, post or change commands yet.
+        </li>
+        <li>
+          After successful login and a 15-second startup check, the release is activated. Startup
+          failure restores the previous code and database; a failed commit is not retried
+          automatically.
+        </li>
+      </ol>
+      <p>
+        The checkout, local edits, <code>.env</code>, shared database and logs stay in place.
+        Releases, failed staging directories and backups live in <code>.updates/</code>, which is
+        private and excluded from Git. Keep it on local storage with enough disk space. Old backups
+        and releases are retained for recovery; inspect storage occasionally and never remove the
+        active/pending release or its rollback backup. Do not run a direct bot process alongside the
+        managed host with the same token/database.
+      </p>
+      <blockquote>
+        Automatic updates trust the repository's release maintainers and the locked npm
+        dependencies. Commit matching is not a publisher signature and cannot protect against a
+        compromised maintainer account. Builds do not inherit bot/API secrets, but they are not an
+        operating-system sandbox: use a dedicated, unprivileged hosting account. Node.js, Git and
+        operating-system security updates remain the host administrator's responsibility. Do not run
+        automatic <code>npm audit fix</code>
+        against the live installation.
+      </blockquote>
+      <p>
+        Automatic database rollback is limited to provisional startup, before normal traffic is
+        enabled. A later failure uses bounded restarts or stops for inspection; it does not rewind
+        player data created after activation. If <code>DATABASE_PATH</code> changes during an
+        update, recovery stops for manual review rather than overwriting a different database.
+        <code>npm run start:direct</code> remains available without supervision or automatic
+        updates.
+      </p>
+
+      <h2>Running on a Linux server</h2>
+      <p>
+        Run the supervisor as a dedicated account, with writable application storage. A systemd
+        service can use the following template after you adjust the paths and create the
+        <code>eva</code> account. Use <code>on-failure</code>, not <code>always</code>, so an
+        intentional owner shutdown stays stopped.
+      </p>
+      <pre><code>[Unit]
+Description=E.V.A community bot
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=eva
+WorkingDirectory=/opt/ra3-eva-bot
+ExecStart=/usr/bin/node /opt/ra3-eva-bot/scripts/host-bot.js
+Environment=NODE_ENV=production
+Restart=on-failure
+RestartSec=15
+KillMode=control-group
+TimeoutStopSec=45
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+      <p>
+        Native canvas/SQLite builds may need platform-specific build tools, Cairo and Pango. Updates
+        fail closed if the server cannot build or test a release. For an immutable Docker image or
+        read-only deployment, leave this updater disabled and update the image through your
+        deployment platform instead.
+      </p>
+
+      <h2>Wispbyte</h2>
+      <p>
+        In <a href="https://wispbyte.com/kb/startup-settings">Startup settings</a>, select a Node.js
+        22.12+ or Node.js 24 image and use <code>node scripts/host-bot.js</code> as the startup
+        command (or <code>scripts/host-bot.js</code> as <code>JS_FILE</code>). Compile the initial
+        installation with <code>npm run build</code> after installing its locked dependencies.
+        Windows <code>node_modules</code> cannot be copied to a Linux container.
+      </p>
+      <p>
+        Keep the bot token and other secrets in the panel's environment variables. Leave the panel's
+        GitHub auto-pull disabled if using this stable-release updater: an in-place
+        <code>git pull</code> is not a checked release deployment. Avoid startup commands which
+        reinstall unpinned packages on every restart. The runtime needs Git, npm, native module
+        support and writable, persistent <code>data/</code>, <code>logs/</code> and
+        <code>.updates/</code> directories.
+      </p>
+      <p>
+        Staging is skipped unless at least 1 GiB of disk and 512 MiB of RAM are available; Linux
+        container memory limits are included. These are minimum headroom checks, not a guarantee
+        that every future release fits. Small hosting plans may need updates built elsewhere and
+        uploaded manually, with <code>AUTO_UPDATE_ENABLED=false</code>. Confirm your server's limits
+        and panel inactivity policy before relying on unattended hosting. This guide does not imply
+        that a particular Wispbyte server has been deployed or tested.
+      </p>
+      <p>
+        Stop the local bot before starting the hosted copy with the same token. Transfer the SQLite
+        database while both copies are stopped, keep a local backup, and do not upload credentials
+        or runtime data to GitHub. The supervisor still starts only one Discord client.
+      </p>
+
+      <h2>Publishing an update</h2>
+      <p>
+        Maintainers update <code>package.json</code> and <code>package-lock.json</code> to the same
+        stable version, run the checks, tag that commit as <code>vX.Y.Z</code>, and publish a GitHub
+        release. Keep updater protocol 1 compatible and set <code>botUpdater.schemaVersion</code> to
+        the newest registered migration. The checked-in CI runs on pushes, tags and pull requests.
+        Dependency security fixes are reviewed and delivered in releases, not installed into the
+        live bot independently of its lockfile.
       </p>
 
       <blockquote>

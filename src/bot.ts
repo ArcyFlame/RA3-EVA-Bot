@@ -23,6 +23,7 @@ export class RA3Bot {
   };
   private webhookServer: WebhookServer | null = null;
   private shuttingDown = false;
+  private probation = process.env.RA3_UPDATE_PROBATION === '1' && !!process.send;
 
   constructor() {
     this.client = new Client({
@@ -51,8 +52,24 @@ export class RA3Bot {
     // Load local definitions before login so a broken file fails fast at boot.
     await loadCommands(this);
     await registerComponents(this);
-    await registerEvents(this);
+    if (!this.probation) await registerEvents(this);
     await this.client.login(env.DISCORD_TOKEN);
+    if (this.probation) {
+      logger.info('Update startup check passed; awaiting supervisor activation');
+      return;
+    }
+    await this.finishStartup();
+  }
+
+  /** During an update check, no guild events, posts or command changes may run. */
+  async activate(): Promise<void> {
+    if (!this.probation || this.shuttingDown) return;
+    this.probation = false;
+    await registerEvents(this);
+    await this.finishStartup();
+  }
+
+  private async finishStartup(): Promise<void> {
     // Push slash-command definitions to Discord only after we know our client id.
     await registerCommands(this);
 
