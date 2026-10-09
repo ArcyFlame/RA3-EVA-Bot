@@ -29,6 +29,7 @@ const screens = new Set<ActivityScreen>([
   'reset',
   'ratings',
   'scan',
+  'chat',
 ]);
 
 export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
@@ -46,6 +47,28 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     if (screens.has(action as ActivityScreen)) {
       await interaction.update(
         buildActivityAdminView(guild, interaction.user.id, action as ActivityScreen, ref),
+      );
+      return;
+    }
+    if (action === 'chat_xp') {
+      await interaction.showModal(
+        activityModal('chat_xp', '0', version, interaction.user.id, 'Chat XP & Limits', [
+          {
+            id: 'points',
+            label: 'XP per qualifying message (1-1000)',
+            value: String(settings.chatPoints),
+          },
+          {
+            id: 'cooldown',
+            label: 'Cooldown in seconds (30-86400)',
+            value: String(settings.chatCooldownSeconds),
+          },
+          {
+            id: 'daily',
+            label: 'XP limit per member/day (1-10000)',
+            value: String(settings.chatDailyCap),
+          },
+        ]),
       );
       return;
     }
@@ -77,12 +100,12 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
         activityModal('rating_xp', '0', version, interaction.user.id, 'Replay Rating XP', [
           {
             id: 'points',
-            label: 'XP per net positive vote (1-1000)',
+            label: 'XP per upvote (1-1000)',
             value: String(settings.ratingPoints),
           },
           {
             id: 'minimum',
-            label: 'Minimum net positive votes (1-100)',
+            label: 'Minimum upvotes (1-100)',
             value: String(settings.ratingMinVotes),
           },
           {
@@ -155,7 +178,31 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     let screen: ActivityScreen = 'main';
     let target: string | number = 0;
     let notice = '✅ Settings saved.';
-    if (action === 'toggle_ratings') {
+    if (action === 'toggle_scan') {
+      activityRankRepository.updateSettings(
+        guild.id,
+        { replayAutoScan: !settings.replayAutoScan },
+        version,
+      );
+      screen = 'sources';
+    } else if (action === 'toggle_chat') {
+      activityRankRepository.updateSettings(
+        guild.id,
+        { chatEnabled: !settings.chatEnabled },
+        version,
+      );
+      screen = 'chat';
+    } else if (action === 'vote_mode') {
+      if (guildRepository.findByDiscordId(guild.id)?.game !== 'genevo')
+        throw new Error('Replay ratings are available only in GenEvo setup.');
+      activityRankRepository.updateSettings(
+        guild.id,
+        { ratingMode: settings.ratingMode === 'both' ? 'up' : 'both' },
+        version,
+      );
+      screen = 'ratings';
+      void replayRatingService.reconcileRecentCards(_bot.client, guild.id).catch(() => undefined);
+    } else if (action === 'toggle_ratings') {
       activityRankRepository.updateSettings(
         guild.id,
         { ratingsEnabled: !settings.ratingsEnabled },

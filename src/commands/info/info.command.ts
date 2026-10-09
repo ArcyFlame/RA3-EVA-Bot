@@ -6,12 +6,12 @@ export const data = new SlashCommandBuilder().setName('info').setDescription('Ab
 
 export const guildOnly = false;
 
-export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
+export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   const context = getGameContext(interaction.guildId);
   const platforms =
     context.game === 'ra3'
       ? 'GameReplays, C&C Online, Shatabrick and RA3BattleNet'
-      : 'C&C Online, RA3BattleNet, Shatabrick, ModDB, YouTube and Twitch';
+      : 'C&C Online, RA3BattleNet, ModDB, YouTube and Twitch';
   const embed = new EmbedBuilder()
     .setTitle('🤖 About RA3 EVA Bot')
     .setDescription(
@@ -23,7 +23,9 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
         '• Tournaments with Challonge integration & results\n' +
         '• Clan system with custom roles and channels\n' +
         '• Live community stats panel with charts (1v1, 2v2 and 3v3)\n' +
-        '• Player profiles and ranks (Shatabrick & RA3BattleNet)\n' +
+        (context.game === 'ra3'
+          ? '• Player profiles and ranks (Shatabrick & RA3BattleNet)\n'
+          : '• GenEvo player profiles and server activity ranks\n') +
         `• Twitch, YouTube, ModDB and ${context.config.shortLabel} news\n` +
         '• Custom maps hub & esports map picker\n' +
         '• Moderation tools (kick, ban, warnings)\n\n' +
@@ -32,8 +34,8 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     .setColor(context.config.color)
     .addFields(
       { name: '🛠️ Created by', value: '<@270293736871690240> (Arcy)', inline: true },
-      { name: '📅 Version', value: '5.0.0', inline: true },
+      { name: '📅 Version', value: '5.1.0', inline: true },
     )
-    .setThumbnail(context.config.artworkUrl);
+    .setThumbnail(bot.client.user?.displayAvatarURL() ?? null);
   await interaction.reply({ embeds: [embed], ephemeral: true });
 }

@@ -87,7 +87,13 @@ export async function execute(
           .setTitle('🏅 Activity Leaderboard')
           .setDescription(lines.join('\n') || 'No activity has been recorded yet.')
           .setColor(0xd6ad43)
-          .setFooter({ text: 'Pings count once per UTC day. Ordinary chat earns no XP.' }),
+          .setFooter({
+            text:
+              'Pings count once per UTC day. ' +
+              (activityRankRepository.getSettings(guild.id).chatEnabled
+                ? 'Chat XP uses cooldown and daily limits.'
+                : 'Ordinary chat earns no XP.'),
+          }),
       ],
       allowedMentions: { parse: [] },
     });

@@ -108,7 +108,9 @@ export class HelpView {
         newEmbed = buildProfileEmbed(this.game);
         break;
       case 'info':
-        newEmbed = buildInfoEmbed(this.game);
+        newEmbed = buildInfoEmbed(this.game).setThumbnail(
+          interaction.client?.user?.displayAvatarURL() ?? null,
+        );
         break;
       case 'admin':
         newEmbed = buildAdminEmbed(this.game);

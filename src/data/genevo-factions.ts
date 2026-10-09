@@ -30,3 +30,26 @@ export function genevoFactionTotal(distribution: GenevoFactionDistribution): num
     0,
   );
 }
+
+/** Provider names are explicit identifiers; unidentified numeric/hash IDs are not guessed. */
+export function normalizeGenevoFaction(value: string): GenevoFactionName | undefined {
+  const key = value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const direct = GENEVO_FACTIONS.find(
+    (f) => f.name.toLowerCase().replace(/[^a-z0-9]/g, '') === key,
+  )?.name;
+  const aliases: Record<string, GenevoFactionName> = {
+    allied: 'USA',
+    soviet: 'China',
+    empire: 'GLA',
+    genevoamericaairforcegeneral: 'USA - Air Force General',
+    genevoamericalasergeneral: 'USA - Laser General',
+    genevoamericasuperweapongeneral: 'USA - Superweapon General',
+    genevochinainfantrygeneral: 'China - Infantry General',
+    genevochinanukegeneral: 'China - Nuke General',
+    genevochinatankgeneral: 'China - Tank General',
+    genevoglatoxingeneral: 'GLA - Toxin Weapons General',
+    genevoglastealthgeneral: 'GLA - Stealth General',
+    genevoglademolitiongeneral: 'GLA - Demolition General',
+  };
+  return direct ?? aliases[key];
+}

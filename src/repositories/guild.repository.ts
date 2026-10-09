@@ -35,6 +35,8 @@ export interface Guild {
   cncOnlineEnabled: number;
   ra3BattleNetEnabled: number;
   activityRanksEnabled: number;
+  chartsEnabled: number;
+  mastersEnabled: number;
   cncPingRoleId?: string;
   /** JSON array of help-category values hidden from /help on this server. */
   hiddenHelpCategories?: string;
@@ -70,6 +72,8 @@ const FEATURE_COLUMNS: Record<string, string> = {
   cncOnline: 'cnc_online_enabled',
   ra3BattleNet: 'ra3battle_net_enabled',
   activityRanks: 'activity_ranks_enabled',
+  charts: 'charts_enabled',
+  masters: 'masters_enabled',
 };
 
 export class GuildRepository extends BaseRepository {
@@ -118,6 +122,8 @@ export class GuildRepository extends BaseRepository {
       cncOnlineEnabled: row.cnc_online_enabled ?? 1,
       ra3BattleNetEnabled: row.ra3battle_net_enabled ?? 1,
       activityRanksEnabled: row.activity_ranks_enabled ?? 0,
+      chartsEnabled: row.charts_enabled ?? 1,
+      mastersEnabled: row.masters_enabled ?? (row.game === 'genevo' ? 0 : 1),
       cncPingRoleId: row.cnc_ping_role_id ?? undefined,
       hiddenHelpCategories: row.hidden_help_categories,
       createdAt: row.created_at,
@@ -237,6 +243,12 @@ export class GuildRepository extends BaseRepository {
         ],
       );
     }
+    if (!existing || (data.game !== undefined && data.game !== existing.game))
+      this.toggleFeature(discordId, 'masters', (data.game ?? 'ra3') === 'ra3');
+    if (data.mastersEnabled !== undefined)
+      this.toggleFeature(discordId, 'masters', data.mastersEnabled === 1);
+    if (data.chartsEnabled !== undefined)
+      this.toggleFeature(discordId, 'charts', data.chartsEnabled === 1);
   }
 
   updateNotifyChannel(discordId: string, category: string, channelId: string | null): void {
@@ -295,9 +307,10 @@ export class GuildRepository extends BaseRepository {
        SET game = ?,
            cnc_online_enabled = 1,
            ra3battle_net_enabled = ?,
+           masters_enabled = CASE WHEN game <> ? THEN ? ELSE masters_enabled END,
            updated_at = CURRENT_TIMESTAMP
        WHERE discord_id = ?`,
-      [game, 1, discordId],
+      [game, 1, game, game === 'ra3' ? 1 : 0, discordId],
     );
   }
 

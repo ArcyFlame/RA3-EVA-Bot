@@ -24,7 +24,7 @@ const TOURNAMENT_COMMANDS = new Set([
   'tournaments_scan',
   'match_panel',
 ]);
-const RA3_ONLY_COMMANDS = new Set(['masters', 'add_master', 'remove_master', 'list_masters']);
+const MASTERS_COMMANDS = new Set(['masters', 'add_master', 'remove_master', 'list_masters']);
 const TOURNAMENT_COMPONENT_PREFIXES = [
   'eventpg_',
   'resultspg_',
@@ -116,12 +116,12 @@ export async function execute(bot: RA3Bot, interaction: Interaction): Promise<vo
       return;
     }
     if (
-      RA3_ONLY_COMMANDS.has(commandName) &&
+      MASTERS_COMMANDS.has(commandName) &&
       interaction.guildId &&
-      guildRepository.findByDiscordId(interaction.guildId)?.game === 'genevo'
+      guildRepository.findByDiscordId(interaction.guildId)?.mastersEnabled === 0
     ) {
       await interaction.reply({
-        content: 'The Masters Hall of Fame is a Red Alert 3 feature.',
+        content: 'The Masters Hall of Fame is disabled. An admin can enable it in /toggle.',
         ephemeral: true,
       });
       return;

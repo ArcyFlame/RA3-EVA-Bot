@@ -21,6 +21,7 @@ import { Language } from '../../repositories/user.repository';
 import { t } from '../../utils/i18n';
 import { requireAdminInteraction } from '../../utils/admin-interaction';
 import { postRecentIfChannelEmpty } from '../../services/content-bootstrap.service';
+import { activityRankRepository } from '../../repositories/activity-rank.repository';
 
 /** Live wizard sessions keyed by the message id currently hosting the wizard UI. */
 export const wizardViews = new Map<string, GuildChannelsWizardView>();
@@ -116,6 +117,7 @@ export class GuildChannelsWizardView {
     { label: 'ModDB Updates', value: 'moddb', emoji: '📦' },
     { label: 'Lobby Updates', value: 'lobby', emoji: '🎮' },
     { label: 'Game News', value: 'news', emoji: '📰' },
+    { label: 'Replay Uploads', value: 'replays', emoji: '📁' },
   ];
 
   constructor(guild: Guild, ownerId: string) {
@@ -176,6 +178,11 @@ export class GuildChannelsWizardView {
       { name: '📦 ModDB Updates', value: getChannel(guildData?.moddbChannelId), inline: true },
       { name: '🎮 Lobby Updates', value: getChannel(guildData?.lobbyChannelId), inline: true },
       { name: '📰 Game News', value: getChannel(guildData?.newsChannelId), inline: true },
+      {
+        name: '📁 Replay Uploads',
+        value: getChannel(activityRankRepository.getSettings(this.guild.id).replayChannelId),
+        inline: true,
+      },
     ];
 
     for (const field of fields) {
@@ -320,13 +327,20 @@ export class GuildChannelsWizardView {
       return;
     }
     if (category === 'stats_panel') statsPanelRepository.setChannel(this.guild.id, channel.id);
-    else guildRepository.updateNotifyChannel(this.guild.id, category, channel.id);
-    const bootstrap = await postRecentIfChannelEmpty(
-      client,
-      this.guild.id,
-      category,
-      channel.id,
-    ).catch(() => 'unavailable' as const);
+    else if (category === 'replays') {
+      const settings = activityRankRepository.getSettings(this.guild.id);
+      activityRankRepository.updateSettings(
+        this.guild.id,
+        { replayChannelId: channel.id },
+        settings.version,
+      );
+    } else guildRepository.updateNotifyChannel(this.guild.id, category, channel.id);
+    const bootstrap =
+      category === 'replays'
+        ? null
+        : await postRecentIfChannelEmpty(client, this.guild.id, category, channel.id).catch(
+            () => 'unavailable' as const,
+          );
     await interaction.editReply({
       content:
         `✅ **${category}** channel set to ${channel}.` +
@@ -347,6 +361,13 @@ export class GuildChannelsWizardView {
       if (!(await this.deleteStatsPanelMessage(interaction))) return;
       if (!(await this.authorize(interaction))) return;
       statsPanelRepository.delete(this.guild.id);
+    } else if (category === 'replays') {
+      const settings = activityRankRepository.getSettings(this.guild.id);
+      activityRankRepository.updateSettings(
+        this.guild.id,
+        { replayAutoScan: false, replayEnabled: false },
+        settings.version,
+      );
     } else {
       guildRepository.updateNotifyChannel(this.guild.id, category, null);
     }
@@ -359,7 +380,14 @@ export class GuildChannelsWizardView {
     if (!(await this.deleteStatsPanelMessage(interaction))) return;
     if (!(await this.authorize(interaction))) return;
     for (const category of this.categories) {
-      if (category.value !== 'stats_panel') {
+      if (category.value === 'replays') {
+        const settings = activityRankRepository.getSettings(this.guild.id);
+        activityRankRepository.updateSettings(
+          this.guild.id,
+          { replayAutoScan: false, replayEnabled: false },
+          settings.version,
+        );
+      } else if (category.value !== 'stats_panel') {
         guildRepository.updateNotifyChannel(this.guild.id, category.value, null);
       }
     }

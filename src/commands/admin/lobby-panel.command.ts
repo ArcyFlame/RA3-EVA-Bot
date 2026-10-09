@@ -15,6 +15,7 @@ import { guildRepository } from '../../repositories/guild.repository';
 import { CNC_ONLINE, RA3_BATTLE_NET } from '../../utils/emojis';
 import { logger } from '../../utils/logger';
 import { getGameContext } from '../../utils/game-context';
+import { formatMatchPlayers } from '../../utils/match-format';
 
 export const data = new SlashCommandBuilder()
   .setName('lobby_panel')
@@ -111,7 +112,9 @@ async function updateLobbyPanel(bot: RA3Bot, guildId: string) {
         const platformEmoji = lobby.platform === 'C&C Online' ? CNC_ONLINE : RA3_BATTLE_NET;
         embed.addFields({
           name: `${platformEmoji} ${lobby.map} (${lobby.mode})`,
-          value: `Players: ${lobby.players.join(', ')}`,
+          value: lobby.summary
+            ? formatMatchPlayers(lobby.summary)
+            : `Players: ${lobby.players.join(', ')}`,
           inline: false,
         });
       }

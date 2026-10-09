@@ -10,6 +10,7 @@ import { RA3Bot } from '../../bot';
 import { MODDB, RA3_BATTLE_NET } from '../../utils/emojis';
 import { getGameContext } from '../../utils/game-context';
 import { gameMapNames, RA3_TOURNAMENT_MAPS } from '../../data/game-maps';
+import { mapCatalogService } from '../../services/map-catalog.service';
 
 export const data = new SlashCommandBuilder()
   .setName('maps')
@@ -20,10 +21,11 @@ export const guildOnly = false;
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   const context = getGameContext(interaction.guildId);
   if (context.game === 'genevo') {
+    const maps = [...new Set([...gameMapNames('genevo'), ...mapCatalogService.list()])];
     const embed = new EmbedBuilder()
       .setTitle('🗺️ Generals Evolution Maps')
       .setDescription(
-        `The bot recognizes **${gameMapNames('genevo').length} Generals Evolution 0.33 maps** and uses their internal IDs to keep GenEvo lobbies separate from Red Alert 3. Maps are installed and updated with the mod.`,
+        `The catalog contains **${maps.length} maps**. New maps observed in GenEvo lobbies are saved automatically. Maps are installed and updated with the mod.`,
       )
       .setColor(context.config.color)
       .setThumbnail(context.config.artworkUrl)
@@ -49,6 +51,12 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
         .setStyle(ButtonStyle.Link)
         .setURL('https://cnc-online.net/en/'),
     );
+    const discovered = maps.filter((name) => !gameMapNames('genevo').includes(name));
+    if (discovered.length)
+      embed.addFields({
+        name: 'Recently Discovered Maps',
+        value: discovered.slice(0, 20).join('\n').slice(0, 1024),
+      });
     await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
     return;
   }

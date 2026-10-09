@@ -425,7 +425,13 @@ export function matchesGameLobby(
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '');
   if (game === 'genevo') {
-    return mod === 'genevo' || mod === 'generalsevolution' || isKnownGameMap(rawMapName, game);
+    if (mod && mod !== 'genevo' && mod !== 'generalsevolution') return false;
+    return (
+      mod === 'genevo' ||
+      mod === 'generalsevolution' ||
+      /(?:^|[/\\])genevo\d{2,4}[_\s-]/i.test(rawMapName) ||
+      isKnownGameMap(rawMapName, game)
+    );
   }
   if (mod && mod !== 'ra3' && mod !== 'redalert3') return false;
   return isKnownGameMap(rawMapName, game);

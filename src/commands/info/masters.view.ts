@@ -1,6 +1,7 @@
 import { EmbedBuilder } from 'discord.js';
 import { Master } from '../../repositories/master.repository';
 import { sanitizeInput } from '../../utils/sanitize';
+import { GameId, GAME_CONFIGS } from '../../config/games';
 
 function patchLabel(patch: string | undefined): string {
   if (!patch) return '';
@@ -8,7 +9,7 @@ function patchLabel(patch: string | undefined): string {
   return ` · 🛠️ ${label}`;
 }
 
-export function buildMastersEmbed(masters: Master[]): EmbedBuilder {
+export function buildMastersEmbed(masters: Master[], game: GameId = 'ra3'): EmbedBuilder {
   const byYear = new Map<number, Master[]>();
   for (const master of masters) {
     const entries = byYear.get(master.year) ?? [];
@@ -17,7 +18,7 @@ export function buildMastersEmbed(masters: Master[]): EmbedBuilder {
   }
 
   const embed = new EmbedBuilder()
-    .setTitle('🏛️ Red Alert 3 Hall of Fame')
+    .setTitle(`🏛️ ${GAME_CONFIGS[game].shortLabel} Hall of Fame`)
     .setDescription('Masters remembered across every competitive season.')
     .setColor(0xffb900);
 
@@ -31,6 +32,8 @@ export function buildMastersEmbed(masters: Master[]): EmbedBuilder {
       inline: false,
     });
   }
-  embed.setFooter({ text: `${masters.length} master${masters.length === 1 ? '' : 's'} • newest year first` });
+  embed.setFooter({
+    text: `${masters.length} master${masters.length === 1 ? '' : 's'} • newest year first`,
+  });
   return embed;
 }

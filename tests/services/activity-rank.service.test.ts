@@ -178,6 +178,19 @@ describe('activity event handling', () => {
     );
     expect(axios.get).not.toHaveBeenCalled();
   });
+  it('does not download new uploads when automatic replay scanning is off', async () => {
+    const id = 'auto-scan-off';
+    guildRepository.upsert(id, { game: 'genevo', activityRanksEnabled: 1 });
+    activityRankRepository.updateSettings(id, { replayAutoScan: false }, 0);
+    await new ActivityRankService().handleMessage(
+      message(id, {
+        mentions: { roles: new Collection() },
+        attachments: new Collection([['file', attachment]]),
+      }),
+    );
+    expect(axios.get).not.toHaveBeenCalled();
+    expect(activityRankRepository.getMember(id, 'member')).toBeUndefined();
+  });
   it('blocks roles that acquired permissions after configuration', async () => {
     const id = 'role-service';
     guildRepository.upsert(id, { game: 'ra3', activityRanksEnabled: 1 });

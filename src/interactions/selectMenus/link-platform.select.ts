@@ -8,6 +8,7 @@ import {
 import { RA3Bot } from '../../bot';
 import { userRepository } from '../../repositories/user.repository';
 import { t } from '../../utils/i18n';
+import { getGameContext } from '../../utils/game-context';
 
 export const customId = 'link_platform';
 
@@ -16,6 +17,13 @@ export async function execute(_bot: RA3Bot, interaction: StringSelectMenuInterac
   const platform = interaction.values[0];
   if (platform !== 'shatabrick' && platform !== 'ra3b') {
     await interaction.reply({ content: t(lang, 'common.invalidPlatform'), ephemeral: true });
+    return;
+  }
+  if (getGameContext(interaction.guildId).game === 'genevo' && platform === 'shatabrick') {
+    await interaction.reply({
+      content: 'Shatabrick profiles are available in the Red Alert 3 setup only.',
+      ephemeral: true,
+    });
     return;
   }
   const isRa3b = platform === 'ra3b';
@@ -28,7 +36,7 @@ export async function execute(_bot: RA3Bot, interaction: StringSelectMenuInterac
     .setPlaceholder(t(lang, isRa3b ? 'link.ra3bPlaceholder' : 'link.shatabrickPlaceholder'))
     .setStyle(TextInputStyle.Short)
     .setMinLength(1)
-    .setMaxLength(64)
+    .setMaxLength(256)
     .setRequired(true);
   modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(identifier));
   await interaction.showModal(modal);

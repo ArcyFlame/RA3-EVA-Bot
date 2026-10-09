@@ -11,6 +11,7 @@ import { lobbyService } from '../../services/lobby.service';
 import { guildRepository } from '../../repositories/guild.repository';
 import { CNC_ONLINE, RA3_BATTLE_NET } from '../../utils/emojis';
 import { getGameContext } from '../../utils/game-context';
+import { formatMatchPlayers } from '../../utils/match-format';
 
 export const data = new SlashCommandBuilder()
   .setName('lobby')
@@ -53,7 +54,9 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     for (const lobby of cncLobbies.slice(0, 10)) {
       embed.addFields({
         name: `${CNC_ONLINE} ${lobby.map} (${lobby.mode})`,
-        value: `Players: ${lobby.players.join(', ')}`,
+        value: lobby.summary
+          ? formatMatchPlayers(lobby.summary)
+          : `Players: ${lobby.players.join(', ')}`,
         inline: false,
       });
     }
@@ -62,7 +65,9 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     for (const lobby of ra3bLobbies.slice(0, 10)) {
       embed.addFields({
         name: `${RA3_BATTLE_NET} ${lobby.map} (${lobby.mode})`,
-        value: `Players: ${lobby.players.join(', ')}`,
+        value: lobby.summary
+          ? formatMatchPlayers(lobby.summary)
+          : `Players: ${lobby.players.join(', ')}`,
         inline: false,
       });
     }

@@ -52,9 +52,11 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
         : (page as StatsPage);
 
   try {
+    if (isPublicPanel) await interaction.deferReply({ ephemeral: true });
+    else await interaction.deferUpdate();
     const context = getGameContext(interaction.guildId);
     const stats = await ra3StatsService.fetch(context.game, context.sources);
-    const view = new StatsView(stats, context.game, context.sources);
+    const view = new StatsView(stats, context.game, context.sources, context.mastersEnabled);
     view.setPage(nextPage);
     view.setMode(mode);
     const payload: any = { embeds: [view.getEmbed()], components: view.getComponents() };
@@ -62,14 +64,19 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     // The Recent Matches & Factions page carries its chart in a separate
     // follow-up message (attachments would render above the embed otherwise).
     let factionFiles: Array<{ attachment: Buffer; name: string }> | null = null;
-    if (nextPage === 1 && context.game === 'ra3' && context.sources.ra3BattleNet) {
+    if (
+      context.chartsEnabled &&
+      nextPage === 1 &&
+      context.game === 'ra3' &&
+      context.sources.ra3BattleNet
+    ) {
       try {
         const pie = await generatePieChartBuffer(stats.faction_distribution);
         factionFiles = [{ attachment: pie, name: 'faction_distribution.png' }];
       } catch (err) {
         logger.warn('Faction pie chart failed:', err);
       }
-    } else if (nextPage === 1 && context.game === 'genevo') {
+    } else if (context.chartsEnabled && nextPage === 1 && context.game === 'genevo') {
       try {
         const chart = await generateGenevoFactionChartBuffer(stats.genevo_faction_distribution);
         factionFiles = [{ attachment: chart, name: 'genevo_faction_distribution.png' }];
@@ -80,14 +87,11 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
 
     if (isPublicPanel) {
       // Private answer for the clicker; the public panel stays on the overview.
-      if (interaction.deferred || interaction.replied) return;
-      await interaction.deferReply({ ephemeral: true });
       await interaction.editReply({
         ...payload,
         content: '📬 Showing you this page privately - the channel panel stays on Live Stats.',
       });
     } else {
-      await interaction.deferUpdate();
       await interaction.editReply(payload);
     }
 

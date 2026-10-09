@@ -25,6 +25,8 @@ export type FeatureKey =
   | 'cncOnline'
   | 'ra3BattleNet'
   | 'activityRanks'
+  | 'charts'
+  | 'masters'
   | 'menusMode'
   | 'dmPublicCommands';
 
@@ -38,6 +40,20 @@ interface FeatureDefinition {
 }
 
 export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
+  {
+    key: 'charts',
+    label: 'Stats charts',
+    emoji: '📈',
+    description: 'Charts in stats commands and scheduled panels',
+    enabled: (g) => g.chartsEnabled === 1,
+  },
+  {
+    key: 'masters',
+    label: 'Masters Hall of Fame',
+    emoji: '🏅',
+    description: 'Game-specific masters lists and staff management',
+    enabled: (g) => g.mastersEnabled === 1,
+  },
   {
     key: 'clans',
     label: 'Clans',
@@ -167,6 +183,8 @@ const GUILD_FEATURE_KEYS = new Set<FeatureKey>([
   'cncOnline',
   'ra3BattleNet',
   'activityRanks',
+  'charts',
+  'masters',
 ]);
 
 export function isFeatureKey(value: string): value is FeatureKey {

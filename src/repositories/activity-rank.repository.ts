@@ -35,11 +35,17 @@ export interface ActivitySettings {
   xpPerLevel: number;
   version: number;
   ratingsEnabled: boolean;
+  ratingMode: 'up' | 'both';
   ratingPoints: number;
   ratingMinVotes: number;
   ratingReplayCap: number;
   ratingDailyCap: number;
   ratingAccountDays: number;
+  replayAutoScan: boolean;
+  chatEnabled: boolean;
+  chatPoints: number;
+  chatCooldownSeconds: number;
+  chatDailyCap: number;
 }
 
 export interface MemberActivity {
@@ -60,6 +66,8 @@ export interface RecordActivityInput {
   activityDate: string;
   hasCncPing: boolean;
   replayFingerprints: string[];
+  chatContentHash?: string;
+  occurredAt?: number;
 }
 
 export interface RecordActivityResult {
@@ -96,11 +104,17 @@ interface SettingsRow {
   version: number;
   initialized: number;
   ratings_enabled: number;
+  rating_mode: 'up' | 'both';
   rating_points: number;
   rating_min_votes: number;
   rating_replay_cap: number;
   rating_daily_cap: number;
   rating_account_days: number;
+  replay_auto_scan: number;
+  chat_enabled: number;
+  chat_points: number;
+  chat_cooldown_seconds: number;
+  chat_daily_cap: number;
 }
 
 function mapMember(row: ActivityRow): MemberActivity {
@@ -160,11 +174,17 @@ export class ActivityRankRepository extends BaseRepository {
       xpPerLevel: row.xp_per_level,
       version: row.version,
       ratingsEnabled: !!row.ratings_enabled,
+      ratingMode: row.rating_mode === 'both' ? 'both' : 'up',
       ratingPoints: row.rating_points,
       ratingMinVotes: row.rating_min_votes,
       ratingReplayCap: row.rating_replay_cap,
       ratingDailyCap: row.rating_daily_cap,
       ratingAccountDays: row.rating_account_days,
+      replayAutoScan: !!row.replay_auto_scan,
+      chatEnabled: !!row.chat_enabled,
+      chatPoints: row.chat_points,
+      chatCooldownSeconds: row.chat_cooldown_seconds,
+      chatDailyCap: row.chat_daily_cap,
     };
   }
 
@@ -218,11 +238,16 @@ export class ActivityRankRepository extends BaseRepository {
       integer(next.daysPerRank, 1, 10000, 'Days per rank');
       integer(next.maxRankDays, 1, 100000, 'Days to the highest rank');
       integer(next.xpPerLevel, 1, 1000000, 'XP per level');
-      integer(next.ratingPoints, 1, 1000, 'XP per net positive vote');
-      integer(next.ratingMinVotes, 1, 100, 'Minimum net positive votes');
+      integer(next.ratingPoints, 1, 1000, 'XP per upvote');
+      if (!['up', 'both'].includes(next.ratingMode))
+        throw new Error('Choose thumbs-up only or thumbs-up/down voting.');
+      integer(next.ratingMinVotes, 1, 100, 'Minimum upvotes');
       integer(next.ratingReplayCap, 1, 10000, 'Rating XP per replay');
       integer(next.ratingDailyCap, 1, 10000, 'Daily rating XP');
       integer(next.ratingAccountDays, 0, 365, 'Minimum voter account age');
+      integer(next.chatPoints, 1, 1000, 'Chat XP');
+      integer(next.chatCooldownSeconds, 30, 86400, 'Chat cooldown');
+      integer(next.chatDailyCap, 1, 10000, 'Daily chat XP');
       if (!['per_rank', 'max_days'].includes(next.progressionMode))
         throw new Error('Unknown progression mode.');
       if (!/^\d{17,20}$/.test(next.replayChannelId))
@@ -267,6 +292,28 @@ export class ActivityRankRepository extends BaseRepository {
           guildId,
         ],
       );
+      this.run(
+        `UPDATE activity_rank_settings SET replay_auto_scan = ?, chat_enabled = ?,
+        chat_points = ?, chat_cooldown_seconds = ?, chat_daily_cap = ? WHERE guild_id = ?`,
+        [
+          Number(next.replayAutoScan),
+          Number(next.chatEnabled),
+          next.chatPoints,
+          next.chatCooldownSeconds,
+          next.chatDailyCap,
+          guildId,
+        ],
+      );
+      this.run('UPDATE activity_rank_settings SET rating_mode = ? WHERE guild_id = ?', [
+        next.ratingMode,
+        guildId,
+      ]);
+      if (values.ratingMode !== undefined)
+        this.run(
+          `UPDATE replay_rating_cards SET rewarded_net_votes = MAX(rewarded_net_votes,
+        (SELECT COUNT(*) FROM replay_rating_votes WHERE card_id = replay_rating_cards.id AND vote = 1)) WHERE guild_id = ?`,
+          [guildId],
+        );
       this.bumpVersion(guildId);
     })();
   }
@@ -318,8 +365,54 @@ export class ActivityRankRepository extends BaseRepository {
           replaysAwarded += award.changes;
         }
       }
+      let chatPoints = 0;
+      if (
+        settings.chatEnabled &&
+        /^[a-f0-9]{64}$/.test(input.chatContentHash ?? '') &&
+        Number.isSafeInteger(input.occurredAt) &&
+        input.occurredAt! <= Date.now() + 5000 &&
+        input.occurredAt! >= Date.now() - 300000 &&
+        input.activityDate === new Date().toISOString().slice(0, 10)
+      ) {
+        this.run(
+          'INSERT OR IGNORE INTO activity_chat_claims (guild_id, user_id, activity_date) VALUES (?, ?, ?)',
+          [input.guildId, input.userId, input.activityDate],
+        );
+        const claim = this.query<{
+          points: number;
+          last_awarded_at: number;
+          last_content_hash: string | null;
+        }>(
+          'SELECT * FROM activity_chat_claims WHERE guild_id = ? AND user_id = ? AND activity_date = ?',
+          [input.guildId, input.userId, input.activityDate],
+        )!;
+        if (
+          input.occurredAt! - claim.last_awarded_at >= settings.chatCooldownSeconds * 1000 &&
+          claim.last_content_hash !== input.chatContentHash
+        ) {
+          chatPoints = Math.max(
+            0,
+            Math.min(settings.chatPoints, settings.chatDailyCap - claim.points),
+          );
+          if (chatPoints)
+            this.run(
+              `UPDATE activity_chat_claims SET points = points + ?,
+            last_awarded_at = ?, last_content_hash = ? WHERE guild_id = ? AND user_id = ? AND activity_date = ?`,
+              [
+                chatPoints,
+                input.occurredAt,
+                input.chatContentHash,
+                input.guildId,
+                input.userId,
+                input.activityDate,
+              ],
+            );
+        }
+      }
       const pointsAwarded =
-        Number(cncPingAwarded) * settings.pingPoints + replaysAwarded * settings.replayPoints;
+        chatPoints +
+        Number(cncPingAwarded) * settings.pingPoints +
+        replaysAwarded * settings.replayPoints;
       if (pointsAwarded) {
         this.run(
           `UPDATE activity_daily_totals SET cnc_ping_awarded = MAX(cnc_ping_awarded, ?),

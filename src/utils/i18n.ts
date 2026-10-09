@@ -7,6 +7,10 @@ import { Language } from '../repositories/user.repository';
 type Dictionary = Record<string, string>;
 
 const en: Dictionary = {
+  'replay.selfVoteRemoved':
+    'You cannot rate your own replay uploads. Your reaction was removed and no XP was awarded. Other members can upvote your replay.',
+  'replay.selfVoteIgnored':
+    'You cannot rate your own replay uploads. No XP was awarded. I could not remove your reaction; the bot needs Manage Messages permission in the replay channel.',
   'notifications.title': '🔔 Notification Settings',
   'notifications.description': 'Manage server announcements and your own notification preferences.',
   'notifications.personalOnly': 'Manage your private notifications and language.',
@@ -75,6 +79,10 @@ const en: Dictionary = {
 };
 
 const ru: Dictionary = {
+  'replay.selfVoteRemoved':
+    'Нельзя оценивать собственные реплеи. Ваша реакция удалена, опыт не начислен. Другие участники могут оценить ваш реплей.',
+  'replay.selfVoteIgnored':
+    'Нельзя оценивать собственные реплеи. Опыт не начислен. Для удаления вашей реакции боту нужно разрешение «Управление сообщениями» в канале реплеев.',
   'notifications.title': '🔔 Настройки уведомлений',
   'notifications.description': 'Управляйте объявлениями сервера и личными уведомлениями.',
   'notifications.personalOnly': 'Управляйте личными уведомлениями и языком.',
@@ -144,6 +152,10 @@ const ru: Dictionary = {
 };
 
 const zh: Dictionary = {
+  'replay.selfVoteRemoved':
+    '不能给自己上传的录像点赞。你的反应已被移除，没有获得经验值。其他成员可以为你的录像点赞。',
+  'replay.selfVoteIgnored':
+    '不能给自己上传的录像点赞，没有获得经验值。机器人无法移除你的反应，需要录像频道中的“管理消息”权限。',
   'notifications.title': '🔔 通知设置',
   'notifications.description': '管理服务器公告和你的个人通知偏好。',
   'notifications.personalOnly': '管理你的私信通知和语言。',

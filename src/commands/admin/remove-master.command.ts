@@ -4,6 +4,7 @@ import { masterRepository } from '../../repositories/master.repository';
 import { denyUnlessAdmin } from '../../utils/permissions';
 import { resolveMember } from '../../utils/members';
 import { sanitizeInput } from '../../utils/sanitize';
+import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
   .setName('remove_master')
@@ -22,7 +23,12 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   }
 
   const name = sanitizeInput(interaction.options.getString('name', true).trim(), 50);
-  if (masterRepository.deleteByName(name)) {
+  const context = getGameContext(interaction.guildId);
+  if (!context.mastersEnabled) {
+    await interaction.reply({ content: 'Enable Masters in /toggle first.', ephemeral: true });
+    return;
+  }
+  if (masterRepository.deleteByName(name, context.game)) {
     await interaction.reply({
       content: `✅ **${name}** removed from Hall of Fame.`,
       ephemeral: true,

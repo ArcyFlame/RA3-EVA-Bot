@@ -159,24 +159,32 @@
       </table>
       <p>
         Rank details now live in <code>/profile</code>. Pings count once per UTC day; ordinary chat
-        earns no XP.
+        earns no XP by default. Admins can enable it and set message XP, cooldowns and daily limits.
       </p>
       <h3>Generals Evolution replay cards</h3>
       <p>
+        The uploader's own thumbs-up or thumbs-down is removed and earns no XP. The bot sends a
+        private explanation at most once per member per server per UTC day. Manage Messages is
+        required to remove another member's reaction. Without it, self-votes are still ignored. If
+        DMs are closed, the bot does not post a public warning.
+      </p>
+      <p>
         In <code>/activity admin</code>, select the replay channel under XP Sources, then open
-        Replay Ratings. Each accepted replay file gets a separate card with thumbs-up and
-        thumbs-down reactions. Original uploads are preserved.
+        Replay Ratings. The channel can also be chosen in <code>/notifications</code> under Replay
+        Uploads. Automatic replay scanning can be switched off. Each accepted replay file gets a
+        separate card with a single thumbs-up reaction by default. Admins can switch to thumbs-up
+        and thumbs-down voting in Replay Ratings. Original uploads are preserved.
       </p>
       <p>
         The default upload award is 25 XP, up to three files per member per UTC day. Rating bonuses
-        start at two net positive votes, with 5 XP per net vote, up to 100 XP per replay and 100
-        bonus XP per uploader per UTC day. Voter accounts must be seven days old. These values are
-        configurable.
+        start at two upvotes, with 5 XP per upvote, up to 100 XP per replay and 100 bonus XP per
+        uploader per UTC day. Voter accounts must be seven days old. These values are configurable.
       </p>
       <p>
         Self-votes, bot votes, duplicate files and repeatedly removing/re-adding reactions do not
-        earn extra XP. Downvotes reduce future bonuses, not earned XP. These limits reduce abuse but
-        cannot prevent collusion between real members.
+        earn extra XP. In the optional dual mode, downvotes reduce future bonuses, not XP already
+        earned. Switching modes does not reset the anti-farming history. These limits reduce abuse
+        but cannot prevent collusion between real members.
       </p>
       <p>
         Scan Recent Uploads checks the last 100 messages from the past 30 days, inspects at most 20
@@ -189,6 +197,13 @@
       </p>
 
       <h2>Community</h2>
+      <p>
+        Profiles are private and show one statistics platform at a time. The Red Alert 3 setup
+        supports C&amp;C Online (Shatabrick) and RA3BattleNet; GenEvo uses its own RA3BattleNet
+        records. Link a nickname, numeric ID or profile URL with <code>/link</code>, then confirm
+        the account name before saving. The Stats charts and Masters features are controlled by
+        <code>/toggle</code>. Masters is off by default for GenEvo, with a separate Hall of Fame.
+      </p>
       <table>
         <tr>
           <th>Command</th>

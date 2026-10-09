@@ -5,7 +5,6 @@ import {
   ButtonStyle,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
-  escapeMarkdown,
 } from 'discord.js';
 import { RA3Stats, StatsSourceOptions } from '../../services/ra3-stats.service';
 import {
@@ -21,6 +20,7 @@ import {
 import { sanitizeInput } from '../../utils/sanitize';
 import { GameId, GAME_CONFIGS } from '../../config/games';
 import { GENEVO_FACTIONS, genevoFactionTotal } from '../../data/genevo-factions';
+import { formatMatchPlayers } from '../../utils/match-format';
 
 export type StatsPage = 0 | 1 | 2 | 3;
 export type StatsMode = '1v1' | '2v2' | '3v3';
@@ -35,12 +35,19 @@ export class StatsView {
   private game: GameId;
   private showCnc: boolean;
   private showRa3b: boolean;
+  private showMasters: boolean;
 
-  constructor(stats: RA3Stats, game: GameId = 'ra3', sources: StatsSourceOptions = {}) {
+  constructor(
+    stats: RA3Stats,
+    game: GameId = 'ra3',
+    sources: StatsSourceOptions = {},
+    showMasters = game === 'ra3',
+  ) {
     this._stats = stats;
     this.game = game;
     this.showCnc = sources.cncOnline !== false;
     this.showRa3b = sources.ra3BattleNet !== false;
+    this.showMasters = showMasters;
   }
 
   updateStats(stats: RA3Stats) {
@@ -79,13 +86,15 @@ export class StatsView {
       const cncMatches =
         this._stats.cnc_recent_matches
           .slice(0, this.recentMatchCount)
-          .map((m) => `${this._formatPlayers(m.players)} · *${m.map}*`)
-          .join('\n') || 'No active games';
+          .map((m) => `${formatMatchPlayers(m)} · *${sanitizeInput(m.map, 100)}*`)
+          .join('\n')
+          .slice(0, 1024) || 'No active games';
       const ra3bMatches =
         this._stats.ra3battle_recent_matches
           .slice(0, this.recentMatchCount)
-          .map((m) => `${this._formatPlayers(m.players)} · *${m.map}*`)
-          .join('\n') || 'No active games';
+          .map((m) => `${formatMatchPlayers(m)} · *${sanitizeInput(m.map, 100)}*`)
+          .join('\n')
+          .slice(0, 1024) || 'No recent games';
       embed.addFields(
         ...(this.showCnc
           ? [{ name: `${CNC_ONLINE} C&C Online`, value: cncMatches, inline: false }]
@@ -131,18 +140,23 @@ export class StatsView {
                 value: (() => {
                   const total = genevoFactionTotal(this._stats.genevo_faction_distribution);
                   if (total <= 0) {
-                    return 'Current lobby APIs identify GenEvo players but do not report their selected generals. The chart below includes all 12 factions and is ready for a compatible Shatabrick or platform API.';
+                    return 'No faction data available.';
                   }
-                  return GENEVO_FACTIONS.flatMap(({ name }) => {
-                    const count = this._stats.genevo_faction_distribution[name];
-                    return count === null ? [] : [{ name, count }];
-                  })
-                    .sort((a, b) => b.count - a.count)
-                    .slice(0, 5)
-                    .map(
-                      ({ name, count }) => `• **${name}:** ${Math.round((count / total) * 100)}%`,
-                    )
-                    .join('\n');
+                  return (
+                    GENEVO_FACTIONS.flatMap(({ name }) => {
+                      const count = this._stats.genevo_faction_distribution[name];
+                      return count === null ? [] : [{ name, count }];
+                    })
+                      .sort((a, b) => b.count - a.count)
+                      .slice(0, 5)
+                      .map(
+                        ({ name, count }) => `• **${name}:** ${Math.round((count / total) * 100)}%`,
+                      )
+                      .join('\n') +
+                    (this._stats.genevo_faction_source === 'match_records'
+                      ? '\nRecent verified match records (last 30 days).'
+                      : '')
+                  );
                 })(),
                 inline: false,
               },
@@ -191,9 +205,7 @@ export class StatsView {
       );
     } else if (this.page === 3) {
       embed.setTitle(
-        this.game === 'ra3'
-          ? `${GOLD_CUP} Tournament Wins & Masters`
-          : `${GOLD_CUP} Tournament Wins`,
+        this.showMasters ? `${GOLD_CUP} Tournament Wins & Masters` : `${GOLD_CUP} Tournament Wins`,
       );
       const wins =
         Object.entries(this._stats.tournament_wins)
@@ -203,7 +215,7 @@ export class StatsView {
           .join('\n') || 'No data';
       embed.addFields(
         { name: `Tournament Wins (Top 10)`, value: wins, inline: false },
-        ...(this.game === 'ra3'
+        ...(this.showMasters
           ? [
               {
                 name: '🏅 Hall of Fame',
@@ -227,15 +239,6 @@ export class StatsView {
     if (f.includes('soviet')) return FACTION_SOVIET;
     if (f.includes('empire')) return FACTION_EMPIRE;
     return FACTION_RANDOM;
-  }
-
-  private _formatPlayers(players: string): string {
-    return players
-      .split(',')
-      .map((name) => name.trim())
-      .filter(Boolean)
-      .map((name) => `**${escapeMarkdown(name)}**`)
-      .join(' vs ');
   }
 
   private _getMastersText(): string {

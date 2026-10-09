@@ -22,7 +22,10 @@ export function buildMainEmbed(game: GameId = 'ra3'): EmbedBuilder {
       },
       {
         name: '👤 Profile',
-        value: 'View your ranks and manage Shatabrick and RA3BattleNet links.',
+        value:
+          game === 'ra3'
+            ? 'View your private profile and switch between C&C Online and RA3BattleNet stats.'
+            : 'View your private GenEvo profile, activity rank and RA3BattleNet link.',
         inline: false,
       },
       { name: 'ℹ️ Information', value: 'About this bot, features and news.', inline: false },
@@ -52,11 +55,18 @@ export function buildTournamentsEmbed(game: GameId = 'ra3'): EmbedBuilder {
         ? [
             {
               name: '🏅 Hall of Fame',
-              value: '`/masters` - All-time ladder masters.',
+              value:
+                '`/masters` - All-time ladder masters. Controlled by the Masters feature toggle.',
               inline: false,
             },
           ]
-        : []),
+        : [
+            {
+              name: '🏅 Hall of Fame',
+              value: '`/masters` - GenEvo masters, if enabled by an admin. Off by default.',
+              inline: false,
+            },
+          ]),
       {
         name: '⚔️ Matches & Reporting',
         value:
@@ -130,7 +140,7 @@ export function buildCommunityEmbed(game: GameId = 'ra3'): EmbedBuilder {
         value:
           '`/profile` - Your private profile, activity XP, level and rank\n`/activity leaderboard` - Privately view the top 10 active members' +
           (game === 'genevo'
-            ? '\nReplay uploads in the selected channel earn XP. Rate individual replay cards with 👍 or 👎; rating bonuses have daily limits.'
+            ? '\nReplay uploads in the selected channel earn XP. Upvote individual replay cards with 👍; rating bonuses have daily limits.'
             : ''),
         inline: false,
       },
@@ -158,7 +168,7 @@ export function buildProfileEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: 'Your Profile',
         value:
-          '`/profile [user] [player]` - Privately view linked platform stats and server activity rank\n`/link` - Add, update or remove linked accounts',
+          '`/profile [user] [player] [platform]` - Private profile with a platform dropdown and server activity rank\n`/link` - Link a nickname, ID or profile URL after confirming the account name',
         inline: false,
       },
       {
@@ -177,17 +187,19 @@ export function buildInfoEmbed(game: GameId = 'ra3'): EmbedBuilder {
   return new EmbedBuilder()
     .setTitle('ℹ️ Information')
     .setColor(config.color)
-    .setThumbnail(config.artworkUrl)
+    .setThumbnail(null)
     .setDescription(
       `This bot helps the **${config.label}** community ` +
         'organize matches, run tournaments and stay connected ' +
-        `across ${game === 'ra3' ? 'GameReplays, C&C Online, Shatabrick and RA3BattleNet' : 'C&C Online, RA3BattleNet, Shatabrick, ModDB, YouTube and Twitch'}.\n\n` +
+        `across ${game === 'ra3' ? 'GameReplays, C&C Online, Shatabrick and RA3BattleNet' : 'C&C Online, RA3BattleNet, ModDB, YouTube and Twitch'}.\n\n` +
         '**Features:**\n' +
         '• Multi-platform setup guides & lobby tracker\n' +
         '• Tournaments with Challonge integration & results\n' +
         '• Clan system with custom roles and channels\n' +
         '• Live community stats panel with charts (1v1–3v3)\n' +
-        '• Player profiles and ranks (Shatabrick & RA3BattleNet)\n' +
+        (game === 'ra3'
+          ? '• Player profiles and ranks (Shatabrick & RA3BattleNet)\n'
+          : '• GenEvo player profiles and server activity ranks\n') +
         `• Twitch, YouTube, ModDB and ${config.shortLabel} news\n` +
         '• Custom maps hub & esports map picker\n' +
         '• Moderation tools (kick, ban, warnings)\n\n' +
@@ -195,7 +207,7 @@ export function buildInfoEmbed(game: GameId = 'ra3'): EmbedBuilder {
     )
     .addFields(
       { name: '🛠️ Created by', value: '<@270293736871690240> (Arcy)', inline: true },
-      { name: '📅 Version', value: '5.0.0', inline: true },
+      { name: '📅 Version', value: '5.1.0', inline: true },
     );
 }
 
@@ -237,7 +249,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
             {
               name: '🏆 Tournaments',
               value:
-                '`/tournament link` - Link or create a tournament from a Challonge bracket\n`/checkin [event]` - Open the referee check-in board\n`/events` - Edit missing tournament details from the private event browser',
+                '`/tournament link` - Link or create a tournament from a Challonge bracket\n`/checkin [event]` - Open the referee check-in board\n`/events` - Edit missing tournament details from the private event browser\n`/master add`, `/master remove`, `/master list` - GenEvo masters (enable Masters in `/toggle` first)',
               inline: false,
             },
           ]),
@@ -250,7 +262,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: '🎖️ Activity Ranks',
         value:
-          '`/activity admin` - Configure ping and replay XP, days, levels, ranks and roles with buttons\nAdd, edit, remove or reorder ranks, select existing roles or create new ones, and manage member XP.',
+          '`/activity admin` - Configure ping/replay XP, automatic replay scanning, optional chat XP, levels, ranks and roles. Chat XP is off by default.\n`/notifications` → Replay Uploads - Choose the replay channel.\n`/toggle` → Stats charts or Masters - Enable/disable charts and the Hall of Fame.',
         inline: false,
       },
       ...(game === 'genevo'
@@ -258,7 +270,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
             {
               name: '🎬 Replay Ratings',
               value:
-                '`/activity admin` → Replay Ratings - Enable ratings, set bonus XP limits or scan recent uploads. Each accepted file gets its own 👍 / 👎 card. Original messages are kept.',
+                '`/activity admin` → Replay Ratings - Enable ratings, set bonus XP limits or scan recent uploads. Each accepted file gets its own 👍 card. Original messages are kept.',
               inline: false,
             },
           ]

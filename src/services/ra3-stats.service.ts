@@ -1,14 +1,12 @@
 import { sourceGet } from '../utils/safe-fetch';
+import { MatchSummary, summarizeMatch, isHumanLobbyPlayer } from '../utils/match-format';
+import { mapCatalogService } from './map-catalog.service';
+import { observedMatchService } from './observed-match.service';
 import { logger } from '../utils/logger';
 import { db } from '../database/sqlite';
 import { masterRepository } from '../repositories/master.repository';
 import { GameId } from '../config/games';
-import {
-  cleanGameMapName,
-  gameMapNames,
-  isKnownGameMap,
-  matchesGameLobby,
-} from '../data/game-maps';
+import { gameMapNames, isKnownGameMap, matchesGameLobby } from '../data/game-maps';
 import { emptyGenevoFactionDistribution, GenevoFactionDistribution } from '../data/genevo-factions';
 import {
   gamePlayerRepository,
@@ -30,10 +28,10 @@ export interface RA3Stats {
   new_player_tracking_started_at?: string;
   faction_distribution: { Allies: number; Soviets: number; Empire: number };
   genevo_faction_distribution: GenevoFactionDistribution;
-  genevo_faction_source: 'unavailable' | 'live_lobbies' | 'shatabrick';
+  genevo_faction_source: 'unavailable' | 'live_lobbies' | 'shatabrick' | 'match_records';
   top_maps: Array<[string, number]>;
-  cnc_recent_matches: Array<{ players: string; map: string; platform: string }>;
-  ra3battle_recent_matches: Array<{ players: string; map: string; platform: string }>;
+  cnc_recent_matches: MatchSummary[];
+  ra3battle_recent_matches: MatchSummary[];
   cnc_ladders: Record<string, Array<[string, number, string]>>;
   ra3b_ladders: Record<string, Array<{ personaName: string; elo: number; primaryFaction: string }>>;
   tournament_wins: Record<string, number>;
@@ -90,7 +88,7 @@ interface CncLiveData {
   players: number;
   activeGames: number;
   mapCounts: Record<string, number>;
-  recentMatches: Array<{ players: string; map: string; platform: string }>;
+  recentMatches: MatchSummary[];
   playerIdentities: ObservedPlayer[];
 }
 
@@ -99,7 +97,7 @@ interface Ra3bLiveData {
   players: number;
   rooms: number;
   mapCounts: Record<string, number>;
-  recentMatches: Array<{ players: string; map: string; platform: string }>;
+  recentMatches: MatchSummary[];
   playerIdentities: ObservedPlayer[];
 }
 
@@ -164,7 +162,7 @@ const MAP_FRIENDLY_NAMES: Record<string, string> = {
 };
 
 export function cleanMapName(rawName: string, game: GameId = 'ra3'): string {
-  if (game !== 'ra3') return cleanGameMapName(rawName, game);
+  if (game !== 'ra3') return mapCatalogService.displayName(rawName);
   let name = rawName.replace(/\\/g, '/').split('/').pop()?.replace('.map', '') || rawName;
   name = name
     .replace(/ra3bn_/g, '')
@@ -453,7 +451,13 @@ export class RA3StatsService {
           ? gamePlayerRepository.newPlayersByDay('genevo', genevoPlatforms)
           : new Array(30).fill(null);
     const tournamentWins = this.getTournamentWins(game);
-    const masters = game === 'ra3' ? this.getMasters() : [];
+    const masters = this.getMasters(game);
+    if (useRa3b) await observedMatchService.refresh();
+    const recordedMatches = useRa3b ? observedMatchService.recent(game) : [];
+    const genevoFactions =
+      game === 'genevo' && useRa3b
+        ? observedMatchService.factions()
+        : emptyGenevoFactionDistribution();
 
     // C&C Online exposes no public ladder API — the Top 10 page says so
     // instead of showing invented numbers. RA3BattleNet ladders are real.
@@ -479,11 +483,17 @@ export class RA3StatsService {
           ? gamePlayerRepository.getTrackingStart('genevo', genevoPlatforms)
           : this.getTrackingStart(),
       faction_distribution: factions,
-      genevo_faction_distribution: emptyGenevoFactionDistribution(),
-      genevo_faction_source: 'unavailable',
+      genevo_faction_distribution: genevoFactions,
+      genevo_faction_source: Object.values(genevoFactions).some((n) => n !== null && n > 0)
+        ? 'match_records'
+        : 'unavailable',
       top_maps: topMaps,
       cnc_recent_matches: useCnc ? cnc.recentMatches : [],
-      ra3battle_recent_matches: useRa3b ? ra3b.recentMatches : [],
+      ra3battle_recent_matches: useRa3b
+        ? recordedMatches.length
+          ? recordedMatches
+          : ra3b.recentMatches
+        : [],
       cnc_ladders: cncLadders,
       ra3b_ladders: useRa3b ? ra3bLaddersVal : { '1v1': [], '2v2': [], '3v3': [] },
       tournament_wins: tournamentWins,
@@ -679,6 +689,7 @@ export class RA3StatsService {
   /** personaName (lowercase) → personaId, collected from the ladder pages. */
   private personaIdCache = new Map<string, number>();
   private personaIdCacheAt = 0;
+  private ladderFetchedAt = new Map<string, number>();
   private readonly personaCacheTTL = 10 * 60 * 1000;
   private laddersCache = new Map<string, Ra3bLadderEntry[]>();
 
@@ -689,7 +700,8 @@ export class RA3StatsService {
    */
   async getRa3bLadder(mode: '1v1' | '2v2' | '3v3'): Promise<Ra3bLadderEntry[]> {
     const cached = this.laddersCache.get(mode);
-    if (cached && Date.now() - this.personaIdCacheAt < this.personaCacheTTL) return cached;
+    if (cached && Date.now() - (this.ladderFetchedAt.get(mode) ?? 0) < this.personaCacheTTL)
+      return cached;
     const entries: Ra3bLadderEntry[] = [];
     for (let page = 1; page <= 20; page++) {
       try {
@@ -718,6 +730,7 @@ export class RA3StatsService {
     if (entries.length > 0) {
       this.laddersCache.set(mode, entries);
       this.personaIdCacheAt = Date.now();
+      this.ladderFetchedAt.set(mode, Date.now());
       for (const e of entries) this.personaIdCache.set(e.personaName.toLowerCase(), e.personaId);
     }
     return entries;
@@ -727,23 +740,34 @@ export class RA3StatsService {
   async findRa3bPersonaId(name: string): Promise<number | null> {
     const needle = name.toLowerCase().trim();
     const cached = this.personaIdCache.get(needle);
-    if (cached) return cached;
-    if (Date.now() - this.personaIdCacheAt < this.personaCacheTTL) return null; // cache fresh, truly unknown
+    if (cached && Date.now() - this.personaIdCacheAt < this.personaCacheTTL) return cached;
     for (const mode of ['1v1', '2v2', '3v3'] as const) {
       await this.getRa3bLadder(mode);
-      const hit = this.personaIdCache.get(needle);
+      const hit = this.laddersCache
+        .get(mode)
+        ?.find((entry) => entry.personaName.toLowerCase() === needle)?.personaId;
       if (hit) return hit;
     }
     return null;
   }
 
   /** Live per-ladder stats of one persona (elo, rank, W/L, factions). */
-  async getRa3bPersonaStats(personaId: number): Promise<Ra3bPersonaStats | null> {
+  async getRa3bPersonaStats(
+    personaId: number,
+    game: GameId = 'ra3',
+  ): Promise<Ra3bPersonaStats | null> {
+    if (!Number.isSafeInteger(personaId) || personaId < 1 || personaId > 9_999_999_999) return null;
     try {
       const res = await sourceGet(
-        `https://api.ra3battle.cn/api/stats/persona/${personaId}/ra3/result`,
+        `https://api.ra3battle.cn/api/stats/persona/${personaId}/${game}/result`,
         { timeout: 5000 },
       );
+      if (
+        typeof res.data?.personaName !== 'string' ||
+        !res.data.personaName.trim() ||
+        res.data.personaName === 'Unknown'
+      )
+        return null;
       return {
         personaId,
         personaName: res.data.personaName || 'Unknown',
@@ -812,6 +836,7 @@ export class RA3StatsService {
           nickname?: unknown;
           name?: unknown;
         }>) {
+          if (!isHumanLobbyPlayer(player)) continue;
           if (player?.id != null) {
             genevoPlayers.add(`id:${player.id}`);
             genevoPlayerIds.add(String(player.id));
@@ -823,13 +848,7 @@ export class RA3StatsService {
       }
       const playersOnline =
         gameId === 'genevo'
-          ? Math.max(
-              genevoPlayers.size,
-              genevoRows.reduce(
-                (total: number, game: any) => total + (Number(game.numRealPlayers) || 0),
-                0,
-              ),
-            )
+          ? genevoPlayers.size
           : Object.values(users).filter((user: any) => {
               const id = user?.id == null ? '' : String(user.id);
               const name = String(user?.nickname || '').toLowerCase();
@@ -848,18 +867,27 @@ export class RA3StatsService {
           nickname?: unknown;
           name?: unknown;
         }>) {
+          if (!isHumanLobbyPlayer(player)) continue;
           const identity = observedPlayer(player?.id, player?.nickname ?? player?.name);
           if (identity) observedPlayers.set(identity.key, identity);
         }
       }
 
+      if (gameId === 'genevo')
+        await Promise.all(
+          gameRows
+            .slice(0, 50)
+            .map((game: any) =>
+              mapCatalogService.observe(game.map || '', game.mod, 'cnc').catch(() => undefined),
+            ),
+        );
       const mapCounts: Record<string, number> = {};
       for (const game of gameRows) {
-        const map = cleanGameMapName(game.map || 'Unknown', gameId);
+        const map = cleanMapName(game.map || 'Unknown', gameId);
         if (map !== 'Unknown') mapCounts[map] = (mapCounts[map] || 0) + 1;
       }
 
-      const recentMatches: Array<{ players: string; map: string; platform: string }> = [];
+      const recentMatches: MatchSummary[] = [];
       for (const game of gameRows.slice(0, 10)) {
         let players: string[] = [];
         if (Array.isArray(game.players)) {
@@ -868,10 +896,9 @@ export class RA3StatsService {
           players = Object.values(game.players).map((p: any) => p.nickname || 'Unknown');
         }
         if (players.length === 0) continue;
-        const playersStr = players.join(', ');
-        const map = cleanGameMapName(game.map || 'Unknown', gameId);
+        const map = cleanMapName(game.map || 'Unknown', gameId);
         if (map === 'Unknown') continue;
-        recentMatches.push({ players: playersStr, map, platform: 'C&C Online' });
+        recentMatches.push(summarizeMatch(game, 'C&C Online', map));
         if (recentMatches.length >= 5) break;
       }
 
@@ -916,14 +943,25 @@ export class RA3StatsService {
             ? Object.values(game.players)
             : [];
         for (const player of players as any[]) {
+          if (!isHumanLobbyPlayer(player)) continue;
           const identity = observedPlayer(player?.id, player?.name ?? player?.nickname);
           if (identity) observedPlayers.set(identity.key, identity);
         }
       }
       const players = gameId === 'genevo' ? observedPlayers.size : res.data.players?.length || 0;
       const rooms = gameRows.length;
+      if (gameId === 'genevo')
+        await Promise.all(
+          gameRows
+            .slice(0, 50)
+            .map((game: any) =>
+              mapCatalogService
+                .observe(game.mapname || '', game.mod, 'ra3b')
+                .catch(() => undefined),
+            ),
+        );
       const mapCounts: Record<string, number> = {};
-      const recentMatches: Array<{ players: string; map: string; platform: string }> = [];
+      const recentMatches: MatchSummary[] = [];
       for (const game of gameRows) {
         let playersList: string[] = [];
         if (Array.isArray(game.players)) {
@@ -932,12 +970,11 @@ export class RA3StatsService {
           playersList = Object.values(game.players).map((p: any) => p.name || 'Unknown');
         }
         if (playersList.length === 0) continue;
-        const playersStr = playersList.join(', ');
         const map = cleanMapName(game.mapname || 'Unknown', gameId);
         if (map === 'Unknown') continue;
         mapCounts[map] = (mapCounts[map] || 0) + 1;
         if (recentMatches.length < 5) {
-          recentMatches.push({ players: playersStr, map, platform: 'RA3BattleNet' });
+          recentMatches.push(summarizeMatch(game, 'RA3BattleNet', map));
         }
       }
       return {
@@ -1089,9 +1126,11 @@ export class RA3StatsService {
     }
   }
 
-  private getMasters(): Array<{ name: string; year: number; patch?: string }> {
+  private getMasters(game: GameId): Array<{ name: string; year: number; patch?: string }> {
     try {
-      return masterRepository.getAll().map((m) => ({ name: m.name, year: m.year, patch: m.patch }));
+      return masterRepository
+        .getAll(game)
+        .map((m) => ({ name: m.name, year: m.year, patch: m.patch }));
     } catch (error) {
       logger.warn('Failed to fetch masters:', error);
       return [];

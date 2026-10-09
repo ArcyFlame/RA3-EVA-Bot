@@ -26,7 +26,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   await interaction.deferReply({ ephemeral: true });
   const context = getGameContext(interaction.guildId);
   const stats = await ra3StatsService.fetch(context.game, context.sources);
-  const view = new StatsView(stats, context.game, context.sources);
+  const view = new StatsView(stats, context.game, context.sources, context.mastersEnabled);
   const [online24Palette, newPlayersPalette, online30Palette] = statsChartPalettes(context.game);
   const matchCount = interaction.options.getInteger('matches');
   if (matchCount) view.setRecentMatchCount(matchCount);
@@ -37,6 +37,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     embeds: [view.getEmbed()],
     components: view.getComponents(),
   });
+  if (!context.chartsEnabled) return;
 
   const files: Array<{ attachment: Buffer; name: string }> = [];
   if (context.sources.cncOnline || context.sources.ra3BattleNet)

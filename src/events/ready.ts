@@ -21,6 +21,7 @@ import { setStartTime } from '../commands/info/uptime.command';
 import { bootstrapConfiguredContent } from '../services/content-bootstrap.service';
 import { checkinNotificationService } from '../services/checkin-notification.service';
 import { getGameContext } from '../utils/game-context';
+import { replayRatingService } from '../services/replay-rating.service';
 
 export const name = Events.ClientReady;
 export const once = true;
@@ -52,6 +53,7 @@ function managedInterval(fn: () => Promise<void>, ms: number, label: string): vo
 export async function execute(bot: RA3Bot): Promise<void> {
   setStartTime();
   logger.info(`Logged in as ${bot.client.user?.tag}`);
+  setTimeout(() => void replayRatingService.reconcileRecentCards(bot.client), 30000).unref();
 
   // Clean up wizard views when their messages are deleted.
   bot.client.on('messageDelete', (message) => {
@@ -215,7 +217,7 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
 
   const context = getGameContext(cfg.guildId);
   const stats = await ra3StatsService.fetch(context.game, context.sources);
-  const view = new StatsView(stats, context.game, context.sources);
+  const view = new StatsView(stats, context.game, context.sources, context.mastersEnabled);
   const [online24Palette, newPlayersPalette, online30Palette] = statsChartPalettes(context.game);
   view.setPage(0);
   const embedPayload: any = { embeds: [view.getEmbed()], components: view.getComponents() };
@@ -224,7 +226,7 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
   // render as a cropped gallery, one chart per message looks right.
   const charts: Array<{ attachment: Buffer; name: string }> = [];
   try {
-    if (context.sources.cncOnline || context.sources.ra3BattleNet)
+    if (context.chartsEnabled && (context.sources.cncOnline || context.sources.ra3BattleNet))
       charts.push({
         attachment: await generateBarChart(
           stats.online_last_24h,
@@ -235,8 +237,9 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
         name: 'online_players_last_24_hours.png',
       });
     if (
-      (context.game === 'ra3' && context.sources.ra3BattleNet) ||
-      (context.game === 'genevo' && (context.sources.cncOnline || context.sources.ra3BattleNet))
+      context.chartsEnabled &&
+      ((context.game === 'ra3' && context.sources.ra3BattleNet) ||
+        (context.game === 'genevo' && (context.sources.cncOnline || context.sources.ra3BattleNet)))
     )
       charts.push({
         attachment: await generateBarChart(
@@ -247,7 +250,7 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
         ),
         name: 'new_players_last_30_days.png',
       });
-    if (context.sources.cncOnline || context.sources.ra3BattleNet)
+    if (context.chartsEnabled && (context.sources.cncOnline || context.sources.ra3BattleNet))
       charts.push({
         attachment: await generateBarChart(
           stats.online_last_30d,
@@ -298,7 +301,7 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
         chartMsg = null;
       }
     }
-    if (chartMsg) {
+    if (chartMsg && chartMsg.author.id === bot.client.user?.id) {
       await chartMsg.edit({ files: [file] });
       newChartIds.push(chartMsg.id);
     } else {
@@ -307,6 +310,11 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
     }
   }
   if (JSON.stringify(newChartIds) !== JSON.stringify(chartIds)) {
+    for (const id of chartIds.slice(charts.length)) {
+      const oldChart = await channel.messages.fetch(id).catch(() => null);
+      if (oldChart && oldChart.author.id === bot.client.user?.id)
+        await oldChart.delete().catch(() => undefined);
+    }
     statsPanelRepository.updateChartsMessageId(cfg.guildId, JSON.stringify(newChartIds));
   }
   logger.debug(`Stats panel updated for guild ${cfg.guildId}`);

@@ -12,12 +12,14 @@ export const suites = Object.freeze({
     'tests/utils/command-paths.test.ts',
     'tests/repositories/replay-rating.repository.test.ts',
     'tests/services/replay-rating.service.test.ts',
+    'tests/services/community-controls.test.ts',
   ],
   permissions: [
     'tests/interactions/button-scenarios.test.ts',
     'tests/commands/notification-permissions.test.ts',
     'tests/commands/activity-admin.test.ts',
     'tests/commands/activity-profile.test.ts',
+    'tests/commands/profile-controls.test.ts',
     'tests/utils/permissions.test.ts',
   ],
 });

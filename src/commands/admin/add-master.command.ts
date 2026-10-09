@@ -5,6 +5,7 @@ import { denyUnlessAdmin } from '../../utils/permissions';
 import { resolveMember } from '../../utils/members';
 import { sanitizeInput } from '../../utils/sanitize';
 import { logger } from '../../utils/logger';
+import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
   .setName('add_master')
@@ -29,6 +30,11 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   }
 
   const name = sanitizeInput(interaction.options.getString('name', true).trim(), 50);
+  const context = getGameContext(interaction.guildId);
+  if (!context.mastersEnabled) {
+    await interaction.reply({ content: 'Enable Masters in /toggle first.', ephemeral: true });
+    return;
+  }
   const year = interaction.options.getInteger('year', true);
   const patchRaw = interaction.options.getString('patch');
   const patch = patchRaw ? sanitizeInput(patchRaw.trim(), 50) : undefined;
@@ -45,13 +51,13 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     });
     return;
   }
-  if (masterRepository.findByName(name)) {
+  if (masterRepository.findByName(name, context.game)) {
     await interaction.reply({ content: '❌ Master already exists.', ephemeral: true });
     return;
   }
 
   try {
-    masterRepository.create(name, year, patch);
+    masterRepository.create(name, year, patch, context.game);
     await interaction.reply({
       content: `✅ **${name}** (${year}) added to Hall of Fame.`,
       ephemeral: true,

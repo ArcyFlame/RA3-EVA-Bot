@@ -24,6 +24,21 @@ export interface RankSyncResult {
 
 export const MAX_REPLAY_BYTES = 10 * 1024 * 1024;
 
+export function qualifyingChatHash(content: string): string | undefined {
+  const normalized = content
+    .replace(/<[^>]*>|https?:\/\/\S+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  if (
+    /^[!/]/.test(content.trim()) ||
+    normalized.length < 20 ||
+    (normalized.match(/\p{L}/gu)?.length ?? 0) < 5
+  )
+    return;
+  return createHash('sha256').update(normalized).digest('hex');
+}
+
 export function replayFingerprint(bytes: Buffer): string | null {
   if (bytes.length < 256 || bytes.length > MAX_REPLAY_BYTES) return null;
   if (bytes.subarray(0, 17).toString('ascii') !== 'RA3 REPLAY HEADER') return null;
@@ -129,12 +144,17 @@ export class ActivityRankService {
       !!guildData.cncPingRoleId &&
       message.mentions.roles.has(guildData.cncPingRoleId);
     const replays =
-      settings.replayEnabled && message.channelId === settings.replayChannelId
+      settings.replayEnabled &&
+      settings.replayAutoScan &&
+      message.channelId === settings.replayChannelId
         ? message.attachments.filter((attachment) =>
             isReplayAttachment(attachment, message.channelId),
           )
         : null;
-    if (!hasCncPing && !replays?.size) return;
+    const chatContentHash = settings.chatEnabled
+      ? qualifyingChatHash(message.content ?? '')
+      : undefined;
+    if (!hasCncPing && !replays?.size && !chatContentHash) return;
     const timestamp = message.createdTimestamp || Date.now();
     const activityDate = new Date(timestamp).toISOString().slice(0, 10);
     if (activityDate !== new Date().toISOString().slice(0, 10)) return;
@@ -175,7 +195,11 @@ export class ActivityRankService {
       hasCncPing:
         !!currentGuild.cncPingRoleId && message.mentions.roles.has(currentGuild.cncPingRoleId),
       replayFingerprints:
-        message.channelId === currentSettings.replayChannelId ? replayFingerprints : [],
+        currentSettings.replayAutoScan && message.channelId === currentSettings.replayChannelId
+          ? replayFingerprints
+          : [],
+      chatContentHash,
+      occurredAt: timestamp,
     });
     if (result.pointsAwarded === 0) return;
     if (currentGuild.game === 'genevo' && result.replaysAwarded > 0) {

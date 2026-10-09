@@ -64,11 +64,15 @@ export class ReplayRatingRepository extends BaseRepository {
     this.run('UPDATE replay_rating_cards SET closed = 1 WHERE card_message_id = ?', [messageId]);
   }
   totals(id: number): { up: number; down: number } {
-    return this.query<{ up: number; down: number }>(
+    const totals = this.query<{ up: number; down: number }>(
       `SELECT COALESCE(SUM(vote = 1), 0) AS up,
       COALESCE(SUM(vote = -1), 0) AS down FROM replay_rating_votes WHERE card_id = ?`,
       [id],
     )!;
+    const card = this.get(id);
+    if (!card || activityRankRepository.getSettings(card.guild_id).ratingMode !== 'both')
+      totals.down = 0;
+    return totals;
   }
   claimScan(guildId: string, now = Date.now()): boolean {
     return (
@@ -77,6 +81,20 @@ export class ReplayRatingRepository extends BaseRepository {
       ON CONFLICT(guild_id) DO UPDATE SET last_scan_ms = excluded.last_scan_ms
       WHERE replay_rating_scans.last_scan_ms <= ?`,
         [guildId, now, now - 600000],
+      ).changes === 1
+    );
+  }
+  claimSelfVoteNotice(
+    guildId: string,
+    userId: string,
+    date = new Date().toISOString().slice(0, 10),
+  ): boolean {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+    this.run("DELETE FROM replay_self_vote_notices WHERE notice_date < date('now', '-30 days')");
+    return (
+      this.run(
+        'INSERT OR IGNORE INTO replay_self_vote_notices(guild_id,user_id,notice_date) VALUES (?,?,?)',
+        [guildId, userId, date],
       ).changes === 1
     );
   }
@@ -94,6 +112,7 @@ export class ReplayRatingRepository extends BaseRepository {
       const card = this.get(id);
       if (!card || card.closed || card.user_id === voterId) return 0;
       const settings = activityRankRepository.getSettings(card.guild_id);
+      if (vote !== 1 && settings.ratingMode !== 'both') return 0;
       if (!settings.ratingsEnabled || !settings.replayEnabled) return 0;
       if (remove)
         this.run('DELETE FROM replay_rating_votes WHERE card_id = ? AND user_id = ? AND vote = ?', [
@@ -108,7 +127,7 @@ export class ReplayRatingRepository extends BaseRepository {
           [id, voterId, vote],
         );
       const { up, down } = this.totals(id);
-      const net = Math.max(0, up - down);
+      const net = settings.ratingMode === 'both' ? Math.max(0, up - down) : up;
       // Removals can raise net support, but only a new positive vote earns XP.
       if (remove || vote !== 1 || net < settings.ratingMinVotes || net <= card.rewarded_net_votes)
         return 0;

@@ -149,7 +149,7 @@ describe('readable private profile', () => {
       score: 227,
       modes,
     } as any);
-    const embed = (await buildDiscordProfileEmbed(f.target as any, 'en', 'genevo', f.id)).toJSON();
+    const embed = (await buildDiscordProfileEmbed(f.target as any, 'en', 'ra3', f.id)).toJSON();
     expect(embed.fields!.filter((field) => field.inline)).toHaveLength(0);
     expect(embed.fields!.find((field) => field.name === 'Ranked 1v1')!.value).toContain(
       '80% win rate',

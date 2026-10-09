@@ -30,7 +30,9 @@ export function buildLinkManager(
     .setColor(GAME_CONFIGS[game].color)
     .setThumbnail(GAME_CONFIGS[game].artworkUrl)
     .addFields(
-      { name: 'Shatabrick (C&C Online)', value: shatabrick, inline: false },
+      ...(game === 'ra3'
+        ? [{ name: 'Shatabrick (C&C Online)', value: shatabrick, inline: false }]
+        : []),
       { name: 'RA3BattleNet', value: ra3b, inline: false },
     );
   const select = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
@@ -38,10 +40,14 @@ export function buildLinkManager(
       .setCustomId('link_platform')
       .setPlaceholder(t(lang, 'link.select'))
       .addOptions(
-        new StringSelectMenuOptionBuilder()
-          .setLabel('Shatabrick')
-          .setDescription(t(lang, 'link.shatabrickHint'))
-          .setValue('shatabrick'),
+        ...(game === 'ra3'
+          ? [
+              new StringSelectMenuOptionBuilder()
+                .setLabel('Shatabrick')
+                .setDescription(t(lang, 'link.shatabrickHint'))
+                .setValue('shatabrick'),
+            ]
+          : []),
         new StringSelectMenuOptionBuilder()
           .setLabel('RA3BattleNet')
           .setDescription(t(lang, 'link.ra3bHint'))
@@ -49,11 +55,15 @@ export function buildLinkManager(
       ),
   );
   const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId('link_remove_shatabrick')
-      .setLabel(t(lang, 'link.removeShatabrick'))
-      .setStyle(ButtonStyle.Danger)
-      .setDisabled(!user?.shatabrickUsername),
+    ...(game === 'ra3' || user?.shatabrickUsername
+      ? [
+          new ButtonBuilder()
+            .setCustomId('link_remove_shatabrick')
+            .setLabel(t(lang, 'link.removeShatabrick'))
+            .setStyle(ButtonStyle.Danger)
+            .setDisabled(!user?.shatabrickUsername),
+        ]
+      : []),
     new ButtonBuilder()
       .setCustomId('link_remove_ra3b')
       .setLabel(t(lang, 'link.removeRa3b'))

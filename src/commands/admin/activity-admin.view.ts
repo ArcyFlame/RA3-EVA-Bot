@@ -45,7 +45,8 @@ export type ActivityScreen =
   | 'delete'
   | 'reset'
   | 'ratings'
-  | 'scan';
+  | 'scan'
+  | 'chat';
 export interface ActivityControl {
   action: string;
   ref: string;
@@ -171,7 +172,7 @@ export function buildActivityAdminView(
         {
           name: 'Counting Rules',
           value:
-            'Pings count once per member per UTC day. Replay files in the selected channel are checked for the RA3 replay header. Reposts earn no extra credit. Ordinary chat earns no XP. Rank roles must not grant server permissions, staff privileges or channel access.',
+            'Pings count once per member per UTC day. Replay files in the selected channel are checked for the RA3 replay header. Reposts earn no extra credit. Chat XP is optional and off by default. Rank roles must not grant server permissions, staff privileges or channel access.',
         },
       );
     row(
@@ -197,13 +198,13 @@ export function buildActivityAdminView(
     embed
       .setTitle('🎬 GenEvo Replay Ratings')
       .setDescription(
-        'Each accepted replay gets its own card with 👍 and 👎 reactions. Original uploads stay intact.\n\n' +
-          'Only human server members can vote, with one active vote each. Self-votes and duplicate files earn nothing. Downvotes reduce future bonuses, not XP already earned.',
+        `Each accepted replay gets its own card with ${settings.ratingMode === 'both' ? '👍 and 👎 reactions' : 'a single 👍 reaction (default)'}. Original uploads stay intact.\n\n` +
+          'Only human server members can vote, with one active vote each. Self-votes are removed with a private notice; the bot needs Manage Messages for removal. Duplicate files and removing/re-adding a reaction earn no extra XP. In dual mode, downvotes reduce future bonuses, not XP already earned.',
       )
       .addFields(
         {
           name: 'Rating XP',
-          value: `${settings.ratingsEnabled ? '🟢 Enabled' : '🔴 Disabled'}\n${settings.ratingPoints} XP per net positive vote, starting at ${settings.ratingMinVotes} net votes\nUp to ${settings.ratingReplayCap} XP per replay and ${settings.ratingDailyCap} XP per uploader per UTC day`,
+          value: `${settings.ratingsEnabled ? '🟢 Enabled' : '🔴 Disabled'}\n${settings.ratingPoints} XP per ${settings.ratingMode === 'both' ? 'net positive vote' : 'upvote'}, starting at ${settings.ratingMinVotes} votes\nUp to ${settings.ratingReplayCap} XP per replay and ${settings.ratingDailyCap} XP per uploader per UTC day`,
         },
         {
           name: 'Voters & Channel',
@@ -212,7 +213,7 @@ export function buildActivityAdminView(
         {
           name: 'Required Bot Permissions',
           value:
-            'View Channel, Send Messages, Embed Links, Read Message History and Add Reactions.',
+            'View Channel, Send Messages, Embed Links, Read Message History and Add Reactions. Manage Messages to remove self-votes.',
         },
       );
     if (screen === 'scan') {
@@ -230,6 +231,11 @@ export function buildActivityAdminView(
         button('toggle_ratings', settings.ratingsEnabled ? 'Disable Ratings' : 'Enable Ratings'),
         button('rating_xp', 'Rating XP & Limits'),
         button('scan', 'Scan Recent Uploads'),
+        button('toggle_scan', settings.replayAutoScan ? 'Disable Auto Scan' : 'Enable Auto Scan'),
+        button(
+          'vote_mode',
+          settings.ratingMode === 'both' ? 'Switch to 👍 Only' : 'Switch to 👍 / 👎',
+        ),
       );
     }
     back();
@@ -251,7 +257,8 @@ export function buildActivityAdminView(
             (settings.replayEnabled ? 'Enabled' : 'Disabled') +
             '\nChannel: <#' +
             settings.replayChannelId +
-            '>',
+            '>\nAutomatic scanning: ' +
+            (settings.replayAutoScan ? 'On' : 'Off'),
           inline: true,
         },
       );
@@ -263,6 +270,23 @@ export function buildActivityAdminView(
     row(
       button('toggle_replay', settings.replayEnabled ? 'Disable Replay XP' : 'Enable Replay XP'),
       button('replay', 'Choose Replay Channel'),
+      button('toggle_scan', settings.replayAutoScan ? 'Disable Auto Scan' : 'Enable Auto Scan'),
+    );
+    row(button('chat', 'Ordinary Chat XP - ' + (settings.chatEnabled ? 'On' : 'Off')));
+    back();
+  } else if (screen === 'chat') {
+    embed
+      .setTitle('💬 Ordinary Chat XP')
+      .setDescription(
+        'Optional chat XP is off by default. Bots, webhooks, commands, short messages and repeated text earn nothing. Cooldown and daily XP limits persist across restarts.',
+      )
+      .addFields({
+        name: 'Current Settings',
+        value: `${settings.chatEnabled ? 'Enabled' : 'Disabled'}\n${settings.chatPoints} XP per qualifying message\n${settings.chatCooldownSeconds}s cooldown\n${settings.chatDailyCap} XP per member per UTC day`,
+      });
+    row(
+      button('toggle_chat', settings.chatEnabled ? 'Disable Chat XP' : 'Enable Chat XP'),
+      button('chat_xp', 'Chat XP & Limits'),
     );
     back();
   } else if (screen === 'ranks') {

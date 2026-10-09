@@ -1,12 +1,18 @@
-import { ModalSubmitInteraction } from 'discord.js';
+import {
+  ModalSubmitInteraction,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  escapeMarkdown,
+} from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { userRepository } from '../../repositories/user.repository';
 import { ra3StatsService } from '../../services/ra3-stats.service';
-import { sanitizeInput } from '../../utils/sanitize';
-import { buildLinkManager } from '../../commands/profile/link.view';
+import { pendingLinks, parseLinkIdentifier } from '../../commands/profile/link-confirmation';
 import { t } from '../../utils/i18n';
 import { getGameContext } from '../../utils/game-context';
 import { shatabrickService } from '../../services/shatabrick.service';
+import { guildRepository } from '../../repositories/guild.repository';
 
 export const customIdPrefix = 'link_account_';
 
@@ -18,9 +24,20 @@ export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction)
     await interaction.reply({ content: t(lang, 'common.invalidPlatform'), ephemeral: true });
     return;
   }
+  if (
+    (context.game === 'genevo' && platform === 'shatabrick') ||
+    (interaction.guildId &&
+      guildRepository.findByDiscordId(interaction.guildId)?.profilesEnabled === 0)
+  ) {
+    await interaction.reply({
+      content: 'This profile platform is not enabled here.',
+      ephemeral: true,
+    });
+    return;
+  }
   const raw = interaction.fields.getTextInputValue('identifier').trim();
-  const identifier = sanitizeInput(raw, 64);
-  if (!identifier || !/^[\p{L}\p{N}_.\- ]+$/u.test(identifier)) {
+  const identifier = parseLinkIdentifier(raw, platform);
+  if (!identifier) {
     await interaction.reply({ content: t(lang, 'common.invalidIdentifier'), ephemeral: true });
     return;
   }
@@ -33,7 +50,8 @@ export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction)
   );
 
   await interaction.deferReply({ ephemeral: true });
-  let confirmation: string;
+  let nickname: string;
+  let profileId: number | undefined;
   if (platform === 'shatabrick') {
     const profile = await shatabrickService.resolve(identifier).catch(() => null);
     if (!profile) {
@@ -42,8 +60,8 @@ export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction)
       );
       return;
     }
-    userRepository.linkShatabrick(interaction.user.id, profile.nickname);
-    confirmation = `✅ Shatabrick linked as \`${profile.nickname}\` (ID ${profile.profileId}).`;
+    nickname = profile.nickname;
+    profileId = profile.profileId;
   } else if (/^\d{1,10}$/.test(identifier)) {
     const personaId = Number(identifier);
     const stats = await ra3StatsService.getRa3bPersonaStats(personaId).catch(() => null);
@@ -51,17 +69,39 @@ export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction)
       await interaction.editReply(t(lang, 'link.ra3bIdMissing'));
       return;
     }
-    userRepository.linkRa3BattleNet(interaction.user.id, stats.personaName, personaId);
-    confirmation = `✅ RA3BattleNet linked as \`${stats.personaName}\` (ID ${personaId}).`;
+    nickname = stats.personaName;
+    profileId = personaId;
   } else {
     const personaId = await ra3StatsService.findRa3bPersonaId(identifier).catch(() => null);
-    userRepository.linkRa3BattleNet(interaction.user.id, identifier, personaId ?? undefined);
-    confirmation = personaId
-      ? `✅ RA3BattleNet linked as \`${identifier}\` (ID ${personaId}).`
-      : `✅ RA3BattleNet: \`${identifier}\`. ${t(lang, 'link.savedNickname')}`;
+    const stats = personaId
+      ? await ra3StatsService.getRa3bPersonaStats(personaId).catch(() => null)
+      : null;
+    nickname = stats?.personaName ?? identifier;
+    profileId = stats ? personaId! : undefined;
   }
+  const session = pendingLinks.create({
+    ownerId: interaction.user.id,
+    guildId: interaction.guildId,
+    game: context.game,
+    lang,
+    platform,
+    nickname,
+    profileId,
+  });
   await interaction.editReply({
-    content: confirmation,
-    ...buildLinkManager(interaction.user.id, lang, context.game),
+    content: `Link ${platform === 'shatabrick' ? 'Shatabrick' : 'RA3BattleNet'} as **${escapeMarkdown(nickname)}**${profileId ? ` (ID ${profileId})` : ' (nickname not found on the public ladder yet)'}?\nConfirm that this is your account.`,
+    components: [
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`link_confirm:save:${session}`)
+          .setLabel('Confirm account')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`link_confirm:cancel:${session}`)
+          .setLabel('Cancel')
+          .setStyle(ButtonStyle.Secondary),
+      ),
+    ],
+    allowedMentions: { parse: [] },
   });
 }

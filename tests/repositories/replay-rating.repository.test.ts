@@ -18,6 +18,25 @@ const create = (guild = 'ratings' + ++n, fingerprint = (++n).toString(16).padSta
     filename: 'game.RA3Replay',
   });
 describe('durable replay rating ledger', () => {
+  it('defaults to upvotes only and keeps optional dual voting without mode-switch XP farming', () => {
+    const card = create();
+    expect(activity.getSettings(card.guild_id).ratingMode).toBe('up');
+    expect(repo.vote(card.id, 'a', -1)).toBe(0);
+    expect(repo.totals(card.id)).toEqual({ up: 0, down: 0 });
+    activity.updateSettings(card.guild_id, { ratingMode: 'both' }, 0);
+    repo.vote(card.id, 'a', -1);
+    repo.vote(card.id, 'b', 1);
+    expect(repo.totals(card.id)).toEqual({ up: 1, down: 1 });
+    expect(repo.get(card.id)?.bonus_awarded).toBe(0);
+    expect(repo.vote(card.id, 'c', 1)).toBe(0);
+    expect(repo.vote(card.id, 'd', 1)).toBe(10);
+    activity.updateSettings(card.guild_id, { ratingMode: 'up' }, 1);
+    expect(repo.totals(card.id)).toEqual({ up: 3, down: 0 });
+    expect(repo.vote(card.id, 'b', 1)).toBe(0);
+    expect(repo.vote(card.id, 'e', 1)).toBe(5);
+    activity.updateSettings(card.guild_id, { ratingMode: 'both' }, 2);
+    expect(repo.vote(card.id, 'e', 1)).toBe(0);
+  });
   it('deduplicates replay cards across members and isolates servers', () => {
     const card = create();
     expect(repo.create({ ...card, user_id: 'someone-else' }).id).toBe(card.id);

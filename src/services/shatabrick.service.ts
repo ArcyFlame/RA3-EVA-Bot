@@ -19,6 +19,8 @@ export interface ShatabrickModeStats {
   losses: number;
   elo?: number;
   rank?: number;
+  seasonWins?: number;
+  seasonLosses?: number;
 }
 
 export interface ShatabrickProfile {
@@ -29,6 +31,8 @@ export interface ShatabrickProfile {
   rankLabel?: string;
   level?: number;
   score?: number;
+  clanName?: string;
+  clanTag?: string;
   modes: Record<ShatabrickMode, ShatabrickModeStats>;
 }
 
@@ -55,7 +59,16 @@ function normalizeMode(value: string): ShatabrickMode | undefined {
 function absoluteUrl(value: string | undefined): string | undefined {
   if (!value) return undefined;
   try {
-    return new URL(value, SHATABRICK_BASE).toString();
+    const url = new URL(value, `${SHATABRICK_BASE}/cco/ra3/index.php`);
+    if (
+      url.protocol !== 'https:' ||
+      !['www.shatabrick.com', 'shatabrick.com'].includes(url.hostname) ||
+      url.username ||
+      url.password ||
+      (url.port && url.port !== '443')
+    )
+      return;
+    return url.toString();
   } catch {
     return undefined;
   }
@@ -151,9 +164,8 @@ export function parseShatabrickProfileHtml(
       const lossesIndex = column('losses');
       if (rankIndex >= 0) modes[mode].rank = numberFrom(cells[rankIndex]);
       if (eloIndex >= 0) modes[mode].elo = numberFrom(cells[eloIndex]);
-      if (winsIndex >= 0) modes[mode].wins = numberFrom(cells[winsIndex]);
-      if (lossesIndex >= 0) modes[mode].losses = numberFrom(cells[lossesIndex]);
-      modes[mode].games = Math.max(modes[mode].games, modes[mode].wins + modes[mode].losses);
+      if (winsIndex >= 0) modes[mode].seasonWins = numberFrom(cells[winsIndex]);
+      if (lossesIndex >= 0) modes[mode].seasonLosses = numberFrom(cells[lossesIndex]);
     }
   });
 
@@ -164,6 +176,13 @@ export function parseShatabrickProfileHtml(
   const rankLabel =
     compact(rankImage.attr('alt') || rankImage.attr('title') || '') ||
     (levelText ? `Level ${numberFrom(levelText)}` : undefined);
+  const clanHeading = compact(
+    $('h3')
+      .filter((_, heading) => /\bClan\s*:/i.test($(heading).text()))
+      .first()
+      .text(),
+  );
+  const clan = clanHeading.match(/\bClan\s*:\s*(.*?)\s+Clan Tag\s*:\s*(.*)$/i);
 
   return {
     profileId,
@@ -173,6 +192,8 @@ export function parseShatabrickProfileHtml(
     rankLabel,
     level: levelText ? numberFrom(levelText) : undefined,
     score: scoreText ? numberFrom(scoreText) : undefined,
+    clanName: clan?.[1]?.trim().slice(0, 100) || labelValue(/^clan\s*:?$/i),
+    clanTag: clan?.[2]?.trim().slice(0, 32) || labelValue(/^clan tag\s*:?$/i),
     modes,
   };
 }

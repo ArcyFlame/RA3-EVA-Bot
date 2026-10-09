@@ -26,7 +26,7 @@ export function activitySummary(guildId: string, userId: string): APIEmbedField 
       `\`${'█'.repeat(filled)}${'░'.repeat(10 - filled)}\` ${next ? `${(next.threshold - points).toLocaleString()} XP to ${escapeMarkdown(next.title)}` : current ? 'Highest rank reached' : 'No ranks configured'}`,
       `${member?.qualifyingCncPings ?? 0} daily pings · ${member?.qualifyingReplays ?? 0} replay uploads`,
       override ? `Staff role override: **${escapeMarkdown(override)}**` : '',
-      'Pings count once per UTC day. Ordinary chat earns no XP.',
+      `Pings count once per UTC day. ${settings.chatEnabled ? 'Ordinary chat XP is enabled with cooldown and daily limits.' : 'Ordinary chat earns no XP.'}`,
     ]
       .filter(Boolean)
       .join('\n'),

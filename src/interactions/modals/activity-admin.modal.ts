@@ -25,10 +25,21 @@ export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction)
   const guild = interaction.guild;
   const { action, ref, version } = control;
   try {
-    let screen: 'main' | 'rank' | 'member' | 'ratings' = 'main';
+    let screen: 'main' | 'rank' | 'member' | 'ratings' | 'chat' = 'main';
     let target: string | number = 0;
     let notice = '✅ Settings saved.';
-    if (action === 'rating_xp') {
+    if (action === 'chat_xp') {
+      activityRankRepository.updateSettings(
+        guild.id,
+        {
+          chatPoints: numberField(interaction, 'points'),
+          chatCooldownSeconds: numberField(interaction, 'cooldown'),
+          chatDailyCap: numberField(interaction, 'daily'),
+        },
+        version,
+      );
+      screen = 'chat';
+    } else if (action === 'rating_xp') {
       if (guildRepository.findByDiscordId(guild.id)?.game !== 'genevo')
         throw new Error('Replay ratings are available only in GenEvo setup.');
       activityRankRepository.updateSettings(

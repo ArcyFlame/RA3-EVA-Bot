@@ -43,6 +43,54 @@ function fixture(game: 'genevo' | 'ra3' = 'genevo') {
   return { id, card, guild, message, reaction, service, member, channelId };
 }
 describe('replay reaction safety', () => {
+  it('accepts a downvote only when an admin enables dual voting', async () => {
+    const f = fixture();
+    const reaction: any = { ...f.reaction, emoji: { name: '👎' } };
+    await f.service.handleReaction(reaction, { id: 'voter' } as any);
+    expect(repo.totals(f.card.id).down).toBe(0);
+    activity.updateSettings(f.id, { ratingMode: 'both' }, 0);
+    await f.service.handleReaction(reaction, { id: 'voter' } as any);
+    expect(repo.totals(f.card.id).down).toBe(1);
+    expect(activity.getMember(f.id, 'author')).toBeUndefined();
+  });
+  it.each(['👍', '👎'])(
+    'removes the uploader self-reaction %s, awards nothing and privately explains once per day',
+    async (emoji) => {
+      const f = fixture();
+      const users = { remove: vi.fn().mockResolvedValue(null) };
+      const author: any = { id: 'author', send: vi.fn().mockResolvedValue(null) };
+      const reaction: any = { ...f.reaction, emoji: { name: emoji }, users };
+      for (let n = 0; n < 3; n++) await f.service.handleReaction(reaction, author);
+      expect(users.remove).toHaveBeenCalledWith('author');
+      expect(users.remove).toHaveBeenCalledTimes(3);
+      expect(author.send).toHaveBeenCalledTimes(1);
+      expect(author.send.mock.calls[0][0].content).toContain('reaction was removed');
+      expect(author.send.mock.calls[0][0].allowedMentions).toEqual({ parse: [] });
+      expect(repo.totals(f.card.id).up).toBe(0);
+      expect(activity.getMember(f.id, 'author')).toBeUndefined();
+      await new ReplayRatingService().handleReaction(reaction, author);
+      expect(author.send).toHaveBeenCalledTimes(1);
+      await f.service.handleReaction(reaction, author, true);
+      expect(users.remove).toHaveBeenCalledTimes(4);
+    },
+  );
+  it('still blocks self XP if reaction removal is denied and handles closed DMs without public messages', async () => {
+    const f = fixture();
+    const author: any = {
+      id: 'author',
+      send: vi.fn().mockRejectedValue(new Error('DMs disabled')),
+    };
+    await f.service.handleReaction(
+      {
+        ...f.reaction,
+        users: { remove: vi.fn().mockRejectedValue(new Error('Missing Manage Messages')) },
+      } as any,
+      author,
+    );
+    expect(author.send.mock.calls[0][0].content).toContain('Manage Messages');
+    expect(repo.totals(f.card.id).up).toBe(0);
+    expect(f.guild.members.fetch).not.toHaveBeenCalled();
+  });
   it('bounds historical scans and creates cards without backdated upload XP', async () => {
     const f = fixture();
     const channel: any = Object.create(TextChannel.prototype);
@@ -136,6 +184,7 @@ describe('replay reaction safety', () => {
     for (const [reaction, user] of [
       [{ ...f.reaction, message: { ...f.message, id: 'unknown' } }, { id: 'voter' }],
       [{ ...f.reaction, emoji: { name: '🔥' } }, { id: 'voter' }],
+      [{ ...f.reaction, emoji: { name: '👎' } }, { id: 'voter' }],
       [f.reaction, { id: 'voter', bot: true }],
       [f.reaction, { id: 'author' }],
     ])
@@ -207,7 +256,7 @@ describe('replay reaction safety', () => {
       parse: [],
       repliedUser: false,
     });
-    expect(sent.react.mock.calls.map((c: any[]) => c[0])).toEqual(['👍', '👎']);
+    expect(sent.react.mock.calls.map((c: any[]) => c[0])).toEqual(['👍']);
     expect(source.edit).not.toHaveBeenCalled();
     expect(source.delete).not.toHaveBeenCalled();
     expect(

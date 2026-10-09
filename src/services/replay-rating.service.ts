@@ -1,5 +1,6 @@
 import {
   Attachment,
+  Client,
   EmbedBuilder,
   Guild,
   Message,
@@ -16,10 +17,13 @@ import { activityRankRepository } from '../repositories/activity-rank.repository
 import { guildRepository } from '../repositories/guild.repository';
 import { activityRankService, isReplayAttachment } from './activity-rank.service';
 import { audit, logger } from '../utils/logger';
+import { userRepository } from '../repositories/user.repository';
+import { t } from '../utils/i18n';
 
 const day = () => new Date().toISOString().slice(0, 10);
 export function replayRatingEmbed(card: ReplayRatingCard): EmbedBuilder {
   const counts = replayRatingRepository.totals(card.id);
+  const both = activityRankRepository.getSettings(card.guild_id).ratingMode === 'both';
   return new EmbedBuilder()
     .setTitle('🎬 Generals Evolution Replay')
     .setColor(0xd6ad43)
@@ -30,13 +34,13 @@ export function replayRatingEmbed(card: ReplayRatingCard): EmbedBuilder {
     .addFields(
       {
         name: 'Community Rating',
-        value: `👍 **${counts.up}**   👎 **${counts.down}**`,
+        value: `👍 **${counts.up}**` + (both ? `   👎 **${counts.down}**` : ''),
         inline: true,
       },
       { name: 'Rating Bonus', value: `**${card.bonus_awarded} XP** earned`, inline: true },
     )
     .setFooter({
-      text: `Replay #${card.id} - One vote per member; your latest vote counts. No self-votes. XP is capped.`,
+      text: `Replay #${card.id} - ${both ? 'One active vote per member; your latest vote counts.' : 'One upvote per member.'} No self-votes. XP is capped.`,
     });
 }
 
@@ -45,6 +49,70 @@ export class ReplayRatingService {
   private queues = new Map<number, Promise<void>>();
   private queued = 0;
   private refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private selfVotes = new Set<string>();
+
+  private async rejectSelfVote(
+    reaction: MessageReaction | PartialMessageReaction,
+    user: User | PartialUser,
+    card: ReplayRatingCard,
+  ): Promise<void> {
+    const key = card.id + ':' + user.id;
+    if (this.selfVotes.has(key) || this.selfVotes.size >= 200) return;
+    this.selfVotes.add(key);
+    try {
+      let removed = false;
+      try {
+        await reaction.users.remove(user.id);
+        removed = true;
+      } catch {
+        logger.debug(
+          'Self-vote ignored; reaction removal needs Manage Messages in the replay channel.',
+        );
+      }
+      if (replayRatingRepository.claimSelfVoteNotice(card.guild_id, user.id)) {
+        const lang = userRepository.getLanguage(user.id);
+        const recipient = user.partial ? await user.fetch().catch(() => null) : user;
+        await recipient
+          ?.send({
+            content: t(lang, removed ? 'replay.selfVoteRemoved' : 'replay.selfVoteIgnored'),
+            allowedMentions: { parse: [] },
+          })
+          .catch(() => undefined);
+      }
+    } catch (error) {
+      logger.debug('Self-vote notice could not be delivered:', error);
+    } finally {
+      this.selfVotes.delete(key);
+    }
+  }
+
+  async reconcileRecentCards(client: Client, guildId?: string): Promise<void> {
+    for (const settings of guildRepository.getAllGuilds()) {
+      if (guildId && settings.discordId !== guildId) continue;
+      const channelId = activityRankRepository.getSettings(settings.discordId).replayChannelId;
+      if (!this.enabled(settings.discordId, channelId)) continue;
+      try {
+        const guild = client.guilds.cache.get(settings.discordId);
+        const channel = await guild?.channels.fetch(channelId);
+        if (!(channel instanceof TextChannel)) continue;
+        const messages = await channel.messages.fetch({ limit: 50 });
+        for (const message of messages.values()) {
+          const card = replayRatingRepository.findMessage(message.id);
+          if (
+            !card ||
+            card.closed ||
+            message.author.id !== client.user?.id ||
+            card.guild_id !== guild?.id ||
+            card.channel_id !== channel.id
+          )
+            continue;
+          this.refresh(message, card.id);
+        }
+      } catch (error) {
+        logger.warn('Existing replay cards could not be refreshed:', error);
+      }
+    }
+  }
 
   private enabled(guildId: string, channelId: string): boolean {
     const guild = guildRepository.findByDiscordId(guildId);
@@ -104,7 +172,8 @@ export class ReplayRatingService {
         }));
       replayRatingRepository.attachMessage(card.id, sent.id);
       await sent.react('👍').catch(() => null);
-      await sent.react('👎').catch(() => null);
+      if (activityRankRepository.getSettings(card.guild_id).ratingMode === 'both')
+        await sent.react('👎').catch(() => null);
       return !existing;
     } catch (error) {
       logger.warn('Replay rating card could not be posted:', error);
@@ -119,20 +188,20 @@ export class ReplayRatingService {
     user: User | PartialUser,
     remove = false,
   ): Promise<void> {
-    const vote = reaction.emoji.name === '👍' ? 1 : reaction.emoji.name === '👎' ? -1 : 0;
-    if (!vote || user.bot || this.queued >= 200) return;
+    const vote = reaction.emoji.name === '👍' ? 1 : -1;
+    if (!['👍', '👎'].includes(reaction.emoji.name ?? '') || user.bot || this.queued >= 200) return;
     const card = replayRatingRepository.findMessage(reaction.message.id);
-    if (
-      !card ||
-      card.closed ||
-      card.user_id === user.id ||
-      !this.enabled(card.guild_id, card.channel_id)
-    )
-      return;
+    if (!card || card.closed || !this.enabled(card.guild_id, card.channel_id)) return;
     if (
       reaction.message.guildId !== card.guild_id ||
       reaction.message.channelId !== card.channel_id
     )
+      return;
+    if (card.user_id === user.id) {
+      if (!remove) await this.rejectSelfVote(reaction, user, card);
+      return;
+    }
+    if (vote === -1 && activityRankRepository.getSettings(card.guild_id).ratingMode !== 'both')
       return;
     this.queued++;
     const previous = this.queues.get(card.id) ?? Promise.resolve();
@@ -185,9 +254,15 @@ export class ReplayRatingService {
       if (!card || card.closed || !this.enabled(card.guild_id, card.channel_id)) return;
       void message
         .fetch()
-        .then((full) =>
-          full.edit({ embeds: [replayRatingEmbed(card)], allowedMentions: { parse: [] } }),
-        )
+        .then(async (full) => {
+          await full.edit({ embeds: [replayRatingEmbed(card)], allowedMentions: { parse: [] } });
+          await full.react('👍').catch(() => undefined);
+          const down = full.reactions.cache.get('👎');
+          if (activityRankRepository.getSettings(card.guild_id).ratingMode === 'both')
+            await full.react('👎').catch(() => undefined);
+          else if (down?.me && full.client.user)
+            await down.users.remove(full.client.user.id).catch(() => undefined);
+        })
         .catch(() => undefined);
     }, 2000);
     timer.unref();

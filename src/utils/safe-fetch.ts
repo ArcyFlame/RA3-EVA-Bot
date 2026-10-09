@@ -13,6 +13,7 @@ const HOST_ALLOWLIST = new Set([
   'challonge.com',
   'www.challonge.com',
   'api.ra3battle.cn',
+  'api-cn.z31.xyz',
   'cnc-online.net',
   'www.cnc-online.net',
   'rss.moddb.com',
