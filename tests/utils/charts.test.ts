@@ -31,6 +31,7 @@ describe('bar chart themes', () => {
     expect(theme.deepColor).toBe('#1D4ED8');
   });
 
+  // Cold native font initialization can exceed 15 seconds on shared Windows runners.
   it('renders the API-ready Generals Evolution faction chart', async () => {
     expect(GENEVO_FACTIONS).toHaveLength(12);
     expect(GENEVO_FACTIONS.filter((faction) => faction.group === 'USA')).toHaveLength(4);
@@ -40,5 +41,5 @@ describe('bar chart themes', () => {
     const chart = await generateGenevoFactionChartBuffer(data);
     expect(chart.subarray(1, 4).toString()).toBe('PNG');
     expect(chart.length).toBeGreaterThan(10_000);
-  }, 15000);
+  }, 60000);
 });
