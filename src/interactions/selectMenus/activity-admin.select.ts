@@ -52,7 +52,7 @@ export async function execute(_bot: RA3Bot, interaction: AnySelectMenuInteractio
     } else if (control.action === 'ping' && interaction.isRoleSelectMenu()) {
       const role = await guild.roles.fetch(selected);
       if (!role || role.id === guild.id || role.managed)
-        throw new Error('Choose an ordinary C&C ping role.');
+        throw new Error('Choose an ordinary ping role.');
       activityRankRepository.assertVersion(guild.id, control.version);
       guildRepository.setCncPingRole(guild.id, role.id);
       activityRankRepository.touchConfiguration(guild.id, control.version);
@@ -62,7 +62,7 @@ export async function execute(_bot: RA3Bot, interaction: AnySelectMenuInteractio
           interaction.user.id,
           'sources',
           0,
-          '✅ Daily C&C ping role saved.',
+          '✅ Daily ping role saved.',
         ),
       );
     } else if (control.action === 'replay' && interaction.isChannelSelectMenu()) {

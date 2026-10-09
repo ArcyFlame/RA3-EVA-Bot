@@ -230,7 +230,7 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
 
       await interaction.editReply({
         content:
-          'No results available for this tournament yet. Run `/tournaments_scan` to discover brackets.',
+          'No results available for this tournament yet. Run `/tournament scan` to discover brackets.',
       });
       return;
     }

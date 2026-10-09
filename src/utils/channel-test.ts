@@ -8,7 +8,7 @@ export async function testConfiguredChannels(guild: Guild): Promise<EmbedBuilder
     return new EmbedBuilder()
       .setTitle('🔧 Channel check')
       .setColor(0xed4245)
-      .setDescription('Run `/bot_setup` first.');
+      .setDescription('Run `/bot setup` first.');
   }
   const channels: Array<{ label: string; id?: string | null }> = [
     { label: '📰 News', id: guildData.newsChannelId },
@@ -44,12 +44,16 @@ export async function testConfiguredChannels(guild: Guild): Promise<EmbedBuilder
       continue;
     }
     const permissions = channel.permissionsFor(me);
-    if (!permissions?.has([
-      PermissionsBitField.Flags.ViewChannel,
-      PermissionsBitField.Flags.SendMessages,
-      PermissionsBitField.Flags.EmbedLinks,
-    ])) {
-      lines.push(`${entry.label}: ❌ missing View Channel, Send Messages or Embed Links in <#${entry.id}>`);
+    if (
+      !permissions?.has([
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.EmbedLinks,
+      ])
+    ) {
+      lines.push(
+        `${entry.label}: ❌ missing View Channel, Send Messages or Embed Links in <#${entry.id}>`,
+      );
       failed++;
       continue;
     }

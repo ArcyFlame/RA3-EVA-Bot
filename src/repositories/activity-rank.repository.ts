@@ -34,6 +34,12 @@ export interface ActivitySettings {
   maxRankDays: number;
   xpPerLevel: number;
   version: number;
+  ratingsEnabled: boolean;
+  ratingPoints: number;
+  ratingMinVotes: number;
+  ratingReplayCap: number;
+  ratingDailyCap: number;
+  ratingAccountDays: number;
 }
 
 export interface MemberActivity {
@@ -45,6 +51,7 @@ export interface MemberActivity {
   lastCncPingDate?: string;
   createdAt: string;
   updatedAt: string;
+  manualRankId?: number;
 }
 
 export interface RecordActivityInput {
@@ -72,6 +79,7 @@ interface ActivityRow {
   last_cnc_ping_date: string | null;
   created_at: string;
   updated_at: string;
+  manual_rank_id: number | null;
 }
 
 interface SettingsRow {
@@ -87,6 +95,12 @@ interface SettingsRow {
   xp_per_level: number;
   version: number;
   initialized: number;
+  ratings_enabled: number;
+  rating_points: number;
+  rating_min_votes: number;
+  rating_replay_cap: number;
+  rating_daily_cap: number;
+  rating_account_days: number;
 }
 
 function mapMember(row: ActivityRow): MemberActivity {
@@ -99,6 +113,7 @@ function mapMember(row: ActivityRow): MemberActivity {
     lastCncPingDate: row.last_cnc_ping_date ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    manualRankId: row.manual_rank_id ?? undefined,
   };
 }
 
@@ -144,12 +159,18 @@ export class ActivityRankRepository extends BaseRepository {
       maxRankDays: row.max_rank_days,
       xpPerLevel: row.xp_per_level,
       version: row.version,
+      ratingsEnabled: !!row.ratings_enabled,
+      ratingPoints: row.rating_points,
+      ratingMinVotes: row.rating_min_votes,
+      ratingReplayCap: row.rating_replay_cap,
+      ratingDailyCap: row.rating_daily_cap,
+      ratingAccountDays: row.rating_account_days,
     };
   }
 
   assertVersion(guildId: string, version: number): void {
     if (this.getSettings(guildId).version !== version) {
-      throw new Error('Settings changed in another menu. Reopen /activity_admin and try again.');
+      throw new Error('Settings changed in another menu. Reopen /activity admin and try again.');
     }
   }
 
@@ -197,6 +218,11 @@ export class ActivityRankRepository extends BaseRepository {
       integer(next.daysPerRank, 1, 10000, 'Days per rank');
       integer(next.maxRankDays, 1, 100000, 'Days to the highest rank');
       integer(next.xpPerLevel, 1, 1000000, 'XP per level');
+      integer(next.ratingPoints, 1, 1000, 'XP per net positive vote');
+      integer(next.ratingMinVotes, 1, 100, 'Minimum net positive votes');
+      integer(next.ratingReplayCap, 1, 10000, 'Rating XP per replay');
+      integer(next.ratingDailyCap, 1, 10000, 'Daily rating XP');
+      integer(next.ratingAccountDays, 0, 365, 'Minimum voter account age');
       if (!['per_rank', 'max_days'].includes(next.progressionMode))
         throw new Error('Unknown progression mode.');
       if (!/^\d{17,20}$/.test(next.replayChannelId))
@@ -227,6 +253,20 @@ export class ActivityRankRepository extends BaseRepository {
         values.progressionMode !== undefined
       )
         this.rescaleRanks(guildId);
+      this.run(
+        `UPDATE activity_rank_settings SET ratings_enabled = ?, rating_points = ?,
+        rating_min_votes = ?, rating_replay_cap = ?, rating_daily_cap = ?, rating_account_days = ?
+        WHERE guild_id = ?`,
+        [
+          Number(next.ratingsEnabled),
+          next.ratingPoints,
+          next.ratingMinVotes,
+          next.ratingReplayCap,
+          next.ratingDailyCap,
+          next.ratingAccountDays,
+          guildId,
+        ],
+      );
       this.bumpVersion(guildId);
     })();
   }
@@ -237,6 +277,13 @@ export class ActivityRankRepository extends BaseRepository {
       [guildId, userId],
     );
     return row ? mapMember(row) : undefined;
+  }
+
+  getReplayOwner(guildId: string, fingerprint: string): string | undefined {
+    return this.query<{ user_id: string }>(
+      'SELECT user_id FROM activity_replay_awards WHERE guild_id = ? AND fingerprint = ?',
+      [guildId, fingerprint],
+    )?.user_id;
   }
 
   recordActivity(input: RecordActivityInput): RecordActivityResult {
@@ -518,9 +565,21 @@ export class ActivityRankRepository extends BaseRepository {
     // Keep daily claims and replay fingerprints so a reset cannot bypass award limits.
     this.run(
       `UPDATE member_activity SET points = 0, qualifying_cnc_pings = 0, qualifying_replays = 0,
-      last_cnc_ping_date = NULL, updated_at = CURRENT_TIMESTAMP WHERE guild_id = ? AND user_id = ?`,
+      last_cnc_ping_date = NULL, manual_rank_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE guild_id = ? AND user_id = ?`,
       [guildId, userId],
     );
+  }
+
+  setManualRank(guildId: string, userId: string, rankId: number | null): MemberActivity {
+    if (rankId !== null && rankId !== 0 && !this.getRank(guildId, rankId))
+      throw new Error('Choose a configured activity rank.');
+    this.adjustPoints(guildId, userId, 0);
+    this.run('UPDATE member_activity SET manual_rank_id = ? WHERE guild_id = ? AND user_id = ?', [
+      rankId,
+      guildId,
+      userId,
+    ]);
+    return this.getMember(guildId, userId)!;
   }
 }
 

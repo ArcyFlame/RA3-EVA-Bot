@@ -67,6 +67,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       target,
       userRepository.getLanguage(target.id),
       getGameContext(interaction.guildId).game,
+      interaction.guildId,
     );
     await interaction.editReply({ embeds: [embed] });
     return;

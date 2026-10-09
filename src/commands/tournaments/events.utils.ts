@@ -94,7 +94,7 @@ function renderEventEmbed(
         .map((m) => `• ${m}`)
         .join('\n')
         .slice(0, 1024)
-    : `[Not published — open the tournament post](${actionUrl})`;
+    : `[Not published - open the tournament post](${actionUrl})`;
 
   // Keep the same five facts, in the same order, on every event card. Missing
   // details stay visible instead of making otherwise similar cards jump around.
@@ -130,10 +130,7 @@ function actionButton(
         : actionKind === 'register'
           ? 'Join / Register'
           : 'Tournament Post';
-    return new ButtonBuilder()
-      .setLabel(label)
-      .setStyle(ButtonStyle.Link)
-      .setURL(actionUrl);
+    return new ButtonBuilder().setLabel(label).setStyle(ButtonStyle.Link).setURL(actionUrl);
   }
   return new ButtonBuilder()
     .setCustomId(`eventpg_results_${eventId}`)

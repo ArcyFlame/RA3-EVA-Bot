@@ -11,6 +11,7 @@ import { activityRankRepository } from '../../repositories/activity-rank.reposit
 import { guildRepository } from '../../repositories/guild.repository';
 import { activityRankService } from '../../services/activity-rank.service';
 import { audit } from '../../utils/logger';
+import { replayRatingService } from '../../services/replay-rating.service';
 
 export const customIdPrefix = 'activity_btn:';
 const creatingRoles = new Set<string>();
@@ -26,6 +27,8 @@ const screens = new Set<ActivityScreen>([
   'member',
   'delete',
   'reset',
+  'ratings',
+  'scan',
 ]);
 
 export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
@@ -35,6 +38,11 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
   const { action, ref, version } = control;
   const settings = activityRankRepository.getSettings(guild.id);
   try {
+    if (
+      ['ratings', 'scan', 'rating_xp', 'toggle_ratings', 'scan_confirm'].includes(action) &&
+      guildRepository.findByDiscordId(guild.id)?.game !== 'genevo'
+    )
+      throw new Error('Replay ratings are available only in GenEvo setup.');
     if (screens.has(action as ActivityScreen)) {
       await interaction.update(
         buildActivityAdminView(guild, interaction.user.id, action as ActivityScreen, ref),
@@ -46,7 +54,7 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
         activityModal('xp', '0', version, interaction.user.id, 'XP & Levels', [
           {
             id: 'ping_xp',
-            label: 'XP per daily C&C ping (1–10000)',
+            label: 'XP per daily ping (1–10000)',
             value: String(settings.pingPoints),
           },
           {
@@ -60,6 +68,38 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
             value: String(settings.replayDailyCap),
           },
           { id: 'level_xp', label: 'XP per level (1–1000000)', value: String(settings.xpPerLevel) },
+        ]),
+      );
+      return;
+    }
+    if (action === 'rating_xp') {
+      await interaction.showModal(
+        activityModal('rating_xp', '0', version, interaction.user.id, 'Replay Rating XP', [
+          {
+            id: 'points',
+            label: 'XP per net positive vote (1-1000)',
+            value: String(settings.ratingPoints),
+          },
+          {
+            id: 'minimum',
+            label: 'Minimum net positive votes (1-100)',
+            value: String(settings.ratingMinVotes),
+          },
+          {
+            id: 'replay',
+            label: 'Bonus XP cap per replay (1-10000)',
+            value: String(settings.ratingReplayCap),
+          },
+          {
+            id: 'daily',
+            label: 'Bonus XP cap per uploader/day (1-10000)',
+            value: String(settings.ratingDailyCap),
+          },
+          {
+            id: 'age',
+            label: 'Minimum voter account age in days (0-365)',
+            value: String(settings.ratingAccountDays),
+          },
         ]),
       );
       return;
@@ -115,7 +155,19 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     let screen: ActivityScreen = 'main';
     let target: string | number = 0;
     let notice = '✅ Settings saved.';
-    if (action === 'enable' || action === 'disable') {
+    if (action === 'toggle_ratings') {
+      activityRankRepository.updateSettings(
+        guild.id,
+        { ratingsEnabled: !settings.ratingsEnabled },
+        version,
+      );
+      screen = 'ratings';
+    } else if (action === 'scan_confirm') {
+      await interaction.deferUpdate();
+      const result = await replayRatingService.scan(guild);
+      screen = 'ratings';
+      notice = `✅ Checked ${result.checked} files and created ${result.cards} rating cards. No backdated upload XP was awarded.`;
+    } else if (action === 'enable' || action === 'disable') {
       if (action === 'enable' && activityRankRepository.getRankDefinitions(guild.id).length === 0)
         throw new Error('Add at least one rank before enabling the system.');
       guildRepository.toggleFeature(guild.id, 'activityRanks', action === 'enable');
@@ -202,7 +254,7 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
         result.failed +
         ' unavailable or blocked.';
     } else {
-      throw new Error('Unknown activity action. Reopen /activity_admin.');
+      throw new Error('Unknown activity action. Reopen /activity admin.');
     }
     audit('activity_configuration_changed', {
       guildId: guild.id,

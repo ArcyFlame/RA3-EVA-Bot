@@ -82,15 +82,15 @@ const GENEVO_TIPS: Array<{ text: string; faction: 'usa' | 'china' | 'gla' | 'gen
 
 function getGenevoQuote(faction: 'usa' | 'china' | 'gla' | 'general'): string {
   const quotes = {
-    usa: ['“Let’s give ’em an airshow.” — Raptor', '“Made in the U.S. of A.” — USA Dozer'],
+    usa: ['“Let’s give ’em an airshow.” - Raptor', '“Made in the U.S. of A.” - USA Dozer'],
     china: [
-      '“China will grow larger.” — China Dozer',
-      '“I have many bullets to spare.” — Gatling Tank',
+      '“China will grow larger.” - China Dozer',
+      '“I have many bullets to spare.” - Gatling Tank',
     ],
-    gla: ['“Can I have some shoes?” — GLA Worker', '“Load the SCUD!” — SCUD Launcher'],
+    gla: ['“Can I have some shoes?” - GLA Worker', '“Load the SCUD!” - SCUD Launcher'],
     general: [
-      '“Tanks are the key to any victory.” — General Kwai',
-      '“In the end, all fall before me.” — General Leang',
+      '“Tanks are the key to any victory.” - General Kwai',
+      '“In the end, all fall before me.” - General Leang',
     ],
   }[faction];
   return quotes[Math.floor(Math.random() * quotes.length)];
@@ -125,36 +125,36 @@ function getColorForFaction(faction: string): number {
 export function getQuoteForTip(tip: { text: string; faction: string }): string {
   const text = tip.text.toLowerCase();
   const contextual: Array<[RegExp, string]> = [
-    [/cryo|frozen|freeze/, '“Time to chill!” — Cryocopter'],
-    [/tanya|century bomber/, '“Shake it, baby!” — Tanya'],
-    [/apollo|vindicator|airfield|airbase/, '“Light the fires!” — Apollo Fighter'],
-    [/mirage/, '“Nothing to see here.” — Mirage Tank'],
-    [/peacekeeper|riot shield/, '“Keeping the peace!” — Peacekeeper'],
-    [/kirov/, '“Kirov reporting!” — Kirov Airship'],
-    [/conscript|molotov|garrison/, '“For Mother Russia!” — Conscript'],
-    [/apocalypse/, '“Apocalypse has begun!” — Apocalypse Tank'],
-    [/tesla|stingray/, '“Electrician in the field!” — Tesla Trooper'],
-    [/natasha/, '“One less infantry.” — Natasha'],
-    [/imperial warrior|emperor/, '“For the Emperor!” — Imperial Warrior'],
-    [/tengu/, '“Transform and roll out!” — Tengu'],
-    [/shogun|naval|sea/, '“Bow before us!” — Shogun Battleship'],
-    [/rocket angel/, '“Their end is near.” — Rocket Angel'],
-    [/king oni/, '“Destruction is honorable!” — King Oni'],
-    [/yuriko/, '“I am not a weapon!” — Yuriko Omega'],
-    [/economy|ore|refiner|harvester|collector/, '“Protect the ore; control the battle.” — E.V.A.'],
-    [/scout|vision|map control/, '“Information wins battles before they begin.” — E.V.A.'],
-    [/replay|loss/, '“Study the defeat, then change the outcome.” — E.V.A.'],
-    [/hotkey|control group|select|scatter|attack-move/, '“Speed comes from preparation.” — E.V.A.'],
-    [/engineer|capture/, '“Secure the objective.” — E.V.A.'],
-    [/artillery|defen|turtl/, '“Static defenses cannot hold every front.” — E.V.A.'],
+    [/cryo|frozen|freeze/, '“Time to chill!” - Cryocopter'],
+    [/tanya|century bomber/, '“Shake it, baby!” - Tanya'],
+    [/apollo|vindicator|airfield|airbase/, '“Light the fires!” - Apollo Fighter'],
+    [/mirage/, '“Nothing to see here.” - Mirage Tank'],
+    [/peacekeeper|riot shield/, '“Keeping the peace!” - Peacekeeper'],
+    [/kirov/, '“Kirov reporting!” - Kirov Airship'],
+    [/conscript|molotov|garrison/, '“For Mother Russia!” - Conscript'],
+    [/apocalypse/, '“Apocalypse has begun!” - Apocalypse Tank'],
+    [/tesla|stingray/, '“Electrician in the field!” - Tesla Trooper'],
+    [/natasha/, '“One less infantry.” - Natasha'],
+    [/imperial warrior|emperor/, '“For the Emperor!” - Imperial Warrior'],
+    [/tengu/, '“Transform and roll out!” - Tengu'],
+    [/shogun|naval|sea/, '“Bow before us!” - Shogun Battleship'],
+    [/rocket angel/, '“Their end is near.” - Rocket Angel'],
+    [/king oni/, '“Destruction is honorable!” - King Oni'],
+    [/yuriko/, '“I am not a weapon!” - Yuriko Omega'],
+    [/economy|ore|refiner|harvester|collector/, '“Protect the ore; control the battle.” - E.V.A.'],
+    [/scout|vision|map control/, '“Information wins battles before they begin.” - E.V.A.'],
+    [/replay|loss/, '“Study the defeat, then change the outcome.” - E.V.A.'],
+    [/hotkey|control group|select|scatter|attack-move/, '“Speed comes from preparation.” - E.V.A.'],
+    [/engineer|capture/, '“Secure the objective.” - E.V.A.'],
+    [/artillery|defen|turtl/, '“Static defenses cannot hold every front.” - E.V.A.'],
   ];
   const match = contextual.find(([pattern]) => pattern.test(text));
   if (match) return match[1];
-  if (tip.faction === 'allies') return '“Clear skies, commander.” — Allied Command';
-  if (tip.faction === 'soviets') return '“We will bury them!” — Soviet Command';
-  if (tip.faction === 'empire') return '“Victory is honorable.” — Imperial Command';
-  if (tip.faction === 'trivia') return '“Battlefield archive updated.” — E.V.A.';
-  return '“Adapt, scout, and keep moving.” — E.V.A.';
+  if (tip.faction === 'allies') return '“Clear skies, commander.” - Allied Command';
+  if (tip.faction === 'soviets') return '“We will bury them!” - Soviet Command';
+  if (tip.faction === 'empire') return '“Victory is honorable.” - Imperial Command';
+  if (tip.faction === 'trivia') return '“Battlefield archive updated.” - E.V.A.';
+  return '“Adapt, scout, and keep moving.” - E.V.A.';
 }
 
 function getTips(): { text: string; faction: string }[] {

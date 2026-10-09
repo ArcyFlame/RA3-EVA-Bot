@@ -8,7 +8,7 @@ beforeAll(async () => {
   await connectDatabase();
 });
 
-describe('GuildRepository — column whitelists', () => {
+describe('GuildRepository - column whitelists', () => {
   it('toggleFeature rejects unknown feature keys', () => {
     expect(() => repo.toggleFeature('guild1', 'not_a_feature', true)).toThrow();
   });

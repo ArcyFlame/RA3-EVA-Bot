@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   GENEVO_RAW_MAPS,
+  GENEVO_MAP_LABELS,
   RA3_TOURNAMENT_MAPS,
   cleanGameMapName,
   gameMapNames,
@@ -21,15 +22,21 @@ describe('game map catalogs', () => {
     ]);
   });
 
-  it('contains all 48 Generals Evolution 0.33 identifiers', () => {
-    expect(GENEVO_RAW_MAPS).toHaveLength(48);
-    expect(gameMapNames('genevo')).toHaveLength(48);
+  it('contains all 49 Generals Evolution 0.33 identifiers', () => {
+    expect(GENEVO_RAW_MAPS).toHaveLength(49);
+    expect(gameMapNames('genevo')).toHaveLength(49);
   });
 
   it('classifies and formats Generals Evolution maps without accepting RA3 maps', () => {
     expect(isKnownGameMap('genevo033_sgor00_skrm_25', 'genevo')).toBe(true);
-    expect(cleanGameMapName('genevo033_sgor00_skrm_25', 'genevo')).toBe('GenEvo033 sgor00 Skrm 25');
+    expect(cleanGameMapName('genevo033_sgor00_skrm_25', 'genevo')).toBe('Dark Mountain');
     expect(isKnownGameMap('Infinity Isle', 'genevo')).toBe(false);
+  });
+  it.each(Object.entries(GENEVO_MAP_LABELS))('maps %s to its published name', (id, name) => {
+    expect(cleanGameMapName(id.toUpperCase(), 'genevo')).toBe(name);
+    expect(cleanGameMapName('Maps\\' + id + '.map', 'genevo')).toBe(name);
+    expect(cleanGameMapName(id.replace(/_/g, ' '), 'genevo')).toBe(name);
+    expect(isKnownGameMap(name, 'genevo')).toBe(true);
   });
 
   it('separates RA3-engine lobbies by map and platform mod metadata', () => {

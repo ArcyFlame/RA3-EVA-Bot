@@ -7,6 +7,7 @@ import { RA3Bot } from '../bot';
 import { Command } from '../types';
 import { commandUsageRepository } from '../repositories/command-usage.repository';
 import { CommandDefinition, syncCommandDefinitions } from '../utils/command-registration';
+import { buildPublicCommands } from '../utils/command-paths';
 
 /**
  * Wraps a command's execute so every invocation is recorded in command_usage
@@ -69,10 +70,7 @@ export async function loadCommands(bot: RA3Bot): Promise<void> {
 
 /** Pushes the loaded definitions to Discord (guild-scoped in dev, global in prod). */
 export async function registerCommands(bot: RA3Bot): Promise<void> {
-  const body = bot.commands.map((command) => ({
-    ...(command.data.toJSON() as CommandDefinition),
-    dm_permission: command.guildOnly === false,
-  }));
+  const body = buildPublicCommands(bot.commands.values());
   const clientId = bot.client.user?.id;
   if (!clientId) {
     logger.error('Cannot register commands: client user unavailable (not logged in?)');

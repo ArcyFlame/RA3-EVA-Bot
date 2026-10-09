@@ -93,8 +93,7 @@ describe('extractSignUpUrl', () => {
   });
 
   it('recognizes the Generals Evolution Register / Discuss button', () => {
-    const html =
-      '<a href="/community/index.php?showtopic=1083416">Register / Discuss</a>';
+    const html = '<a href="/community/index.php?showtopic=1083416">Register / Discuss</a>';
     expect(extractSignUpUrl(html)).toBe(
       'https://www.gamereplays.org/community/index.php?showtopic=1083416',
     );
@@ -186,8 +185,8 @@ describe('extractEventFacts', () => {
       'Map pool: GenEvo033 Aymcam Skrm 01, GenEvo033 Sgor00 Skrm 25 Prize: 50$',
       'genevo',
     );
-    expect(facts.maps).toContain('GenEvo033 Aymcam Skrm 01');
-    expect(facts.maps).toContain('GenEvo033 sgor00 Skrm 25');
+    expect(facts.maps).toContain('Cold Drops');
+    expect(facts.maps).toContain('Dark Mountain');
   });
 
   it('extracts the full GenEvo 2v2 prize and sponsor list', () => {

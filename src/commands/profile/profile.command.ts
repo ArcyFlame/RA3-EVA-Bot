@@ -3,6 +3,7 @@ import {
   ChatInputCommandInteraction,
   EmbedBuilder,
   User as DiscordUser,
+  escapeMarkdown,
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { userRepository } from '../../repositories/user.repository';
@@ -23,6 +24,7 @@ import {
   SHATABRICK_MODE_LABELS,
 } from '../../services/shatabrick.service';
 import { GameId, GAME_CONFIGS } from '../../config/games';
+import { activitySummary } from './activity-summary';
 
 export const data = new SlashCommandBuilder()
   .setName('profile')
@@ -60,8 +62,8 @@ function addRa3bFields(
   for (const [mode, ladder] of ladders) {
     embed.addFields({
       name: mode,
-      value: ladder ? formatLadder(ladder, lang) : t(lang, 'profile.notRanked'),
-      inline: true,
+      value: ladder ? formatLadder(ladder, lang, showSeasonHistory) : t(lang, 'profile.notRanked'),
+      inline: false,
     });
   }
   const seasons = history
@@ -80,7 +82,7 @@ function addRa3bFields(
 }
 
 function formatShatabrickMode(stats: ShatabrickModeStats): string {
-  const total = stats.games || stats.wins + stats.losses;
+  const total = stats.wins + stats.losses;
   const winRate = total > 0 ? Math.round((stats.wins / total) * 100) : 0;
   const rating = [
     stats.elo ? `ELO **${stats.elo}**` : '',
@@ -88,13 +90,15 @@ function formatShatabrickMode(stats: ShatabrickModeStats): string {
   ]
     .filter(Boolean)
     .join(' • ');
-  return `${rating ? `${rating}\n` : ''}**${stats.wins}W / ${stats.losses}L**${total ? ` • ${winRate}%` : ''}\n${total} games`;
+  return `${rating ? `${rating} · ` : ''}**${stats.wins}W / ${stats.losses}L**${total ? ` · ${winRate}% win rate` : ''}\n${stats.games || total} games recorded`;
 }
 
 function addShatabrickFields(embed: EmbedBuilder, profile: ShatabrickProfile): void {
   const summary = [
-    `[**${profile.nickname}**](${profile.profileUrl})`,
-    profile.rankLabel ? `Rank: **${profile.rankLabel}**` : '',
+    `[**${escapeMarkdown(profile.nickname)}**](${profile.profileUrl})`,
+    profile.rankLabel && !/^level\s*\d+$/i.test(profile.rankLabel)
+      ? `Rank: **${escapeMarkdown(profile.rankLabel)}**`
+      : '',
     profile.level != null ? `Level: **${profile.level}**` : '',
     profile.score != null ? `Score: **${profile.score}**` : '',
   ]
@@ -102,9 +106,10 @@ function addShatabrickFields(embed: EmbedBuilder, profile: ShatabrickProfile): v
     .join(' • ');
   embed.addFields({ name: '🌐 Shatabrick • C&C Online', value: summary, inline: false });
   for (const mode of SHATABRICK_MODE_LABELS) {
-    embed.addFields({ name: mode, value: formatShatabrickMode(profile.modes[mode]), inline: true });
+    const stats = profile.modes[mode];
+    if (!stats.games && !stats.wins && !stats.losses && !stats.rank && !stats.elo) continue;
+    embed.addFields({ name: mode, value: formatShatabrickMode(stats), inline: false });
   }
-  if (profile.rankImageUrl) embed.setThumbnail(profile.rankImageUrl);
 }
 
 function factionEmoji(faction: string | undefined): string {
@@ -116,18 +121,18 @@ function factionEmoji(faction: string | undefined): string {
 }
 
 /** "1234 elo · #12 · 15W/4L (79%) · 🇺🇸" (placement-aware). */
-function formatLadder(ladder: Ra3bPersonaLadder, lang: Language): string {
+function formatLadder(ladder: Ra3bPersonaLadder, lang: Language, showFaction = true): string {
   const total = ladder.wins + ladder.losses;
   const rate = total > 0 ? ` (${Math.round((ladder.wins / total) * 100)}%)` : '';
   const record = `${ladder.wins}W/${ladder.losses}L${rate}`;
-  const faction = factionEmoji(ladder.primaryFaction);
+  const faction = showFaction ? ' · ' + factionEmoji(ladder.primaryFaction) : '';
   if (ladder.rank > 0 && ladder.elo > 0) {
-    return `\`${ladder.elo}\` elo · #${ladder.rank} · ${record} · ${faction}`;
+    return `ELO **${ladder.elo}** · Rank **#${ladder.rank}**\n**${record}**${faction}`;
   }
   if (total > 0) {
-    return `${t(lang, 'profile.placement')} (${ladder.placementMatchesLeft} ${t(lang, 'profile.left')}) · ${record} · ${faction}`;
+    return `${t(lang, 'profile.placement')} (${ladder.placementMatchesLeft} ${t(lang, 'profile.left')})\n**${record}**${faction}`;
   }
-  return `${t(lang, 'profile.noGames')} · ${faction}`;
+  return `${t(lang, 'profile.noGames')}${faction}`;
 }
 
 function tournamentWinCount(
@@ -147,15 +152,18 @@ export async function buildDiscordProfileEmbed(
   target: DiscordUser,
   lang: Language,
   game: GameId = 'ra3',
+  guildId?: string | null,
 ): Promise<EmbedBuilder> {
   const user = userRepository.findByDiscordId(target.id);
   const config = GAME_CONFIGS[game];
   const embed = new EmbedBuilder()
-    .setTitle(`🎖️ ${target.displayName}${t(lang, 'profile.title')}`)
+    .setTitle(`👤 ${target.displayName}${t(lang, 'profile.title')}`)
     .setColor(config.color)
     .setAuthor({ name: target.username, iconURL: target.displayAvatarURL() })
-    .setThumbnail(config.artworkUrl)
-    .setDescription(`**Discord:** <@${target.id}>\n${t(lang, 'profile.discordDescription')}`);
+    .setThumbnail(target.displayAvatarURL())
+    .setDescription(`**${config.label}**\n${t(lang, 'profile.discordDescription')}`);
+  const activity = guildId ? activitySummary(guildId, target.id) : undefined;
+  if (activity) embed.addFields(activity);
 
   if (user?.shatabrickUsername) {
     const profile = await shatabrickService.resolve(user.shatabrickUsername).catch(() => null);
@@ -215,8 +223,8 @@ export async function buildDiscordProfileEmbed(
   ]);
   embed.addFields({
     name: `🏆 ${t(lang, 'profile.tournamentWins')}`,
-    value: winCount > 0 ? `**${winCount}**` : '—',
-    inline: true,
+    value: `**${winCount}** confirmed wins`,
+    inline: false,
   });
   embed.setFooter({ text: `${config.shortLabel} • ${t(lang, 'profile.footer')}` });
   return embed;
@@ -262,7 +270,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     }
     const embed = new EmbedBuilder()
       .setTitle(
-        `🎖️ ${shatabrick?.nickname ?? stats?.personaName ?? playerQuery} — ${t(lang, 'profile.playerProfile')}`,
+        `🎖️ ${shatabrick?.nickname ?? stats?.personaName ?? playerQuery} - ${t(lang, 'profile.playerProfile')}`,
       )
       .setColor(config.color)
       .setThumbnail(config.artworkUrl)
@@ -287,6 +295,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   }
 
   const target = interaction.options.getUser('user') || interaction.user;
-  const embed = await buildDiscordProfileEmbed(target, lang, game);
-  await interaction.reply({ embeds: [embed], ephemeral: true });
+  await interaction.deferReply({ ephemeral: true });
+  const embed = await buildDiscordProfileEmbed(target, lang, game, interaction.guildId);
+  await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
 }

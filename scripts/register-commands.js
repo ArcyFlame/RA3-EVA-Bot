@@ -6,6 +6,7 @@ const { REST, Routes, Collection } = require('discord.js');
 const { env } = require('../dist/config/env');
 const { loadCommands } = require('../dist/commands');
 const { syncCommandDefinitions } = require('../dist/utils/command-registration');
+const { buildPublicCommands } = require('../dist/utils/command-paths');
 
 (async () => {
   const bot = { commands: new Collection() };
@@ -13,10 +14,7 @@ const { syncCommandDefinitions } = require('../dist/utils/command-registration')
   const rest = new REST({ version: '10' }).setToken(env.DISCORD_TOKEN);
   const user = await rest.get(Routes.user('@me'));
   const guilds = await rest.get(Routes.userGuilds());
-  const definitions = bot.commands.map((command) => ({
-    ...command.data.toJSON(),
-    dm_permission: command.guildOnly === false,
-  }));
+  const definitions = buildPublicCommands(bot.commands.values());
   const result = await syncCommandDefinitions(
     rest,
     user.id,

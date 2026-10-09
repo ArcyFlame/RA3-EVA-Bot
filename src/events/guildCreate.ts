@@ -1,4 +1,11 @@
-import { Events, Guild, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import {
+  Events,
+  Guild,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} from 'discord.js';
 import { RA3Bot } from '../bot';
 import { guildRepository } from '../repositories/guild.repository';
 import { logger } from '../utils/logger';
@@ -30,7 +37,7 @@ export async function execute(_bot: RA3Bot, guild: Guild): Promise<void> {
       const embed = new EmbedBuilder()
         .setTitle('Thanks for adding me!')
         .setDescription(
-          'Run `/bot_setup` to review this server\u2019s configuration, or `/help` to browse everything the bot can do.',
+          'Run `/bot setup` to review this server\u2019s configuration, or `/help` to browse everything the bot can do.',
         )
         .setColor(0x5865f2);
       await owner.send({ embeds: [embed] });
@@ -46,15 +53,17 @@ export async function execute(_bot: RA3Bot, guild: Guild): Promise<void> {
       .addFields(
         {
           name: '1. Run the setup wizard',
-          value: 'Use `/bot_setup` on your server to set the admin role, channels and features.',
+          value: 'Use `/bot setup` on your server to set the admin role, channels and features.',
         },
         {
           name: '2. Enable features',
-          value: 'Clans, tournaments, stream notifications, lobby tracker, stats panel - flip them on in `/toggle`.',
+          value:
+            'Clans, tournaments, stream notifications, lobby tracker, stats panel - flip them on in `/toggle`.',
         },
         {
           name: '3. Bind channels',
-          value: 'In `/bot_setup` → Notification Channels, pick where tournaments, news and streams should post.',
+          value:
+            'In `/bot setup` → Notification Channels, pick where tournaments, news and streams should post.',
         },
         {
           name: 'Need help?',

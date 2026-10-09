@@ -9,7 +9,7 @@ describe('decodeResponseText', () => {
       ...Buffer.from(' Tacitus Released'),
     ]);
     expect(decodeResponseText(bytes, 'text/html; charset=ISO-8859-1')).toBe(
-      'C&C:Online Replacement — Tacitus Released',
+      'C&C:Online Replacement \u2014 Tacitus Released',
     );
   });
 

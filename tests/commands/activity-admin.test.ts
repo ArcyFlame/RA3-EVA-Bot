@@ -106,6 +106,43 @@ function fixture(admin = true) {
 }
 
 describe('activity admin permissions and rendering', () => {
+  it.each(['ratings', 'scan'] as const)('only renders the %s screen for GenEvo', (screen) => {
+    const f = fixture();
+    expect(() => buildActivityAdminView(f.guild, ownerId, screen)).toThrow('only in GenEvo');
+    guildRepository.upsert(f.id, { game: 'genevo' });
+    const view = buildActivityAdminView(f.guild, ownerId, screen);
+    expect(view.embeds[0].toJSON().title).toContain('Replay Ratings');
+    expect(view.components.length).toBeLessThanOrEqual(5);
+    for (const row of view.components)
+      expect(row.toJSON().components.length).toBeLessThanOrEqual(5);
+  });
+  it('edits rating limits in an owned private five-field modal and rejects forged RA3 controls', async () => {
+    const f = fixture();
+    await button(null as any, f.control('btn', 'rating_xp'));
+    expect(f.interaction.showModal).not.toHaveBeenCalled();
+    guildRepository.upsert(f.id, { game: 'genevo' });
+    await button(null as any, f.control('btn', 'rating_xp'));
+    const form = f.interaction.showModal.mock.calls[0][0].toJSON();
+    expect(form.components).toHaveLength(5);
+    const fields: Record<string, string> = {
+      points: '7',
+      minimum: '3',
+      replay: '80',
+      daily: '90',
+      age: '14',
+    };
+    f.interaction.fields.getTextInputValue.mockImplementation((id: string) => fields[id]);
+    await modal(null as any, f.control('modal', 'rating_xp'));
+    expect(repo.getSettings(f.id)).toMatchObject({
+      ratingPoints: 7,
+      ratingMinVotes: 3,
+      ratingReplayCap: 80,
+      ratingDailyCap: 90,
+      ratingAccountDays: 14,
+    });
+    await button(null as any, f.control('btn', 'toggle_ratings'));
+    expect(repo.getSettings(f.id).ratingsEnabled).toBe(false);
+  });
   it('keeps snowflakes as strings and rejects malformed controls', () => {
     const id = activityControlId('btn', 'member', memberId, 3, ownerId);
     expect(parseActivityControl(id)).toMatchObject({ ref: memberId, version: 3 });

@@ -10,7 +10,7 @@ import { getSortedAnnouncements, renderEventCard } from '../commands/tournaments
 import { contentDeliveryRepository } from '../repositories/content-delivery.repository';
 import { safeGetText } from '../utils/safe-fetch';
 import { GameId } from '../config/games';
-import { gameMapNames } from '../data/game-maps';
+import { cleanGameMapName, gameMapNames } from '../data/game-maps';
 import { parsePortalCards } from '../utils/portal-source';
 
 export { parsePortalDate } from '../utils/tournament-status';
@@ -262,7 +262,14 @@ export function extractEventFacts(
   for (const mapsSection of description.matchAll(
     /\bmap\s+pool\b(?:\s*(?:for\s+(?:this|the)\s+event|,\s*using\s+[^!:.]{1,80}))?\s*[:!,.-]?\s*([\s\S]{3,1500}?)(?=(?:\bprize(?:\s+pool)?\b|\bformat\b|\bdate\b|\bschedule\b|\brules?\b|\bfair\s+play\b|\bregistration\b)|$)/gi,
   )) {
-    const section = mapsSection[1].toLowerCase();
+    const section = (
+      game === 'genevo'
+        ? mapsSection[1].replace(
+            /\bgenevo\d{3}[_\s]+[a-z0-9]+[_\s]+skrm[_\s]+\d+[a-z]?\b/gi,
+            (id) => cleanGameMapName(id, 'genevo'),
+          )
+        : mapsSection[1]
+    ).toLowerCase();
     foundMaps.push(
       ...gameMapNames(game)
         .map((name) => ({ name, idx: section.indexOf(name.toLowerCase()) }))

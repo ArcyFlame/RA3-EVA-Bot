@@ -6,6 +6,7 @@ import { handleInteractionError } from '../utils/interaction-error';
 import { resolveComponent, ComponentRegistry } from '../types';
 import { appSettingsRepository } from '../repositories/app-settings.repository';
 import { guildRepository } from '../repositories/guild.repository';
+import { resolveCommandName, publicCommandName } from '../utils/command-paths';
 
 export const name = Events.InteractionCreate;
 export const once = false;
@@ -89,7 +90,8 @@ function isCollectorOwned(customId: string): boolean {
 export async function execute(bot: RA3Bot, interaction: Interaction): Promise<void> {
   // ── Slash commands ─────────────────────────────────────────────────────
   if (interaction.isChatInputCommand()) {
-    const command = bot.commands.get(interaction.commandName);
+    const commandName = resolveCommandName(interaction);
+    const command = bot.commands.get(commandName);
     if (!command) {
       logger.warn(`Unknown command: ${interaction.commandName}`);
       await interaction
@@ -114,7 +116,7 @@ export async function execute(bot: RA3Bot, interaction: Interaction): Promise<vo
       return;
     }
     if (
-      RA3_ONLY_COMMANDS.has(interaction.commandName) &&
+      RA3_ONLY_COMMANDS.has(commandName) &&
       interaction.guildId &&
       guildRepository.findByDiscordId(interaction.guildId)?.game === 'genevo'
     ) {
@@ -124,10 +126,7 @@ export async function execute(bot: RA3Bot, interaction: Interaction): Promise<vo
       });
       return;
     }
-    if (
-      TOURNAMENT_COMMANDS.has(interaction.commandName) &&
-      tournamentToolsDisabled(interaction.guildId)
-    ) {
+    if (TOURNAMENT_COMMANDS.has(commandName) && tournamentToolsDisabled(interaction.guildId)) {
       await interaction.reply({
         content: 'Tournament and referee tools are disabled on this server.',
         ephemeral: true,
@@ -138,18 +137,18 @@ export async function execute(bot: RA3Bot, interaction: Interaction): Promise<vo
     const cooldownSeconds = command.cooldown ?? DEFAULT_COMMAND_COOLDOWN_SECONDS;
     const { onCooldown, remainingSeconds } = cooldownManager.isOnCooldown(
       interaction.user.id,
-      interaction.commandName,
+      commandName,
     );
     if (onCooldown) {
       await interaction
         .reply({
-          content: `⏳ Please wait ${remainingSeconds} second${remainingSeconds !== 1 ? 's' : ''} before using \`/${interaction.commandName}\` again.`,
+          content: `⏳ Please wait ${remainingSeconds} second${remainingSeconds !== 1 ? 's' : ''} before using \`/${publicCommandName(commandName)}\` again.`,
           ephemeral: true,
         })
         .catch((e) => logger.debug('Failed to answer cooldown notice:', e));
       return;
     }
-    cooldownManager.setCooldown(interaction.user.id, interaction.commandName, cooldownSeconds);
+    cooldownManager.setCooldown(interaction.user.id, commandName, cooldownSeconds);
 
     try {
       await command.execute(bot, interaction);
@@ -161,14 +160,12 @@ export async function execute(bot: RA3Bot, interaction: Interaction): Promise<vo
 
   // ── Autocomplete ───────────────────────────────────────────────────────
   if (interaction.isAutocomplete()) {
-    if (
-      TOURNAMENT_COMMANDS.has(interaction.commandName) &&
-      tournamentToolsDisabled(interaction.guildId)
-    ) {
+    const commandName = resolveCommandName(interaction);
+    if (TOURNAMENT_COMMANDS.has(commandName) && tournamentToolsDisabled(interaction.guildId)) {
       await interaction.respond([]);
       return;
     }
-    const command = bot.commands.get(interaction.commandName);
+    const command = bot.commands.get(commandName);
     if (!command?.autocomplete) return;
     try {
       await command.autocomplete(bot, interaction);

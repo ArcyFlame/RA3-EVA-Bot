@@ -1,139 +1,182 @@
 import {
   ChatInputCommandInteraction,
   EmbedBuilder,
-  GuildMember,
   SlashCommandBuilder,
-  User,
   escapeMarkdown,
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { activityRankRepository } from '../../repositories/activity-rank.repository';
 import { guildRepository } from '../../repositories/guild.repository';
-import { nextRankForPoints, rankForPoints } from '../../services/activity-rank.service';
+import {
+  activityRankService,
+  rankForPoints,
+  validateActivityRole,
+} from '../../services/activity-rank.service';
+import { isModerator } from '../../utils/permissions';
+import { audit } from '../../utils/logger';
 
 export const data = new SlashCommandBuilder()
   .setName('activity')
-  .setDescription('Discord activity ranks and leaderboard')
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName('rank')
-      .setDescription("Show your activity rank or another member's rank")
-      .addUserOption((option) =>
-        option.setName('member').setDescription('Member to view').setRequired(false),
+  .setDescription('Private activity leaderboard and staff rank tools')
+  .addSubcommand((sub) =>
+    sub.setName('leaderboard').setDescription('Privately view the server activity leaderboard'),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName('xp')
+      .setDescription('[Staff] Add or remove member XP')
+      .addUserOption((o) => o.setName('member').setDescription('Server member').setRequired(true))
+      .addIntegerOption((o) =>
+        o
+          .setName('amount')
+          .setDescription('Positive to add, negative to remove XP')
+          .setRequired(true)
+          .setMinValue(-1000000)
+          .setMaxValue(1000000),
       ),
   )
-  .addSubcommand((subcommand) =>
-    subcommand.setName('leaderboard').setDescription('Show the most active server members'),
+  .addSubcommand((sub) =>
+    sub
+      .setName('role')
+      .setDescription('[Staff] Set, remove or restore an automatic rank role')
+      .addUserOption((o) => o.setName('member').setDescription('Server member').setRequired(true))
+      .addStringOption((o) =>
+        o
+          .setName('action')
+          .setDescription('Rank role action')
+          .setRequired(true)
+          .addChoices(
+            { name: 'Add configured rank role', value: 'add' },
+            { name: 'Remove configured rank roles', value: 'remove' },
+            { name: 'Restore automatic XP rank', value: 'auto' },
+          ),
+      )
+      .addRoleOption((o) =>
+        o.setName('role').setDescription('Configured cosmetic rank role to add'),
+      ),
   );
 
-function progressBar(current: number, target: number): string {
-  if (target <= 0) return '██████████';
-  const filled = Math.max(0, Math.min(10, Math.floor((current / target) * 10)));
-  return `${'█'.repeat(filled)}${'░'.repeat(10 - filled)}`;
-}
-
-function displayName(member: GuildMember | null, user: User): string {
-  return escapeMarkdown(member?.displayName ?? user.displayName);
-}
-
-export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
-  if (!interaction.guild) {
+const pending = new Set<string>();
+export async function execute(
+  _bot: RA3Bot,
+  interaction: ChatInputCommandInteraction,
+): Promise<void> {
+  const guild = interaction.guild;
+  if (!guild || guildRepository.findByDiscordId(guild.id)?.activityRanksEnabled !== 1) {
     await interaction.reply({
-      content: 'This command can only be used inside a server.',
+      content: 'Activity ranks are disabled or this is not a server.',
       ephemeral: true,
     });
     return;
   }
-  const guildData = guildRepository.findByDiscordId(interaction.guild.id);
-  if (guildData?.activityRanksEnabled !== 1) {
-    await interaction.reply({
-      content: 'Discord activity ranks are disabled on this server.',
-      ephemeral: true,
-    });
-    return;
-  }
-
   const action = interaction.options.getSubcommand();
   if (action === 'leaderboard') {
-    await interaction.deferReply();
-    const entries = activityRankRepository.getLeaderboard(interaction.guild.id, 10);
-    if (entries.length === 0) {
-      await interaction.editReply('No activity has been recorded yet.');
-      return;
-    }
-    const definitions = activityRankRepository.getRankDefinitions(interaction.guild.id);
+    await interaction.deferReply({ ephemeral: true });
+    const entries = activityRankRepository.getLeaderboard(guild.id, 10);
+    const definitions = activityRankRepository.getRankDefinitions(guild.id);
     const lines = await Promise.all(
       entries.map(async (entry, index) => {
-        const member = await interaction.guild!.members.fetch(entry.userId).catch(() => null);
-        const name = escapeMarkdown(member?.displayName ?? 'Former member');
+        const member = await guild.members.fetch(entry.userId).catch(() => null);
         const rank = rankForPoints(entry.points, definitions);
-        const medal =
-          index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `**${index + 1}.**`;
-        return `${medal} ${name} — **${entry.points.toLocaleString()}** XP · ${rank ? `${escapeMarkdown(rank.title)} (Rank ${rank.rank})` : 'Recruit'}`;
+        return `**${index + 1}.** ${escapeMarkdown(member?.displayName ?? 'Former member')} - **${entry.points.toLocaleString()} XP** · ${escapeMarkdown(rank?.title ?? 'Recruit')}`;
       }),
     );
-    const embed = new EmbedBuilder()
-      .setTitle('🏅 Discord Activity Leaderboard')
-      .setDescription(lines.join('\n'))
-      .setColor(0xf1c40f)
-      .setFooter({
-        text: 'One C&C ping award per UTC day. Valid replay uploads can also earn XP.',
-      });
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle('🏅 Activity Leaderboard')
+          .setDescription(lines.join('\n') || 'No activity has been recorded yet.')
+          .setColor(0xd6ad43)
+          .setFooter({ text: 'Pings count once per UTC day. Ordinary chat earns no XP.' }),
+      ],
+      allowedMentions: { parse: [] },
+    });
     return;
   }
-
-  const target = interaction.options.getUser('member') ?? interaction.user;
-  const member = await interaction.guild.members.fetch(target.id).catch(() => null);
-  const activity = activityRankRepository.getMember(interaction.guild.id, target.id);
-  const points = activity?.points ?? 0;
-  const settings = activityRankRepository.getSettings(interaction.guild.id);
-  const definitions = activityRankRepository.getRankDefinitions(interaction.guild.id);
-  const currentRank = rankForPoints(points, definitions);
-  const nextRank = nextRankForPoints(points, definitions);
-  const position = activityRankRepository.getMemberPosition(interaction.guild.id, target.id);
-  const base = currentRank?.threshold ?? 0;
-  const progress = nextRank ? points - base : 1;
-  const targetProgress = nextRank ? nextRank.threshold - base : 1;
-  const configuredRole = currentRank?.roleId
-    ? interaction.guild.roles.cache.get(currentRank.roleId)
-    : undefined;
-
-  const embed = new EmbedBuilder()
-    .setTitle(`🎖️ ${displayName(member, target)} — Activity Rank`)
-    .setThumbnail(target.displayAvatarURL())
-    .setColor(configuredRole?.color || 0x5865f2)
-    .addFields(
-      {
-        name: 'Current Rank',
-        value: currentRank
-          ? `**${escapeMarkdown(currentRank.title)}** · Rank ${currentRank.rank}`
-          : '**Recruit**',
-        inline: true,
-      },
-      {
-        name: 'XP / Level',
-        value: `**${points.toLocaleString()} XP** · Level **${Math.floor(points / settings.xpPerLevel)}**`,
-        inline: true,
-      },
-      {
-        name: 'Server Position',
-        value: position ? `**#${position}**` : 'Not ranked',
-        inline: true,
-      },
-      {
-        name: nextRank ? `Progress to ${escapeMarkdown(nextRank.title)}` : 'Highest Rank Reached',
-        value: nextRank
-          ? `\`${progressBar(progress, targetProgress)}\` ${Math.max(0, progress).toLocaleString()} / ${targetProgress.toLocaleString()}`
-          : '`██████████` ' + escapeMarkdown(currentRank?.title ?? 'Complete'),
-      },
-      {
-        name: 'Counted Activity',
-        value: `${activity?.qualifyingCncPings ?? 0} daily C&C pings · ${activity?.qualifyingReplays ?? 0} replay files`,
-      },
-    )
-    .setFooter({
-      text: 'C&C pings count once per UTC day. Ordinary chat earns no XP.',
+  const staff = await guild.members
+    .fetch({ user: interaction.user.id, force: true })
+    .catch(() => null);
+  if (!staff || !isModerator(staff)) {
+    await interaction.reply({
+      content: 'Only admins and moderators can adjust XP or rank roles.',
+      ephemeral: true,
     });
-  await interaction.reply({ embeds: [embed] });
+    return;
+  }
+  await interaction.deferReply({ ephemeral: true });
+  const target = interaction.options.getUser('member', true);
+  const key = guild.id + ':' + target.id;
+  if (pending.has(key)) {
+    await interaction.editReply('An adjustment is already running for this member.');
+    return;
+  }
+  pending.add(key);
+  try {
+    const member = await guild.members.fetch({ user: target.id, force: true }).catch(() => null);
+    if (!member || member.user.bot) throw new Error('Choose a current human server member.');
+    if (guildRepository.findByDiscordId(guild.id)?.activityRanksEnabled !== 1)
+      throw new Error('Activity ranks were disabled.');
+    const before = activityRankRepository.getMember(guild.id, target.id);
+    let detail = '';
+    if (action === 'xp') {
+      const amount = interaction.options.getInteger('amount', true);
+      const activity = activityRankRepository.adjustPoints(guild.id, member.id, amount);
+      const sync = await activityRankService.syncMemberRank(member, activity);
+      detail = `XP updated: **${activity.points.toLocaleString()} XP**.${sync.detail ? ' ' + sync.detail : ''}`;
+      audit('activity_staff_xp', {
+        guildId: guild.id,
+        staffId: staff.id,
+        userId: member.id,
+        amount,
+      });
+    } else if (action === 'role') {
+      await guild.roles.fetch();
+      await guild.channels.fetch();
+      const mode = interaction.options.getString('action', true);
+      if (!['add', 'remove', 'auto'].includes(mode)) throw new Error('Unknown rank role action.');
+      const role = interaction.options.getRole('role');
+      const rank = role
+        ? activityRankRepository.getRankDefinitions(guild.id).find((r) => r.roleId === role.id)
+        : undefined;
+      if (mode === 'add') {
+        if (!rank?.roleId) throw new Error('Choose a role linked in /activity admin.');
+        const currentRole = guild.roles.cache.get(rank.roleId);
+        if (!currentRole) throw new Error('The rank role no longer exists.');
+        const denial = validateActivityRole(currentRole);
+        if (denial) throw new Error(denial);
+      }
+      const activity = activityRankRepository.setManualRank(
+        guild.id,
+        member.id,
+        mode === 'auto' ? null : mode === 'remove' ? 0 : rank!.id,
+      );
+      const sync = await activityRankService.syncMemberRank(member, activity);
+      if (!['updated', 'unchanged'].includes(sync.status)) {
+        activityRankRepository.setManualRank(guild.id, member.id, before?.manualRankId ?? null);
+        await activityRankService.syncMemberRank(member);
+        throw new Error(sync.detail ?? 'No rank roles are configured.');
+      }
+      detail =
+        mode === 'auto'
+          ? 'Automatic XP rank restored.'
+          : mode === 'remove'
+            ? 'Rank roles removed. Automatic role assignment is paused for this member.'
+            : 'Rank role assigned. It stays pinned until you restore automatic ranking.';
+      audit('activity_staff_role', {
+        guildId: guild.id,
+        staffId: staff.id,
+        userId: member.id,
+        mode,
+        rankId: rank?.id,
+      });
+    } else throw new Error('Open /profile to see your activity rank.');
+    await interaction.editReply({ content: '✅ ' + detail, allowedMentions: { parse: [] } });
+  } catch (error) {
+    await interaction.editReply({
+      content: (error as Error).message,
+      allowedMentions: { parse: [] },
+    });
+  } finally {
+    pending.delete(key);
+  }
 }

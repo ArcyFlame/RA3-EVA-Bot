@@ -60,7 +60,7 @@ export function buildTournamentsEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: '⚔️ Matches & Reporting',
         value:
-          '`/matches` - Live bracket: results, scores, upcoming matches\n`/report_score <opponent> <factions> <score>` - Submit a result for referee review',
+          '`/matches` - Live bracket: results, scores, upcoming matches\n`/report score <opponent> <factions> <score>` - Submit a result for referee review',
         inline: false,
       },
       {
@@ -96,7 +96,7 @@ export function buildCommunityEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: '🛡️ Clans',
         value:
-          '`/clans` - Browse clans\n`/clan_join <tag>` - Join a clan\n`/clan_leave` - Leave your clan\n`/clan_create` - Start clan creation\n`/clan_manage` - Manage your clan (leader)\n`/clan_remove` - Delete your own clan (leader)',
+          '`/clans` - Browse clans\n`/clan join <tag>` - Join a clan\n`/clan leave` - Leave your clan\n`/clan create` - Start clan creation\n`/clan manage` - Manage your clan (leader)\n`/clan remove` - Delete your own clan (leader)',
         inline: false,
       },
       {
@@ -128,7 +128,10 @@ export function buildCommunityEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: '🎖️ Discord Activity Ranks',
         value:
-          '`/activity rank [member]` - View activity points and rank\n`/activity leaderboard` - Top 10 active members',
+          '`/profile` - Your private profile, activity XP, level and rank\n`/activity leaderboard` - Privately view the top 10 active members' +
+          (game === 'genevo'
+            ? '\nReplay uploads in the selected channel earn XP. Rate individual replay cards with 👍 or 👎; rating bonuses have daily limits.'
+            : ''),
         inline: false,
       },
       {
@@ -155,7 +158,7 @@ export function buildProfileEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: 'Your Profile',
         value:
-          '`/profile [user] [player]` - View Shatabrick and RA3BattleNet ranks\n`/link` - Add, update or remove linked accounts',
+          '`/profile [user] [player]` - Privately view linked platform stats and server activity rank\n`/link` - Add, update or remove linked accounts',
         inline: false,
       },
       {
@@ -164,7 +167,9 @@ export function buildProfileEmbed(game: GameId = 'ra3'): EmbedBuilder {
         inline: false,
       },
     )
-    .setFooter({ text: 'Ranks are awarded by community staff.' });
+    .setFooter({
+      text: 'Only you can see these command replies. Activity ranks follow this server’s settings.',
+    });
 }
 
 export function buildInfoEmbed(game: GameId = 'ra3'): EmbedBuilder {
@@ -190,7 +195,7 @@ export function buildInfoEmbed(game: GameId = 'ra3'): EmbedBuilder {
     )
     .addFields(
       { name: '🛠️ Created by', value: '<@270293736871690240> (Arcy)', inline: true },
-      { name: '📅 Version', value: '4.0.0', inline: true },
+      { name: '📅 Version', value: '5.0.0', inline: true },
     );
 }
 
@@ -204,19 +209,19 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: '⚙️ Server Configuration',
         value:
-          '`/bot_setup` - Server setup wizard (admin role, channels, features)\n`/set_admin_role <role>` - Set the bot admin role\n`/toggle` - Choose a feature, then enable or disable it\n`/notifications` - Notification channels & streamers (admin view)',
+          '`/bot setup` - Server setup wizard (admin role, channels, features)\n`/set admin role <role>` - Set the bot admin role\n`/toggle` - Choose a feature, then enable or disable it\n`/notifications` - Notification channels & streamers (admin view)',
         inline: false,
       },
       {
         name: '🧪 Test Posts (admin)',
         value:
-          '`/test_channels` or `/notifications` → Test Posts - verify every configured channel.',
+          '`/test channels` or `/notifications` → Test Posts - verify every configured channel.',
         inline: false,
       },
       {
         name: '📊 Panels',
         value:
-          '`/stats_panel set <channel>` - Persistent stats panel\n`/match_panel set <channel>` - Live match ticker\n`/lobby_panel set <channel>` - Persistent lobby board\n(each also has a `disable` subcommand)',
+          '`/panel stats set <channel>` - Persistent stats panel\n`/panel matches set <channel>` - Live match ticker\n`/panel lobby set <channel>` - Persistent lobby board\n(each also has a `disable` subcommand)',
         inline: false,
       },
       ...(game === 'ra3'
@@ -224,7 +229,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
             {
               name: '🏆 Masters & Tournaments',
               value:
-                '`/add_master <name> <year> [patch]` - Add a master\n`/remove_master <name>` - Remove a master\n`/list_masters` - List all masters\n`/tournament_link` - Link a Challonge bracket (paste URL)\n`/tournaments_scan` - Scan the portal + forum for tournaments, brackets and sign-ups\n`/events` - Edit missing tournament details from the private event browser',
+                '`/master add <name> <year> [patch]` - Add a master\n`/master remove <name>` - Remove a master\n`/master list` - List all masters\n`/tournament link` - Link a Challonge bracket (paste URL)\n`/tournament scan` - Scan the portal + forum for tournaments, brackets and sign-ups\n`/events` - Edit missing tournament details from the private event browser',
               inline: false,
             },
           ]
@@ -232,22 +237,32 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
             {
               name: '🏆 Tournaments',
               value:
-                '`/tournament_link` - Link or create a tournament from a Challonge bracket\n`/checkin [event]` - Open the referee check-in board\n`/events` - Edit missing tournament details from the private event browser',
+                '`/tournament link` - Link or create a tournament from a Challonge bracket\n`/checkin [event]` - Open the referee check-in board\n`/events` - Edit missing tournament details from the private event browser',
               inline: false,
             },
           ]),
       {
         name: '👤 Player Profiles',
         value:
-          '`/profile_admin view <user>` - Inspect a member profile\n`/profile_admin unlink <user> <platform>` - Remove one link\n`/profile_admin clear <user> <confirm>` - Clear linked identities',
+          '`/admin profile view <user>` - Inspect a member profile\n`/admin profile unlink <user> <platform>` - Remove one link\n`/admin profile clear <user> <confirm>` - Clear linked identities',
         inline: false,
       },
       {
         name: '🎖️ Activity Ranks',
         value:
-          '`/activity_admin` - Configure ping and replay XP, days, levels, ranks and roles with buttons\nAdd, edit, remove or reorder ranks, select existing roles or create new ones, and manage member XP.',
+          '`/activity admin` - Configure ping and replay XP, days, levels, ranks and roles with buttons\nAdd, edit, remove or reorder ranks, select existing roles or create new ones, and manage member XP.',
         inline: false,
       },
+      ...(game === 'genevo'
+        ? [
+            {
+              name: '🎬 Replay Ratings',
+              value:
+                '`/activity admin` → Replay Ratings - Enable ratings, set bonus XP limits or scan recent uploads. Each accepted file gets its own 👍 / 👎 card. Original messages are kept.',
+              inline: false,
+            },
+          ]
+        : []),
       {
         name: '✅ Tournament Check-ins',
         value:
@@ -257,7 +272,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: '🛡️ Clans',
         value:
-          '`/clan_manager` - Manage clans (approvals, edit, remove)\n`/clan_approve` - Approve or reject pending clans',
+          '`/clan manager` - Manage clans (approvals, edit, remove)\n`/clan approve` - Approve or reject pending clans',
         inline: false,
       },
       {
@@ -282,7 +297,7 @@ export function buildModerationEmbed(): EmbedBuilder {
       {
         name: 'Member Actions',
         value:
-          '`/kick <user> [reason]` - Kick a member\n`/ban <user> [reason] [delete_days]` - Ban a member',
+          '`/kick <user> [reason]` - Kick a member\n`/ban <user> [reason] [delete-days]` - Ban a member',
         inline: false,
       },
       {
@@ -293,7 +308,13 @@ export function buildModerationEmbed(): EmbedBuilder {
       {
         name: 'Warning System',
         value:
-          '`/warn <user> [reason]` - Warn a member\n`/warnings <user>` - View warnings for a member\n`/clear_warnings <user>` - Clear all warnings for a member',
+          '`/warn <user> [reason]` - Warn a member\n`/warnings <user>` - View warnings for a member\n`/clear warnings <user>` - Clear all warnings for a member',
+        inline: false,
+      },
+      {
+        name: '🎖️ Activity XP & Roles',
+        value:
+          '`/activity xp <member> <amount>` - Add XP or use a negative amount to remove XP\n`/activity role <member> <action> [role]` - Add a configured rank role, remove rank roles or restore automatic XP ranking\nOnly configured cosmetic activity roles can be changed. Replies are private.',
         inline: false,
       },
     )

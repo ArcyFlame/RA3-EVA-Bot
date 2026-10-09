@@ -1,4 +1,5 @@
 import { ApplicationCommandType, REST, Routes } from 'discord.js';
+import { COMMAND_PATHS } from './command-paths';
 
 interface RegisteredCommand {
   id: string;
@@ -38,7 +39,14 @@ export async function syncCommandDefinitions(
         Routes.applicationGuildCommands(applicationId, guildId),
       )) as RegisteredCommand[];
       for (const command of existing) {
-        if (!keys.has(command.type + ':' + command.name)) continue;
+        if (
+          !keys.has(command.type + ':' + command.name) &&
+          !(
+            command.type === ApplicationCommandType.ChatInput &&
+            Object.hasOwn(COMMAND_PATHS, command.name)
+          )
+        )
+          continue;
         await rest.delete(Routes.applicationGuildCommand(applicationId, guildId, command.id));
         removed++;
       }

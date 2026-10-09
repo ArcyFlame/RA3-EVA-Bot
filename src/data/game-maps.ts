@@ -222,6 +222,7 @@ export const RA3_MAP_GROUPS: readonly MapGroup[] = [
 ] as const;
 
 export const GENEVO_RAW_MAPS = [
+  'genevo033_Adriane_skrm_01',
   'genevo033_Adriane_skrm_01b',
   'genevo033_Aymcam_skrm_01',
   'genevo033_Aymcam_skrm_02',
@@ -300,6 +301,58 @@ function mapKey(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+export const GENEVO_MAP_LABELS: Readonly<Record<string, string>> = {
+  genevo033_sgor00_skrm_10: 'Tournament Island',
+  genevo033_sgor00_skrm_11: 'Naval Yard',
+  genevo033_sgor00_skrm_12: 'Defcon 6',
+  genevo033_sgor00_skrm_13: 'Lone Eagle',
+  genevo033_sgor00_skrm_14: 'Hostile Dawn',
+  genevo033_sgor00_skrm_15: 'Sand Serpent',
+  genevo033_sgor00_skrm_16: 'Forgotten Forest',
+  genevo033_sgor00_skrm_17: 'Delta Facility',
+  genevo033_sgor00_skrm_18: 'Barren Badlands',
+  genevo033_sgor00_skrm_19: 'Turtle Mountain',
+  genevo033_sgor00_skrm_20: 'Fords of Dvina',
+  genevo033_sgor00_skrm_21: 'Wild Valley',
+  genevo033_sgor00_skrm_22: 'Small Town GLA',
+  genevo033_sgor00_skrm_23: 'Broken Border',
+  genevo033_sgor00_skrm_24: 'Cairo Commandos',
+  genevo033_sgor00_skrm_25: 'Dark Mountain',
+  genevo033_sgor00_skrm_01: 'Canyon City',
+  genevo033_sgor00_skrm_02: 'Fallen Empire',
+  genevo033_sgor00_skrm_03: 'Bad Evening',
+  genevo033_sgor00_skrm_04: 'Twilight Flame',
+  genevo033_sgor00_skrm_05: 'Autumn Garden',
+  genevo033_sgor00_skrm_06: 'Homeland Alliance',
+  genevo033_sgor00_skrm_07: 'Frozen Pipeline',
+  genevo033_sgor00_skrm_08: 'Tournament Desert',
+  genevo033_sgor00_skrm_09: 'Armored Fury',
+  genevo033_sgor00_skrm_10b: 'Tournament Big Island',
+  genevo033_sgor00_skrm_11b: 'Naval Base',
+  genevo033_sgor00_skrm_18b: 'Dark Badlands',
+  genevo033_sgor00_skrm_22b: 'Small City GLA',
+  genevo033_adriane_skrm_01: 'Naval Port Reyes',
+  genevo033_adriane_skrm_01b: 'Night Port Reyes',
+  genevo033_aymcam_skrm_01: 'Cold Drops',
+  genevo033_aymcam_skrm_02: "King's Hill",
+  genevo033_aymcam_skrm_03: 'Tournament Tundra',
+  genevo033_aymcam_skrm_03b: 'Tournament Frostbite',
+  genevo033_aymcam_skrm_04: 'Toxic Wasteland',
+  genevo033_aymcam_skrm_05: 'European Rain',
+  genevo033_bluess_skrm_01: 'Boreal Battle',
+  genevo033_bluess_skrm_02: 'Boreal Beatdown',
+  genevo033_bluess_skrm_03: 'Boreal Brawl',
+  genevo033_bluess_skrm_04: 'Avalanche Assault',
+  genevo033_cloud_skrm_01: 'Tournament A',
+  genevo033_cloud_skrm_01b: 'Tournament Alpha',
+  genevo033_cloud_skrm_02: 'Frostpunk Valleys',
+  genevo033_predatore_skrm_01: 'Coastal Confrontation',
+  genevo033_darkyuri_skrm_01: 'Flash Effect',
+  genevo033_darkyuri_skrm_02: 'Land of Wolves',
+  genevo033_dereaper89_skrm_01: 'Dry Valley',
+  genevo033_haubibban_skrm_01: 'Vendetta',
+};
+
 export function formatGenevoMapName(rawName: string): string {
   const clean =
     rawName
@@ -308,6 +361,8 @@ export function formatGenevoMapName(rawName: string): string {
       .pop()
       ?.replace(/\.map$/i, '') ?? rawName;
   const match = clean.match(/^genevo(\d{3})_([^_]+)_skrm_(\d+[a-z]?)$/i);
+  const known = GENEVO_MAP_LABELS[clean.toLowerCase()];
+  if (known) return known;
   if (!match) {
     return clean
       .replace(/[_-]+/g, ' ')
@@ -383,8 +438,8 @@ export function gameMapNames(game: GameId): string[] {
 export function gameMapGroups(game: GameId): readonly MapGroup[] {
   if (game === 'genevo') {
     return [
-      { label: 'Generals Evolution 0.33 (1–25)', maps: GENEVO_MAPS.slice(0, 25) },
-      { label: 'Generals Evolution 0.33 (26–48)', maps: GENEVO_MAPS.slice(25) },
+      { label: 'Generals Evolution 0.33 (1-25)', maps: GENEVO_MAPS.slice(0, 25) },
+      { label: 'Generals Evolution 0.33 (26-49)', maps: GENEVO_MAPS.slice(25) },
     ];
   }
   return RA3_MAP_GROUPS;

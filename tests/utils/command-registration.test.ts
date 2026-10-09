@@ -40,6 +40,24 @@ describe('slash command synchronization', () => {
     ).rejects.toThrow('offline');
     expect(api.delete).not.toHaveBeenCalled();
   });
+  it('removes obsolete underscore guild registrations after publishing the new command tree', async () => {
+    const api = rest();
+    api.get.mockResolvedValue([
+      { id: 'old', name: 'bot_setup', type: 1 },
+      { id: 'other', name: 'special', type: 1 },
+      { id: 'context', name: 'bot_setup', type: 2 },
+    ]);
+    const result = await syncCommandDefinitions(
+      api as unknown as REST,
+      'app',
+      [{ name: 'bot' }],
+      ['guild'],
+    );
+    expect(result.removed).toBe(1);
+    expect(api.delete).toHaveBeenCalledExactlyOnceWith(
+      Routes.applicationGuildCommand('app', 'guild', 'old'),
+    );
+  });
   it('preserves global commands in explicit development mode', async () => {
     const api = rest();
     expect(

@@ -133,7 +133,7 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     key: 'activityRanks',
     label: 'Discord activity ranks',
     emoji: '🎖️',
-    description: 'Daily C&C pings, replay XP and customizable ranks',
+    description: 'Daily Pings, replay XP and customizable ranks',
     enabled: (g) => g.activityRanksEnabled === 1,
   },
   {
@@ -216,7 +216,7 @@ export function buildFeatureToggleView(
     .setTitle('⚙️ Feature Toggles')
     .setDescription(
       `Select a category, then press **Enable** or **Disable**.\n\n` +
-        `Selected: ${active.emoji} **${active.label}** — ${active.description}\n` +
+        `Selected: ${active.emoji} **${active.label}** - ${active.description}\n` +
         `Current state: **${enabled ? 'Enabled' : 'Disabled'}**`,
     )
     .setColor(enabled ? 0x57f287 : 0xed4245)

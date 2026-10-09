@@ -16,7 +16,7 @@ beforeAll(() => {
   up022();
 });
 
-describe('UserRepository — DM toggles', () => {
+describe('UserRepository - DM toggles', () => {
   it('creates a row when none exists (no silent no-op)', () => {
     repo.setClanInviteDmEnabled('user1', true);
     expect(repo.findByDiscordId('user1')?.clanInviteDmEnabled).toBe(1);
@@ -34,7 +34,7 @@ describe('UserRepository — DM toggles', () => {
   });
 });
 
-describe('UserRepository — language preference', () => {
+describe('UserRepository - language preference', () => {
   it('defaults to English for unknown users', () => {
     expect(repo.getLanguage('nobody')).toBe('en');
   });
@@ -45,7 +45,7 @@ describe('UserRepository — language preference', () => {
   });
 });
 
-describe('UserRepository — RA3BattleNet persona link', () => {
+describe('UserRepository - RA3BattleNet persona link', () => {
   it('stores the persona id next to the name', () => {
     repo.linkRa3BattleNet('user1', 'Arcy', 138466);
     const user = repo.findByDiscordId('user1');

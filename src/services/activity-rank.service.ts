@@ -93,7 +93,7 @@ export class ActivityRankService {
   private pendingMembers = new Set<string>();
   private syncingGuilds = new Set<string>();
 
-  private async downloadReplay(attachment: Attachment): Promise<string | null> {
+  async downloadReplay(attachment: Attachment): Promise<string | null> {
     if (this.replayDownloads >= 4) return null;
     this.replayDownloads += 1;
     try {
@@ -133,6 +133,7 @@ export class ActivityRankService {
     if (activityDate !== new Date().toISOString().slice(0, 10)) return;
     const key = message.guild.id + ':' + message.author.id;
     const replayFingerprints: string[] = [];
+    const verifiedReplays: Array<{ attachment: Attachment; fingerprint: string }> = [];
     if (replays?.size && !this.pendingMembers.has(key)) {
       this.pendingMembers.add(key);
       try {
@@ -147,7 +148,10 @@ export class ActivityRankService {
           )
             break;
           const fingerprint = await this.downloadReplay(attachment);
-          if (fingerprint) replayFingerprints.push(fingerprint);
+          if (fingerprint) {
+            replayFingerprints.push(fingerprint);
+            verifiedReplays.push({ attachment, fingerprint });
+          }
         }
       } finally {
         this.pendingMembers.delete(key);
@@ -167,6 +171,14 @@ export class ActivityRankService {
         message.channelId === currentSettings.replayChannelId ? replayFingerprints : [],
     });
     if (result.pointsAwarded === 0) return;
+    if (currentGuild.game === 'genevo' && result.replaysAwarded > 0) {
+      const { replayRatingService } = await import('./replay-rating.service');
+      for (const replay of verifiedReplays) {
+        const accepted = this.getReplayOwner(message.guild.id, replay.fingerprint);
+        if (accepted === message.author.id)
+          await replayRatingService.post(message, replay.attachment, replay.fingerprint);
+      }
+    }
 
     const definitions = activityRankRepository.getRankDefinitions(message.guild.id);
     const previousRank = rankForPoints(result.before.points, definitions);
@@ -203,9 +215,12 @@ export class ActivityRankService {
     }
 
     const points = activity?.points ?? 0;
-    const desired = configured
-      .filter((definition) => points >= definition.threshold)
-      .sort((a, b) => b.threshold - a.threshold || b.rank - a.rank)[0];
+    const desired =
+      activity?.manualRankId !== undefined
+        ? configured.find((definition) => definition.id === activity.manualRankId)
+        : configured
+            .filter((definition) => points >= definition.threshold)
+            .sort((a, b) => b.threshold - a.threshold || b.rank - a.rank)[0];
     const configuredRoles = [
       ...new Set([...configured.map((definition) => definition.roleId!), ...retiredRoleIds]),
     ]
@@ -270,6 +285,10 @@ export class ActivityRankService {
 
   getMemberActivity(guildId: string, userId: string): MemberActivity | undefined {
     return activityRankRepository.getMember(guildId, userId);
+  }
+
+  private getReplayOwner(guildId: string, fingerprint: string): string | undefined {
+    return activityRankRepository.getReplayOwner(guildId, fingerprint);
   }
 }
 

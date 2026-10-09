@@ -43,7 +43,9 @@ export type ActivityScreen =
   | 'member'
   | 'members'
   | 'delete'
-  | 'reset';
+  | 'reset'
+  | 'ratings'
+  | 'scan';
 export interface ActivityControl {
   action: string;
   ref: string;
@@ -73,7 +75,7 @@ export async function authorizeActivityControl(
   const control = parseActivityControl(interaction.customId);
   if (!control || control.ownerId !== interaction.user.id || !interaction.guild) {
     await interaction.reply({
-      content: 'Open your own configuration menu with /activity_admin.',
+      content: 'Open your own configuration menu with /activity admin.',
       ephemeral: true,
     });
     return null;
@@ -156,7 +158,7 @@ export function buildActivityAdminView(
         {
           name: 'XP Sources',
           value:
-            '📣 Daily C&C ping: ' +
+            '📣 Daily ping: ' +
             (settings.pingEnabled ? settings.pingPoints + ' XP' : 'Off') +
             '\n📁 Replay uploads: ' +
             (settings.replayEnabled
@@ -169,7 +171,7 @@ export function buildActivityAdminView(
         {
           name: 'Counting Rules',
           value:
-            'C&C pings count once per member per UTC day. Replay files in the selected channel are checked for the RA3 replay header. Reposts earn no extra credit. Ordinary chat earns no XP. Rank roles must not grant server permissions, staff privileges or channel access.',
+            'Pings count once per member per UTC day. Replay files in the selected channel are checked for the RA3 replay header. Reposts earn no extra credit. Ordinary chat earns no XP. Rank roles must not grant server permissions, staff privileges or channel access.',
         },
       );
     row(
@@ -188,12 +190,55 @@ export function buildActivityAdminView(
       button('members', 'Manage Member XP'),
       button('sync', 'Sync Rank Roles'),
     );
+    if (guildData?.game === 'genevo') row(button('ratings', 'Replay Ratings'));
+  } else if (screen === 'ratings' || screen === 'scan') {
+    if (guildData?.game !== 'genevo')
+      throw new Error('Replay ratings are available only in GenEvo setup.');
+    embed
+      .setTitle('🎬 GenEvo Replay Ratings')
+      .setDescription(
+        'Each accepted replay gets its own card with 👍 and 👎 reactions. Original uploads stay intact.\n\n' +
+          'Only human server members can vote, with one active vote each. Self-votes and duplicate files earn nothing. Downvotes reduce future bonuses, not XP already earned.',
+      )
+      .addFields(
+        {
+          name: 'Rating XP',
+          value: `${settings.ratingsEnabled ? '🟢 Enabled' : '🔴 Disabled'}\n${settings.ratingPoints} XP per net positive vote, starting at ${settings.ratingMinVotes} net votes\nUp to ${settings.ratingReplayCap} XP per replay and ${settings.ratingDailyCap} XP per uploader per UTC day`,
+        },
+        {
+          name: 'Voters & Channel',
+          value: `Accounts must be at least ${settings.ratingAccountDays} days old.\nReplay channel: <#${settings.replayChannelId}>`,
+        },
+        {
+          name: 'Required Bot Permissions',
+          value:
+            'View Channel, Send Messages, Embed Links, Read Message History and Add Reactions.',
+        },
+      );
+    if (screen === 'scan') {
+      embed.addFields({
+        name: 'Scan Recent Uploads?',
+        value:
+          'Check the last 100 messages from the past 30 days. Create at most 10 missing cards per run and inspect at most 20 files. Historical uploads do not receive upload XP. Scans have a 10-minute cooldown.',
+      });
+      row(
+        button('scan_confirm', 'Create Missing Cards', 0, ButtonStyle.Primary),
+        button('ratings', 'Cancel'),
+      );
+    } else {
+      row(
+        button('toggle_ratings', settings.ratingsEnabled ? 'Disable Ratings' : 'Enable Ratings'),
+        button('rating_xp', 'Rating XP & Limits'),
+        button('scan', 'Scan Recent Uploads'),
+      );
+    }
+    back();
   } else if (screen === 'sources') {
     embed
       .setDescription('Select the ping role and replay channel, and enable the sources you want.')
       .addFields(
         {
-          name: '📣 C&C Ping',
+          name: '📣 Ping',
           value:
             (settings.pingEnabled ? 'Enabled' : 'Disabled') +
             '\nRole: ' +
@@ -236,7 +281,7 @@ export function buildActivityAdminView(
                   rank.rank +
                   '. ' +
                   escapeMarkdown(rank.title) +
-                  '** — ' +
+                  '** - ' +
                   rank.threshold.toLocaleString() +
                   ' XP' +
                   (rank.roleId ? ' · <@&' + rank.roleId + '>' : ' · No role'),
@@ -332,7 +377,7 @@ export function buildActivityAdminView(
       new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
         new RoleSelectMenuBuilder()
           .setCustomId(id('sel', 'ping'))
-          .setPlaceholder('Choose the C&C ping role'),
+          .setPlaceholder('Choose the ping role'),
       ),
     );
     row(button('sources', 'Back to Sources'));

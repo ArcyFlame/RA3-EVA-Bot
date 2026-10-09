@@ -6,11 +6,18 @@ import { projectRoot } from './inventory.mjs';
 
 const toolRoot = dirname(fileURLToPath(import.meta.url));
 export const suites = Object.freeze({
-  components: ['tests/interactions', 'tests/commands'],
+  components: [
+    'tests/interactions',
+    'tests/commands',
+    'tests/utils/command-paths.test.ts',
+    'tests/repositories/replay-rating.repository.test.ts',
+    'tests/services/replay-rating.service.test.ts',
+  ],
   permissions: [
     'tests/interactions/button-scenarios.test.ts',
     'tests/commands/notification-permissions.test.ts',
     'tests/commands/activity-admin.test.ts',
+    'tests/commands/activity-profile.test.ts',
     'tests/utils/permissions.test.ts',
   ],
 });

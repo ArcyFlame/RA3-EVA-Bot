@@ -285,7 +285,7 @@ export async function generateGenevoFactionChartBuffer(
   ctx.textAlign = 'center';
   ctx.fillStyle = '#FFFFFF';
   ctx.font = `bold 64px ${MIEDINGER}`;
-  ctx.fillText(total > 0 ? String(total) : '—', centerX, centerY - 8);
+  ctx.fillText(total > 0 ? String(total) : '-', centerX, centerY - 8);
   ctx.fillStyle = '#9CA38E';
   ctx.font = `25px ${MIEDINGER}`;
   ctx.fillText(total > 0 ? 'TOTAL PICKS' : 'NO DATA YET', centerX, centerY + 40);
@@ -315,7 +315,7 @@ export async function generateGenevoFactionChartBuffer(
       ctx.fillText(
         typeof value === 'number' && total > 0
           ? `${value} (${((value / total) * 100).toFixed(1)}%)`
-          : '—',
+          : '-',
         1720,
         y,
       );

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Commands — E.V.A Docs</title>
+    <title>Commands - E.V.A Docs</title>
     <link rel="stylesheet" href="assets/styles.css" />
   </head>
   <body>
@@ -62,20 +62,20 @@
           <td>Open the check-in board; referees also get management controls</td>
         </tr>
         <tr>
-          <td><code>/report_score &lt;opponent&gt; &lt;factions&gt; &lt;score&gt;</code></td>
+          <td><code>/report score &lt;opponent&gt; &lt;factions&gt; &lt;score&gt;</code></td>
           <td>Submit a checked-in tournament result for referee review</td>
         </tr>
         <tr>
-          <td><code>/tournaments_scan</code></td>
+          <td><code>/tournament scan</code></td>
           <td>Force an immediate portal + forum scan <span class="badge red">admin</span></td>
         </tr>
         <tr>
-          <td><code>/tournament_link</code></td>
+          <td><code>/tournament link</code></td>
           <td>Attach a Challonge bracket by URL <span class="badge red">admin</span></td>
         </tr>
         <tr>
           <td>
-            <code>/add_master</code> / <code>/remove_master</code> / <code>/list_masters</code>
+            <code>/master add</code> / <code>/master remove</code> / <code>/master list</code>
           </td>
           <td>Hall of Fame management <span class="badge red">admin</span></td>
         </tr>
@@ -92,15 +92,15 @@
           <td>Live community stats with pages and charts (reply is private)</td>
         </tr>
         <tr>
-          <td><code>/stats_panel set|disable</code></td>
+          <td><code>/panel stats set|disable</code></td>
           <td>Persistent Live Stats panel with charts <span class="badge red">admin</span></td>
         </tr>
         <tr>
-          <td><code>/match_panel set|disable</code></td>
+          <td><code>/panel matches set|disable</code></td>
           <td>Live match ticker panel <span class="badge red">admin</span></td>
         </tr>
         <tr>
-          <td><code>/lobby_panel set|disable</code></td>
+          <td><code>/panel lobby set|disable</code></td>
           <td>Persistent lobby board <span class="badge red">admin</span></td>
         </tr>
       </table>
@@ -113,10 +113,13 @@
         </tr>
         <tr>
           <td><code>/profile [user] [player]</code></td>
-          <td>Player profile — a Discord member or any player by Shatabrick/platform name or id</td>
+          <td>
+            Private player profile, platform stats and server activity rank. View a Discord member
+            or search by platform nickname/id.
+          </td>
         </tr>
         <tr>
-          <td><code>/profile_admin</code></td>
+          <td><code>/admin profile</code></td>
           <td>
             View, unlink or clear a member's linked player profile
             <span class="badge red">admin</span>
@@ -127,6 +130,63 @@
           <td>Manage Shatabrick and RA3BattleNet account links</td>
         </tr>
       </table>
+
+      <h2>Activity XP and replay ratings</h2>
+      <table>
+        <tr>
+          <th>Command</th>
+          <th>What it does</th>
+        </tr>
+        <tr>
+          <td><code>/activity leaderboard</code></td>
+          <td>Privately view the top 10 activity members.</td>
+        </tr>
+        <tr>
+          <td><code>/activity admin</code></td>
+          <td>Configure XP, days, levels and cosmetic rank roles. Admin only.</td>
+        </tr>
+        <tr>
+          <td><code>/activity xp &lt;member&gt; &lt;amount&gt;</code></td>
+          <td>Add XP or use a negative amount to remove XP. Admin/moderator only.</td>
+        </tr>
+        <tr>
+          <td><code>/activity role &lt;member&gt; &lt;action&gt; [role]</code></td>
+          <td>
+            Add a configured cosmetic rank role, remove rank roles or restore automatic XP ranking.
+            Admin/moderator only.
+          </td>
+        </tr>
+      </table>
+      <p>
+        Rank details now live in <code>/profile</code>. Pings count once per UTC day; ordinary chat
+        earns no XP.
+      </p>
+      <h3>Generals Evolution replay cards</h3>
+      <p>
+        In <code>/activity admin</code>, select the replay channel under XP Sources, then open
+        Replay Ratings. Each accepted replay file gets a separate card with thumbs-up and
+        thumbs-down reactions. Original uploads are preserved.
+      </p>
+      <p>
+        The default upload award is 25 XP, up to three files per member per UTC day. Rating bonuses
+        start at two net positive votes, with 5 XP per net vote, up to 100 XP per replay and 100
+        bonus XP per uploader per UTC day. Voter accounts must be seven days old. These values are
+        configurable.
+      </p>
+      <p>
+        Self-votes, bot votes, duplicate files and repeatedly removing/re-adding reactions do not
+        earn extra XP. Downvotes reduce future bonuses, not earned XP. These limits reduce abuse but
+        cannot prevent collusion between real members.
+      </p>
+      <p>
+        Scan Recent Uploads checks the last 100 messages from the past 30 days, inspects at most 20
+        files and creates at most 10 missing cards per run. Scans have a 10-minute cooldown.
+        Historical uploads do not get backdated upload XP.
+      </p>
+      <p>
+        The bot needs View Channel, Send Messages, Embed Links, Read Message History and Add
+        Reactions. Staff role overrides stay pinned until automatic ranking is restored.
+      </p>
 
       <h2>Community</h2>
       <table>
@@ -171,13 +231,13 @@
           <td>List clans; clan leaders manage their clan</td>
         </tr>
         <tr>
-          <td><code>/clan_manager</code></td>
+          <td><code>/clan manager</code></td>
           <td>
             Admin clan management (approvals, edit, remove) <span class="badge red">admin</span>
           </td>
         </tr>
         <tr>
-          <td><code>/clan_approve</code></td>
+          <td><code>/clan approve</code></td>
           <td>Approve or reject pending clans <span class="badge red">admin</span></td>
         </tr>
       </table>
@@ -189,13 +249,13 @@
           <th>What it does</th>
         </tr>
         <tr>
-          <td><code>/bot_setup</code></td>
+          <td><code>/bot setup</code></td>
           <td>
             Setup wizard: roles, channels, game, features <span class="badge red">admin</span>
           </td>
         </tr>
         <tr>
-          <td><code>/set_admin_role</code></td>
+          <td><code>/set admin role</code></td>
           <td>Set the bot admin role <span class="badge red">admin</span></td>
         </tr>
         <tr>
@@ -206,7 +266,7 @@
           </td>
         </tr>
         <tr>
-          <td><code>/test_channels</code></td>
+          <td><code>/test channels</code></td>
           <td>
             Verify the bot can post in every configured channel <span class="badge red">admin</span>
           </td>
@@ -230,7 +290,7 @@
       </table>
 
       <div class="footer">
-        E.V.A — built for the Command &amp; Conquer community by Arcy. Not affiliated with EA.
+        E.V.A - built for the Command &amp; Conquer community by Arcy. Not affiliated with EA.
       </div>
     </main>
   </body>

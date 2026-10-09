@@ -11,7 +11,7 @@ export const data = new SlashCommandBuilder()
   .addStringOption((option) => option.setName('reason').setDescription('Reason').setRequired(false))
   .addIntegerOption((option) =>
     option
-      .setName('delete_days')
+      .setName('delete-days')
       .setDescription('Delete messages (0-7 days)')
       .setMinValue(0)
       .setMaxValue(7)
@@ -41,7 +41,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
 
   const target = interaction.options.getUser('user', true);
   const reason = clampReason(interaction.options.getString('reason'));
-  const deleteDays = interaction.options.getInteger('delete_days') ?? 0;
+  const deleteDays = interaction.options.getInteger('delete-days') ?? 0;
 
   const targetMember = await interaction.guild.members.fetch(target.id).catch(() => null);
   if (!targetMember) {

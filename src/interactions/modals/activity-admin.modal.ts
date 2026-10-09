@@ -8,6 +8,7 @@ import {
 import { activityRankRepository } from '../../repositories/activity-rank.repository';
 import { activityRankService } from '../../services/activity-rank.service';
 import { audit } from '../../utils/logger';
+import { guildRepository } from '../../repositories/guild.repository';
 
 export const customIdPrefix = 'activity_modal:';
 
@@ -24,10 +25,25 @@ export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction)
   const guild = interaction.guild;
   const { action, ref, version } = control;
   try {
-    let screen: 'main' | 'rank' | 'member' = 'main';
+    let screen: 'main' | 'rank' | 'member' | 'ratings' = 'main';
     let target: string | number = 0;
     let notice = '✅ Settings saved.';
-    if (action === 'xp') {
+    if (action === 'rating_xp') {
+      if (guildRepository.findByDiscordId(guild.id)?.game !== 'genevo')
+        throw new Error('Replay ratings are available only in GenEvo setup.');
+      activityRankRepository.updateSettings(
+        guild.id,
+        {
+          ratingPoints: numberField(interaction, 'points'),
+          ratingMinVotes: numberField(interaction, 'minimum'),
+          ratingReplayCap: numberField(interaction, 'replay'),
+          ratingDailyCap: numberField(interaction, 'daily'),
+          ratingAccountDays: numberField(interaction, 'age'),
+        },
+        version,
+      );
+      screen = 'ratings';
+    } else if (action === 'xp') {
       activityRankRepository.updateSettings(
         guild.id,
         {

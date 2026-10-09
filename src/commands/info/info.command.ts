@@ -32,7 +32,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     .setColor(context.config.color)
     .addFields(
       { name: '🛠️ Created by', value: '<@270293736871690240> (Arcy)', inline: true },
-      { name: '📅 Version', value: '4.0.0', inline: true },
+      { name: '📅 Version', value: '5.0.0', inline: true },
     )
     .setThumbnail(context.config.artworkUrl);
   await interaction.reply({ embeds: [embed], ephemeral: true });

@@ -105,7 +105,7 @@ async function updateMatchPanel(bot: RA3Bot, guildId: string) {
     const embed = new EmbedBuilder()
       .setTitle('🏆 Live Tournament Matches')
       .setColor(0x5865f2)
-      .setDescription('No tournament linked. Use `/tournament_link`.');
+      .setDescription('No tournament linked. Use `/tournament link`.');
     await msg.edit({ embeds: [embed] }).catch(() => null);
     return;
   }
