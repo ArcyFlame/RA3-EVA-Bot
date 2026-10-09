@@ -2,6 +2,7 @@ import { sourceGet } from '../utils/safe-fetch';
 import { MatchSummary, summarizeMatch, isHumanLobbyPlayer } from '../utils/match-format';
 import { mapCatalogService } from './map-catalog.service';
 import { observedMatchService } from './observed-match.service';
+import { shatabrickFactionService, Ra3FactionCounts } from './shatabrick-factions.service';
 import { logger } from '../utils/logger';
 import { db } from '../database/sqlite';
 import { masterRepository } from '../repositories/master.repository';
@@ -27,6 +28,7 @@ export interface RA3Stats {
   history_started_at?: string;
   new_player_tracking_started_at?: string;
   faction_distribution: { Allies: number; Soviets: number; Empire: number };
+  cnc_faction_distribution?: Ra3FactionCounts;
   genevo_faction_distribution: GenevoFactionDistribution;
   genevo_faction_source: 'unavailable' | 'live_lobbies' | 'shatabrick' | 'match_records';
   top_maps: Array<[string, number]>;
@@ -331,7 +333,7 @@ export class RA3StatsService {
     logger.info(`Fetching fresh ${game} stats...`);
 
     // Fetch all data in parallel
-    const [cncData, ra3bData, ra3bLadders, factionData, mapData, seasonData] =
+    const [cncData, ra3bData, ra3bLadders, factionData, mapData, seasonData, cncFactionData] =
       await Promise.allSettled([
         this.fetchCnCOnline(game),
         this.fetchRA3BattleNet(game),
@@ -343,6 +345,7 @@ export class RA3StatsService {
           : Promise.resolve({ Allies: 0, Soviets: 0, Empire: 0 }),
         game === 'ra3' ? this.fetchRA3BattleNetMaps() : Promise.resolve({}),
         game === 'ra3' ? this.fetchCurrentSeason() : Promise.resolve(undefined),
+        game === 'ra3' && useCnc ? shatabrickFactionService.fetch() : Promise.resolve(undefined),
       ]);
 
     const cncLive =
@@ -483,6 +486,8 @@ export class RA3StatsService {
           ? gamePlayerRepository.getTrackingStart('genevo', genevoPlatforms)
           : this.getTrackingStart(),
       faction_distribution: factions,
+      cnc_faction_distribution:
+        cncFactionData.status === 'fulfilled' ? cncFactionData.value?.counts : undefined,
       genevo_faction_distribution: genevoFactions,
       genevo_faction_source: Object.values(genevoFactions).some((n) => n !== null && n > 0)
         ? 'match_records'

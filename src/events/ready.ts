@@ -22,6 +22,7 @@ import { bootstrapConfiguredContent } from '../services/content-bootstrap.servic
 import { checkinNotificationService } from '../services/checkin-notification.service';
 import { getGameContext } from '../utils/game-context';
 import { replayRatingService } from '../services/replay-rating.service';
+import { guildBrandingService } from '../services/guild-branding.service';
 
 export const name = Events.ClientReady;
 export const once = true;
@@ -53,6 +54,9 @@ function managedInterval(fn: () => Promise<void>, ms: number, label: string): vo
 export async function execute(bot: RA3Bot): Promise<void> {
   setStartTime();
   logger.info(`Logged in as ${bot.client.user?.tag}`);
+  void guildBrandingService
+    .reconcile(bot.client)
+    .catch((error) => logger.warn('Bot profile refresh failed:', error));
   setTimeout(() => void replayRatingService.reconcileRecentCards(bot.client), 30000).unref();
 
   // Clean up wizard views when their messages are deleted.

@@ -13,6 +13,8 @@ export const suites = Object.freeze({
     'tests/repositories/replay-rating.repository.test.ts',
     'tests/services/replay-rating.service.test.ts',
     'tests/services/community-controls.test.ts',
+    'tests/services/guild-branding.test.ts',
+    'tests/services/shatabrick-factions.test.ts',
   ],
   permissions: [
     'tests/interactions/button-scenarios.test.ts',

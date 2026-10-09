@@ -7,6 +7,7 @@ export interface GameConfig {
   emoji: string;
   color: number;
   artworkUrl: string;
+  guildProfileArtworkUrl?: string;
   description: string;
   supportsRa3BattleNet: boolean;
   tournamentFallbackUrl: string;
@@ -40,6 +41,8 @@ export const GAME_CONFIGS: Record<GameId, GameConfig> = {
     emoji: '⭐',
     color: 0x3f7d35,
     artworkUrl:
+      'https://media.moddb.com/cache/images/articles/1/341/340076/thumb_620x2000/033Art.png',
+    guildProfileArtworkUrl:
       'https://media.moddb.com/cache/images/articles/1/341/340076/thumb_620x2000/033Art.png',
     description: 'Generals Evolution multiplayer on C&C Online and RA3BattleNet.',
     supportsRa3BattleNet: true,

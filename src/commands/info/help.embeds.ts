@@ -84,7 +84,7 @@ export function buildTournamentsEmbed(game: GameId = 'ra3'): EmbedBuilder {
         value:
           game === 'ra3'
             ? '`/replays` - Browse popular and event replays on GameReplays'
-            : '`/replays` - Open Generals Evolution replay resources and tournament posts',
+            : "`/replays` - Open this server's selected replay channel",
         inline: false,
       },
     )
@@ -207,7 +207,7 @@ export function buildInfoEmbed(game: GameId = 'ra3'): EmbedBuilder {
     )
     .addFields(
       { name: '🛠️ Created by', value: '<@270293736871690240> (Arcy)', inline: true },
-      { name: '📅 Version', value: '5.1.0', inline: true },
+      { name: '📅 Version', value: '5.2.0', inline: true },
     );
 }
 

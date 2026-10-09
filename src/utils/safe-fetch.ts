@@ -18,6 +18,7 @@ const HOST_ALLOWLIST = new Set([
   'www.cnc-online.net',
   'rss.moddb.com',
   'www.moddb.com',
+  'media.moddb.com',
   'www.youtube.com',
   'www.googleapis.com',
   'api.twitch.tv',

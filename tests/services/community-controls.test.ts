@@ -149,7 +149,7 @@ describe('match mode evidence', () => {
       'Test',
     );
     expect(unknown.mode).toBeUndefined();
-    expect(formatMatchPlayers(unknown)).toContain('(2 players)');
+    expect(formatMatchPlayers(unknown)).toBe('**A**, **B**');
   });
 });
 describe('observed map catalog and match records', () => {
@@ -224,5 +224,65 @@ describe('observed map catalog and match records', () => {
       { losers: [null] },
     ])
       expect(parseObservedMatch({ ...rawMatch(), ...patch })).toBeUndefined();
+  });
+  it('refreshes corrected faction IDs without discarding previously verified identities', async () => {
+    const record = { ...rawMatch(), id: 'corrected-factions-test' };
+    record.winners[0].faction = 'Unknown_977B2D15';
+    vi.mocked(sourceGet).mockResolvedValue({ data: { records: [record] } } as any);
+    await new ObservedMatchService().refresh();
+    record.winners[0].faction = 'GenEvoAmericaLaserGeneral';
+    await new ObservedMatchService().refresh();
+    let saved = new ObservedMatchService().recent('genevo').find((m) => m.matchId === record.id);
+    expect(saved?.participants?.[0].faction).toBe('GenEvoAmericaLaserGeneral');
+    record.winners[0].faction = 'Unknown_977B2D15';
+    await new ObservedMatchService().refresh();
+    saved = new ObservedMatchService().recent('genevo').find((m) => m.matchId === record.id);
+    expect(saved?.participants?.[0].faction).toBe('GenEvoAmericaLaserGeneral');
+  });
+  it('reads later mixed-mod pages with a strict cap and saves earlier pages if one fails', async () => {
+    const page = Array.from({ length: 100 }, (_, i) => ({
+      ...rawMatch(),
+      id: `page-cap-${i}`,
+      modFamilyName: 'ra3',
+    }));
+    vi.mocked(sourceGet)
+      .mockResolvedValueOnce({ data: { records: page } } as any)
+      .mockResolvedValueOnce({
+        data: { records: [{ ...rawMatch(), id: 'second-page-genevo' }] },
+      } as any);
+    const service = new ObservedMatchService();
+    await service.refresh();
+    expect(sourceGet).toHaveBeenCalledTimes(2);
+    expect(service.recent('genevo').some((m) => m.matchId === 'second-page-genevo')).toBe(true);
+    vi.mocked(sourceGet)
+      .mockReset()
+      .mockResolvedValueOnce({
+        data: { records: page.map((r) => ({ ...r, id: `later-${r.id}` })) },
+      } as any)
+      .mockRejectedValueOnce(new Error('later page offline'));
+    await new ObservedMatchService().refresh();
+    expect(
+      (
+        db
+          .prepare("SELECT COUNT(*) AS n FROM observed_matches WHERE match_id LIKE 'later-%'")
+          .get() as any
+      ).n,
+    ).toBe(100);
+  });
+  it('never crawls more than three pages per refresh', async () => {
+    for (let page = 1; page <= 3; page++)
+      vi.mocked(sourceGet).mockResolvedValueOnce({
+        data: {
+          records: Array.from({ length: 100 }, (_, i) => ({
+            ...rawMatch(),
+            id: `strict-cap-${page}-${i}`,
+          })),
+        },
+      } as any);
+    await new ObservedMatchService().refresh();
+    expect(sourceGet).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(sourceGet).mock.calls[2][0]).toBe(
+      'https://api.ra3battle.cn/api/match/get/recent/all/3/result',
+    );
   });
 });

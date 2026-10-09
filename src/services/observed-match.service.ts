@@ -79,21 +79,57 @@ export class ObservedMatchService {
   }
   private async load(): Promise<void> {
     try {
-      const { data } = await sourceGet(
-        'https://api.ra3battle.cn/api/match/get/recent/all/1/result',
-        { timeout: 5000 },
-      );
-      if (!Array.isArray(data?.records)) return;
-      const records = data.records.slice(0, 100).map(parseObservedMatch).filter(Boolean) as Array<{
+      const records: Array<{
         game: GameId;
         summary: MatchSummary;
-      }>;
+      }> = [];
+      const seen = new Set<string>();
+      // A mixed-mod first page can omit GenEvo. Read a bounded additional two pages.
+      for (let page = 1; page <= 3; page++) {
+        const response = await sourceGet(
+          `https://api.ra3battle.cn/api/match/get/recent/all/${page}/result`,
+          { timeout: 5000 },
+        ).catch(() => undefined);
+        if (!response) break;
+        const { data } = response;
+        if (!Array.isArray(data?.records)) break;
+        let added = false;
+        for (const raw of data.records.slice(0, 100)) {
+          const record = parseObservedMatch(raw);
+          if (!record || seen.has(record.summary.matchId!)) continue;
+          seen.add(record.summary.matchId!);
+          records.push(record);
+          added = true;
+        }
+        if (!added || data.records.length < 100 || data.pageOutOfLimit === true) break;
+      }
       db.transaction(() => {
         const insert = db.prepare(
-          "INSERT OR IGNORE INTO observed_matches(platform,match_id,game,started_at,payload) VALUES('ra3b',?,?,?,?)",
+          `INSERT INTO observed_matches(platform,match_id,game,started_at,payload) VALUES('ra3b',?,?,?,?)
+           ON CONFLICT(platform,match_id) DO UPDATE SET payload=excluded.payload
+           WHERE game=excluded.game AND started_at=excluded.started_at`,
         );
-        for (const { game, summary } of records)
+        const prior = db.prepare(
+          "SELECT payload FROM observed_matches WHERE platform='ra3b' AND match_id=?",
+        );
+        for (const { game, summary } of records) {
+          // Providers can correct previously unknown faction IDs. Keep known values on regressions.
+          const saved = prior.get(summary.matchId) as { payload: string } | undefined;
+          if (saved) {
+            try {
+              const previous = JSON.parse(saved.payload) as MatchSummary;
+              if (Array.isArray(previous.participants))
+                for (const player of summary.participants ?? [])
+                  if (!normalizeGenevoFaction(player.faction ?? '') && game === 'genevo') {
+                    const old = previous.participants.find((p) => p.name === player.name);
+                    if (normalizeGenevoFaction(old?.faction ?? '')) player.faction = old!.faction;
+                  }
+            } catch {
+              /* Replace an invalid cached record with the verified response. */
+            }
+          }
           insert.run(summary.matchId, game, summary.startedAt, JSON.stringify(summary));
+        }
         db.prepare('DELETE FROM observed_matches WHERE started_at < ?').run(Date.now() - WINDOW_MS);
         db.exec(
           'DELETE FROM observed_matches WHERE rowid NOT IN (SELECT rowid FROM observed_matches ORDER BY started_at DESC LIMIT 5000)',

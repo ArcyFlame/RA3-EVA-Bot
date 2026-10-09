@@ -109,7 +109,9 @@ export class HelpView {
         break;
       case 'info':
         newEmbed = buildInfoEmbed(this.game).setThumbnail(
-          interaction.client?.user?.displayAvatarURL() ?? null,
+          interaction.guild?.members.me?.displayAvatarURL() ??
+            interaction.client?.user?.displayAvatarURL() ??
+            null,
         );
         break;
       case 'admin':

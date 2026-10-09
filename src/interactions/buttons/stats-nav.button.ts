@@ -64,15 +64,32 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     // The Recent Matches & Factions page carries its chart in a separate
     // follow-up message (attachments would render above the embed otherwise).
     let factionFiles: Array<{ attachment: Buffer; name: string }> | null = null;
-    if (
-      context.chartsEnabled &&
-      nextPage === 1 &&
-      context.game === 'ra3' &&
-      context.sources.ra3BattleNet
-    ) {
+    if (context.chartsEnabled && nextPage === 1 && context.game === 'ra3') {
       try {
-        const pie = await generatePieChartBuffer(stats.faction_distribution);
-        factionFiles = [{ attachment: pie, name: 'faction_distribution.png' }];
+        factionFiles = [];
+        if (
+          context.sources.cncOnline &&
+          stats.cnc_faction_distribution &&
+          Object.values(stats.cnc_faction_distribution).some((n) => n > 0)
+        )
+          factionFiles.push({
+            attachment: await generatePieChartBuffer(
+              { ...stats.cnc_faction_distribution },
+              'Shatabrick - Monthly Faction Picks',
+            ),
+            name: 'shatabrick_faction_distribution.png',
+          });
+        if (
+          context.sources.ra3BattleNet &&
+          Object.values(stats.faction_distribution).some((n) => n > 0)
+        )
+          factionFiles.push({
+            attachment: await generatePieChartBuffer(
+              stats.faction_distribution,
+              'RA3BattleNet - Ranked 1v1 Faction Picks',
+            ),
+            name: 'ra3battlenet_faction_distribution.png',
+          });
       } catch (err) {
         logger.warn('Faction pie chart failed:', err);
       }
@@ -95,9 +112,8 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
       await interaction.editReply(payload);
     }
 
-    if (factionFiles) {
-      await interaction.followUp({ files: factionFiles, ephemeral: true });
-    }
+    for (const file of factionFiles ?? [])
+      await interaction.followUp({ files: [file], ephemeral: true });
   } catch (error) {
     logger.error(`Stats nav ${action} error:`, error);
     if (!interaction.replied && !interaction.deferred) {

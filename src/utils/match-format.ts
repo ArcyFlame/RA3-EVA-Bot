@@ -99,6 +99,6 @@ export function formatMatchPlayers(match: MatchSummary): string {
         .join(' vs ')
         .slice(0, 700)
     );
-  const prefix = match.mode ? `(${match.mode})` : `(${participants.length} players)`;
-  return `${prefix} ${participants.map((p) => label(p.name)).join(', ')}`.slice(0, 750);
+  const prefix = match.mode ? `(${match.mode}) ` : '';
+  return `${prefix}${participants.map((p) => label(p.name)).join(', ')}`.slice(0, 750);
 }

@@ -328,8 +328,8 @@ export async function generateGenevoFactionChartBuffer(
   ctx.font = `24px ${MIEDINGER}`;
   ctx.fillText(
     total > 0
-      ? 'Counts update when a compatible statistics source reports selected generals.'
-      : 'The circular layout is ready; unavailable values are shown as dashes.',
+      ? 'Recognized faction picks - observed matches (last 30 days).'
+      : 'No recognized faction picks reported.',
     900,
     1160,
   );
@@ -340,7 +340,10 @@ export async function generateGenevoFactionChartBuffer(
  * Faction pie: transparent donut with percentage labels and the total in the
  * center, drawn at 2× density.
  */
-export async function generatePieChartBuffer(data: Record<string, number>): Promise<Buffer> {
+export async function generatePieChartBuffer(
+  data: Record<string, number>,
+  sourceLabel = 'Faction Distribution',
+): Promise<Buffer> {
   const labels = Object.keys(data);
   const values = Object.values(data);
   const colors = ['#3B82F6', '#EF4444', '#F59E0B'];
@@ -399,16 +402,12 @@ export async function generatePieChartBuffer(data: Record<string, number>): Prom
   ctx.fillText(total.toString(), centerX, centerY - 2);
   ctx.font = `12px ${RED_ALERT}`;
   ctx.fillStyle = '#9CA3AF';
-  ctx.fillText('TOTAL PLAYERS', centerX, centerY + 26);
+  ctx.fillText('TOTAL PICKS', centerX, centerY + 26);
 
   // Title (white, like the old pie).
   ctx.fillStyle = 'white';
   ctx.font = `bold 28px ${RED_ALERT}`;
-  ctx.fillText(
-    'Faction Distribution',
-    centerX - ctx.measureText('Faction Distribution').width / 2,
-    50,
-  );
+  ctx.fillText(sourceLabel, centerX - ctx.measureText(sourceLabel).width / 2, 50);
 
   // Legend on the right.
   for (let i = 0; i < labels.length; i++) {

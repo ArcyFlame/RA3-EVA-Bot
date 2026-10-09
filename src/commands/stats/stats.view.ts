@@ -21,6 +21,19 @@ import { sanitizeInput } from '../../utils/sanitize';
 import { GameId, GAME_CONFIGS } from '../../config/games';
 import { GENEVO_FACTIONS, genevoFactionTotal } from '../../data/genevo-factions';
 import { formatMatchPlayers } from '../../utils/match-format';
+import { Ra3FactionCounts } from '../../services/shatabrick-factions.service';
+
+function factionPercentages(f: Ra3FactionCounts | undefined): string {
+  if (!f) return 'No faction data available.';
+  const total = f.Allies + f.Soviets + f.Empire;
+  if (total <= 0) return 'No reported faction picks in this sample.';
+  const pct = (n: number) => Math.round((n / total) * 100);
+  return [
+    `${FACTION_ALLIED} Allies: ${pct(f.Allies)}%`,
+    `${FACTION_SOVIET} Soviets: ${pct(f.Soviets)}%`,
+    `${FACTION_EMPIRE} Empire: ${pct(f.Empire)}%`,
+  ].join('\n');
+}
 
 export type StatsPage = 0 | 1 | 2 | 3;
 export type StatsMode = '1v1' | '2v2' | '3v3';
@@ -111,24 +124,24 @@ export class StatsView {
               .join('\n') || 'No active map data right now.',
           inline: false,
         },
-        // Faction data comes from the RA3BattleNet API (Shatabrick's will be
-        // merged once published) — so the section only exists for RA3 servers.
-        // The API reports game COUNTS per faction; percentages are computed.
+        ...(this.game === 'ra3' && this.showCnc
+          ? [
+              {
+                name: `${CNC_ONLINE} Faction Popularity - Shatabrick`,
+                value:
+                  factionPercentages(this._stats.cnc_faction_distribution) +
+                  '\nMonthly picks - ranked and unranked.',
+                inline: false,
+              },
+            ]
+          : []),
         ...(this.game === 'ra3' && this.showRa3b
           ? [
               {
                 name: '🎌 Faction Popularity (RA3BattleNet)',
-                value: (() => {
-                  const f = this._stats.faction_distribution;
-                  const fTotal = f.Allies + f.Soviets + f.Empire;
-                  if (fTotal <= 0) return 'No faction data right now.';
-                  const pct = (n: number) => Math.round((n / fTotal) * 100);
-                  return [
-                    `${FACTION_ALLIED} Allies: ${pct(f.Allies)}%`,
-                    `${FACTION_SOVIET} Soviets: ${pct(f.Soviets)}%`,
-                    `${FACTION_EMPIRE} Empire: ${pct(f.Empire)}%`,
-                  ].join('\n');
-                })(),
+                value:
+                  factionPercentages(this._stats.faction_distribution) +
+                  '\nRanked 1v1 - ELO 1000+.',
                 inline: false,
               },
             ]
@@ -154,7 +167,7 @@ export class StatsView {
                       )
                       .join('\n') +
                     (this._stats.genevo_faction_source === 'match_records'
-                      ? '\nRecent verified match records (last 30 days).'
+                      ? '\nRecognized picks - observed matches (last 30 days).'
                       : '')
                   );
                 })(),
