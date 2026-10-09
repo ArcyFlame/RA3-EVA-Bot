@@ -13,6 +13,7 @@ const RE_NOTIFY_AFTER_MS = 6 * 60 * 60 * 1000; // 6 hours
 export class TwitchNotifierService {
   private pollInterval: NodeJS.Timeout | null = null;
   private gameId: string | null = null;
+  private additionalGameIds: string[] = [];
   private polling = false;
 
   async start(client: Client): Promise<void> {
@@ -25,6 +26,23 @@ export class TwitchNotifierService {
     }
 
     logger.info(`Twitch notifier started, game ID: ${this.gameId}`);
+    if (
+      guildRepository
+        .getAllGuilds()
+        .some((guild) => guild.game === 'genevo' && guild.twitchNotifierEnabled === 1)
+    ) {
+      const categories = await Promise.all([
+        twitchService.getGameId([
+          'Command & Conquer: Generals - Zero Hour',
+          'Command & Conquer: Generals – Zero Hour',
+          'Command & Conquer: Generals - Zero:Hour',
+        ]),
+        twitchService.getGameId(['Command & Conquer: Generals']),
+      ]);
+      this.additionalGameIds = [
+        ...new Set(categories.filter((id): id is string => !!id && id !== this.gameId)),
+      ];
+    }
 
     await this.poll(client);
     this.pollInterval = setInterval(() => {
@@ -55,8 +73,23 @@ export class TwitchNotifierService {
       }
 
       logger.debug(`Polling Twitch for RA3 streams (game ID: ${this.gameId})...`);
-      const streams = await twitchService.getStreamsByGame(this.gameId);
-      logger.info(`Found ${streams.length} RA3 stream(s)`);
+      const [ra3Streams, trackedStreams, ...otherStreams] = await Promise.all([
+        twitchService.getStreamsByGame(this.gameId),
+        twitchService.getStreamsByUsers(
+          trackedStreamerRepository
+            .findAll()
+            .filter((streamer) => streamer.platform === 'twitch')
+            .map((streamer) => streamer.platformId),
+        ),
+        ...this.additionalGameIds.map((id) => twitchService.getStreamsByGame(id)),
+      ]);
+      const candidates = [
+        ...ra3Streams,
+        ...trackedStreams,
+        ...otherStreams.flat().filter((stream) => classifyGameContent(stream.title) === 'genevo'),
+      ];
+      const streams = [...new Map(candidates.map((stream) => [stream.userId, stream])).values()];
+      logger.info(`Found ${streams.length} matching or tracked Twitch stream(s)`);
 
       for (const stream of streams) {
         try {
@@ -142,17 +175,17 @@ export class TwitchNotifierService {
     // is still announced to every guild with a Twitch channel configured —
     // requiring every streamer to be tracked first meant nothing ever posted.
     const trackings = trackedStreamerRepository.findByPlatformId(stream.userId);
-    const targets: Array<{ guildId: string; customMessage?: string; tracked: boolean }> =
-      trackings.length
-        ? trackings.map((t) => ({
-            guildId: t.guildId,
-            customMessage: t.customMessage,
-            tracked: true,
-          }))
-        : guildRepository
-            .getAllGuilds()
-            .filter((g) => g.twitchChannelId && g.twitchNotifierEnabled === 1)
-            .map((g) => ({ guildId: g.discordId, tracked: false }));
+    const targets = guildRepository
+      .getAllGuilds()
+      .filter((guild) => guild.twitchChannelId && guild.twitchNotifierEnabled === 1)
+      .map((guild) => {
+        const tracking = trackings.find((item) => item.guildId === guild.discordId);
+        return {
+          guildId: guild.discordId,
+          customMessage: tracking?.customMessage,
+          tracked: !!tracking,
+        };
+      });
 
     for (const target of targets) {
       const guild = client.guilds.cache.get(target.guildId);

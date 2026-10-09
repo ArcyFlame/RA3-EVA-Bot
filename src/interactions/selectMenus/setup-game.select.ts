@@ -3,6 +3,7 @@ import { RA3Bot } from '../../bot';
 import { guildRepository } from '../../repositories/guild.repository';
 import { GAME_OPTIONS } from '../../commands/setup/setup-wizard.command';
 import { GameId } from '../../config/games';
+import { requireAdminInteraction } from '../../utils/admin-interaction';
 
 /**
  * Game selector in /bot_setup: `setup_game_select`. Switching the game
@@ -15,6 +16,7 @@ export async function execute(_bot: RA3Bot, interaction: StringSelectMenuInterac
     await interaction.reply({ content: 'Server only.', ephemeral: true });
     return;
   }
+  if (!(await requireAdminInteraction(interaction))) return;
   const value = interaction.values[0];
   if (!GAME_OPTIONS.some((g) => g.value === value)) {
     await interaction.reply({ content: 'Unknown game.', ephemeral: true });

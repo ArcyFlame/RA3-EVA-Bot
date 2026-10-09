@@ -1,4 +1,4 @@
-import { REST, Routes } from 'discord.js';
+import { REST } from 'discord.js';
 import { readdirSync } from 'fs';
 import { join } from 'path';
 import { env } from '../config/env';
@@ -6,6 +6,7 @@ import { logger } from '../utils/logger';
 import { RA3Bot } from '../bot';
 import { Command } from '../types';
 import { commandUsageRepository } from '../repositories/command-usage.repository';
+import { CommandDefinition, syncCommandDefinitions } from '../utils/command-registration';
 
 /**
  * Wraps a command's execute so every invocation is recorded in command_usage
@@ -69,7 +70,7 @@ export async function loadCommands(bot: RA3Bot): Promise<void> {
 /** Pushes the loaded definitions to Discord (guild-scoped in dev, global in prod). */
 export async function registerCommands(bot: RA3Bot): Promise<void> {
   const body = bot.commands.map((command) => ({
-    ...(command.data.toJSON() as Record<string, unknown>),
+    ...(command.data.toJSON() as CommandDefinition),
     dm_permission: command.guildOnly === false,
   }));
   const clientId = bot.client.user?.id;
@@ -80,13 +81,18 @@ export async function registerCommands(bot: RA3Bot): Promise<void> {
 
   const rest = new REST({ version: '10' }).setToken(env.DISCORD_TOKEN);
   try {
-    if (env.GUILD_ID) {
-      await rest.put(Routes.applicationGuildCommands(clientId, env.GUILD_ID), { body });
-      logger.info(`Registered ${body.length} guild commands (guild ${env.GUILD_ID})`);
-    } else {
-      await rest.put(Routes.applicationCommands(clientId), { body });
-      logger.info(`Registered ${body.length} global commands`);
-    }
+    const result = await syncCommandDefinitions(
+      rest,
+      clientId,
+      body as CommandDefinition[],
+      [...bot.client.guilds.cache.keys()],
+      env.COMMAND_SCOPE === 'guild' ? (env.GUILD_ID ?? undefined) : undefined,
+    );
+    logger.info(
+      `Registered ${body.length} ${result.scope} commands; removed ${result.removed} duplicate guild definitions`,
+    );
+    if (result.failedGuilds.length)
+      logger.warn('Command cleanup failed for guilds:', result.failedGuilds);
   } catch (error) {
     logger.error('Failed to register commands:', error);
   }

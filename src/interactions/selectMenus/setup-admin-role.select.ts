@@ -1,6 +1,7 @@
 import { RoleSelectMenuInteraction } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { guildRepository } from '../../repositories/guild.repository';
+import { requireAdminInteraction } from '../../utils/admin-interaction';
 
 export const customId = 'setup_admin_role_select';
 
@@ -9,9 +10,13 @@ export async function execute(_bot: RA3Bot, interaction: RoleSelectMenuInteracti
     await interaction.reply({ content: 'Server only.', ephemeral: true });
     return;
   }
-  const role = interaction.roles.first();
-  if (!role) {
-    await interaction.reply({ content: 'No role selected.', ephemeral: true });
+  if (!(await requireAdminInteraction(interaction))) return;
+  const role = await interaction.guild.roles.fetch(interaction.values[0]).catch(() => null);
+  if (!role || role.id === interaction.guild.id || role.managed) {
+    await interaction.reply({
+      content: 'Choose an ordinary server role, not @everyone or a managed role.',
+      ephemeral: true,
+    });
     return;
   }
   guildRepository.upsert(interaction.guild.id, { adminRoleId: role.id });

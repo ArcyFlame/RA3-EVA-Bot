@@ -1,36 +1,47 @@
 import { BaseRepository } from './base.repository';
 
-export const MESSAGE_POINTS = 10;
-export const CNC_PING_POINTS = 25;
-export const MESSAGE_COOLDOWN_MS = 60_000;
-export const DUPLICATE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
-export const MAX_DAILY_MESSAGE_AWARDS = 50;
-
-export const DEFAULT_ACTIVITY_RANKS = [
-  { rank: 1, title: 'Private', threshold: 10 },
-  { rank: 2, title: 'Corporal', threshold: 250 },
-  { rank: 3, title: 'Sergeant', threshold: 750 },
-  { rank: 4, title: 'Lieutenant', threshold: 1_500 },
-  { rank: 5, title: 'Captain', threshold: 3_000 },
-  { rank: 6, title: 'Major', threshold: 5_000 },
-  { rank: 7, title: 'Colonel', threshold: 8_000 },
-  { rank: 8, title: 'Brigadier', threshold: 12_000 },
-  { rank: 9, title: 'General', threshold: 18_000 },
-] as const;
+export const MAX_ACTIVITY_RANKS = 100;
+export const DEFAULT_REPLAY_CHANNEL_ID = '1321748469735620640';
+export const DEFAULT_ACTIVITY_TITLES = [
+  'Private',
+  'Corporal',
+  'Sergeant',
+  'Lieutenant',
+  'Captain',
+  'Major',
+  'Colonel',
+  'Brigadier',
+  'General',
+];
 
 export interface ActivityRankDefinition {
+  id: number;
   rank: number;
   title: string;
   threshold: number;
   roleId?: string;
 }
 
+export interface ActivitySettings {
+  pingEnabled: boolean;
+  replayEnabled: boolean;
+  pingPoints: number;
+  replayPoints: number;
+  replayDailyCap: number;
+  replayChannelId: string;
+  progressionMode: 'per_rank' | 'max_days';
+  daysPerRank: number;
+  maxRankDays: number;
+  xpPerLevel: number;
+  version: number;
+}
+
 export interface MemberActivity {
   guildId: string;
   userId: string;
   points: number;
-  qualifyingMessages: number;
   qualifyingCncPings: number;
+  qualifyingReplays: number;
   lastCncPingDate?: string;
   createdAt: string;
   updatedAt: string;
@@ -39,39 +50,43 @@ export interface MemberActivity {
 export interface RecordActivityInput {
   guildId: string;
   userId: string;
-  nowMs: number;
   activityDate: string;
-  meaningfulMessage: boolean;
-  fingerprint?: string;
   hasCncPing: boolean;
+  replayFingerprints: string[];
 }
 
 export interface RecordActivityResult {
   before: MemberActivity;
   after: MemberActivity;
-  messageAwarded: boolean;
   cncPingAwarded: boolean;
+  replaysAwarded: number;
   pointsAwarded: number;
-  messageBlockedBy: 'cooldown' | 'duplicate' | 'daily_cap' | 'not_meaningful' | null;
 }
 
 interface ActivityRow {
   guild_id: string;
   user_id: string;
   points: number;
-  qualifying_messages: number;
   qualifying_cnc_pings: number;
-  last_message_awarded_at_ms: number | null;
-  last_message_fingerprint: string | null;
-  last_fingerprint_awarded_at_ms: number | null;
+  qualifying_replays: number;
   last_cnc_ping_date: string | null;
   created_at: string;
   updated_at: string;
 }
 
-interface DailyRow {
-  message_awards: number;
-  cnc_ping_awarded: number;
+interface SettingsRow {
+  ping_enabled: number;
+  replay_enabled: number;
+  ping_points: number;
+  replay_points: number;
+  replay_daily_cap: number;
+  replay_channel_id: string;
+  progression_mode: 'per_rank' | 'max_days';
+  days_per_rank: number;
+  max_rank_days: number;
+  xp_per_level: number;
+  version: number;
+  initialized: number;
 }
 
 function mapMember(row: ActivityRow): MemberActivity {
@@ -79,15 +94,143 @@ function mapMember(row: ActivityRow): MemberActivity {
     guildId: row.guild_id,
     userId: row.user_id,
     points: row.points,
-    qualifyingMessages: row.qualifying_messages,
     qualifyingCncPings: row.qualifying_cnc_pings,
+    qualifyingReplays: row.qualifying_replays,
     lastCncPingDate: row.last_cnc_ping_date ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
+function integer(value: number, min: number, max: number, label: string): void {
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    throw new Error(label + ' must be a whole number from ' + min + ' to ' + max + '.');
+  }
+}
+
 export class ActivityRankRepository extends BaseRepository {
+  private initialize(guildId: string): void {
+    this.db.transaction(() => {
+      this.run('INSERT OR IGNORE INTO activity_rank_settings (guild_id) VALUES (?)', [guildId]);
+      const row = this.query<SettingsRow>(
+        'SELECT * FROM activity_rank_settings WHERE guild_id = ?',
+        [guildId],
+      )!;
+      if (row.initialized) return;
+      DEFAULT_ACTIVITY_TITLES.forEach((title, index) => {
+        this.run(
+          'INSERT OR IGNORE INTO activity_rank_roles (guild_id, rank, title, threshold) VALUES (?, ?, ?, ?)',
+          [guildId, index + 1, title, (index + 1) * 50 * 25],
+        );
+      });
+      this.run('UPDATE activity_rank_settings SET initialized = 1 WHERE guild_id = ?', [guildId]);
+    })();
+  }
+
+  getSettings(guildId: string): ActivitySettings {
+    this.initialize(guildId);
+    const row = this.query<SettingsRow>('SELECT * FROM activity_rank_settings WHERE guild_id = ?', [
+      guildId,
+    ])!;
+    return {
+      pingEnabled: !!row.ping_enabled,
+      replayEnabled: !!row.replay_enabled,
+      pingPoints: row.ping_points,
+      replayPoints: row.replay_points,
+      replayDailyCap: row.replay_daily_cap,
+      replayChannelId: row.replay_channel_id,
+      progressionMode: row.progression_mode,
+      daysPerRank: row.days_per_rank,
+      maxRankDays: row.max_rank_days,
+      xpPerLevel: row.xp_per_level,
+      version: row.version,
+    };
+  }
+
+  assertVersion(guildId: string, version: number): void {
+    if (this.getSettings(guildId).version !== version) {
+      throw new Error('Settings changed in another menu. Reopen /activity_admin and try again.');
+    }
+  }
+
+  private bumpVersion(guildId: string): void {
+    this.run('UPDATE activity_rank_settings SET version = version + 1 WHERE guild_id = ?', [
+      guildId,
+    ]);
+  }
+
+  touchConfiguration(guildId: string, version: number): void {
+    this.assertVersion(guildId, version);
+    this.bumpVersion(guildId);
+  }
+
+  claimReplayDownload(guildId: string, userId: string, date: string): boolean {
+    return this.db.transaction(() => {
+      const settings = this.getSettings(guildId);
+      if (!settings.replayEnabled) return false;
+      this.run(
+        'INSERT OR IGNORE INTO activity_daily_totals (guild_id, user_id, activity_date) VALUES (?, ?, ?)',
+        [guildId, userId, date],
+      );
+      // Bound invalid/reposted file traffic as well as successful awards, across restarts.
+      return (
+        this.run(
+          `UPDATE activity_daily_totals SET replay_downloads = replay_downloads + 1
+        WHERE guild_id = ? AND user_id = ? AND activity_date = ? AND replay_awards < ? AND replay_downloads < ?`,
+          [guildId, userId, date, settings.replayDailyCap, settings.replayDailyCap * 2],
+        ).changes === 1
+      );
+    })();
+  }
+
+  updateSettings(
+    guildId: string,
+    values: Partial<Omit<ActivitySettings, 'version'>>,
+    version: number,
+  ): void {
+    this.db.transaction(() => {
+      this.assertVersion(guildId, version);
+      const next = { ...this.getSettings(guildId), ...values };
+      integer(next.pingPoints, 1, 10000, 'Ping XP');
+      integer(next.replayPoints, 1, 10000, 'Replay XP');
+      integer(next.replayDailyCap, 1, 20, 'Daily replay limit');
+      integer(next.daysPerRank, 1, 10000, 'Days per rank');
+      integer(next.maxRankDays, 1, 100000, 'Days to the highest rank');
+      integer(next.xpPerLevel, 1, 1000000, 'XP per level');
+      if (!['per_rank', 'max_days'].includes(next.progressionMode))
+        throw new Error('Unknown progression mode.');
+      if (!/^\d{17,20}$/.test(next.replayChannelId))
+        throw new Error('Choose a valid replay channel.');
+      this.run(
+        `UPDATE activity_rank_settings SET ping_enabled = ?, replay_enabled = ?,
+        ping_points = ?, replay_points = ?, replay_daily_cap = ?, replay_channel_id = ?,
+        progression_mode = ?, days_per_rank = ?, max_rank_days = ?, xp_per_level = ?
+        WHERE guild_id = ?`,
+        [
+          Number(next.pingEnabled),
+          Number(next.replayEnabled),
+          next.pingPoints,
+          next.replayPoints,
+          next.replayDailyCap,
+          next.replayChannelId,
+          next.progressionMode,
+          next.daysPerRank,
+          next.maxRankDays,
+          next.xpPerLevel,
+          guildId,
+        ],
+      );
+      if (
+        values.pingPoints !== undefined ||
+        values.daysPerRank !== undefined ||
+        values.maxRankDays !== undefined ||
+        values.progressionMode !== undefined
+      )
+        this.rescaleRanks(guildId);
+      this.bumpVersion(guildId);
+    })();
+  }
+
   getMember(guildId: string, userId: string): MemberActivity | undefined {
     const row = this.query<ActivityRow>(
       'SELECT * FROM member_activity WHERE guild_id = ? AND user_id = ?',
@@ -97,168 +240,251 @@ export class ActivityRankRepository extends BaseRepository {
   }
 
   recordActivity(input: RecordActivityInput): RecordActivityResult {
-    const transaction = this.db.transaction(() => {
-      this.run(`INSERT OR IGNORE INTO member_activity (guild_id, user_id) VALUES (?, ?)`, [
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.activityDate)) throw new Error('Invalid activity date.');
+    return this.db.transaction(() => {
+      const settings = this.getSettings(input.guildId);
+      this.run('INSERT OR IGNORE INTO member_activity (guild_id, user_id) VALUES (?, ?)', [
         input.guildId,
         input.userId,
       ]);
       this.run(
-        `INSERT OR IGNORE INTO activity_daily_totals
-          (guild_id, user_id, activity_date) VALUES (?, ?, ?)`,
+        'INSERT OR IGNORE INTO activity_daily_totals (guild_id, user_id, activity_date) VALUES (?, ?, ?)',
         [input.guildId, input.userId, input.activityDate],
       );
-
-      const row = this.query<ActivityRow>(
-        'SELECT * FROM member_activity WHERE guild_id = ? AND user_id = ?',
-        [input.guildId, input.userId],
-      );
-      const daily = this.query<DailyRow>(
-        `SELECT message_awards, cnc_ping_awarded FROM activity_daily_totals
+      const before = this.getMember(input.guildId, input.userId)!;
+      const daily = this.query<{ cnc_ping_awarded: number; replay_awards: number }>(
+        `SELECT cnc_ping_awarded, replay_awards FROM activity_daily_totals
          WHERE guild_id = ? AND user_id = ? AND activity_date = ?`,
         [input.guildId, input.userId, input.activityDate],
-      );
-      if (!row || !daily) throw new Error('Could not initialize member activity');
-
-      const before = mapMember(row);
-      let messageAwarded = false;
-      let cncPingAwarded = false;
-      let pointsAwarded = 0;
-      let messageBlockedBy: RecordActivityResult['messageBlockedBy'] = null;
-
-      if (input.hasCncPing && daily.cnc_ping_awarded === 0) {
-        cncPingAwarded = true;
-        pointsAwarded += CNC_PING_POINTS;
-        this.run(
-          `UPDATE activity_daily_totals SET cnc_ping_awarded = 1
-           WHERE guild_id = ? AND user_id = ? AND activity_date = ?`,
-          [input.guildId, input.userId, input.activityDate],
-        );
-        this.run(
-          `UPDATE member_activity
-           SET points = points + ?, qualifying_cnc_pings = qualifying_cnc_pings + 1,
-               last_cnc_ping_date = ?, updated_at = CURRENT_TIMESTAMP
-           WHERE guild_id = ? AND user_id = ?`,
-          [CNC_PING_POINTS, input.activityDate, input.guildId, input.userId],
-        );
+      )!;
+      const cncPingAwarded = settings.pingEnabled && input.hasCncPing && !daily.cnc_ping_awarded;
+      let replaysAwarded = 0;
+      if (settings.replayEnabled) {
+        for (const fingerprint of new Set(input.replayFingerprints.slice(0, 10))) {
+          if (daily.replay_awards + replaysAwarded >= settings.replayDailyCap) break;
+          if (!/^[a-f0-9]{64}$/.test(fingerprint)) continue;
+          const award = this.run(
+            `INSERT OR IGNORE INTO activity_replay_awards
+            (guild_id, user_id, fingerprint, activity_date) VALUES (?, ?, ?, ?)`,
+            [input.guildId, input.userId, fingerprint, input.activityDate],
+          );
+          replaysAwarded += award.changes;
+        }
       }
-
-      if (!input.meaningfulMessage || !input.fingerprint) {
-        messageBlockedBy = 'not_meaningful';
-      } else if (
-        row.last_message_awarded_at_ms !== null &&
-        input.nowMs - row.last_message_awarded_at_ms < MESSAGE_COOLDOWN_MS
-      ) {
-        messageBlockedBy = 'cooldown';
-      } else if (
-        row.last_message_fingerprint === input.fingerprint &&
-        row.last_fingerprint_awarded_at_ms !== null &&
-        input.nowMs - row.last_fingerprint_awarded_at_ms < DUPLICATE_COOLDOWN_MS
-      ) {
-        messageBlockedBy = 'duplicate';
-      } else if (daily.message_awards >= MAX_DAILY_MESSAGE_AWARDS) {
-        messageBlockedBy = 'daily_cap';
-      } else {
-        messageAwarded = true;
-        pointsAwarded += MESSAGE_POINTS;
+      const pointsAwarded =
+        Number(cncPingAwarded) * settings.pingPoints + replaysAwarded * settings.replayPoints;
+      if (pointsAwarded) {
         this.run(
-          `UPDATE activity_daily_totals SET message_awards = message_awards + 1
-           WHERE guild_id = ? AND user_id = ? AND activity_date = ?`,
-          [input.guildId, input.userId, input.activityDate],
+          `UPDATE activity_daily_totals SET cnc_ping_awarded = MAX(cnc_ping_awarded, ?),
+          replay_awards = replay_awards + ? WHERE guild_id = ? AND user_id = ? AND activity_date = ?`,
+          [Number(cncPingAwarded), replaysAwarded, input.guildId, input.userId, input.activityDate],
         );
         this.run(
-          `UPDATE member_activity
-           SET points = points + ?, qualifying_messages = qualifying_messages + 1,
-               last_message_awarded_at_ms = ?, last_message_fingerprint = ?,
-               last_fingerprint_awarded_at_ms = ?, updated_at = CURRENT_TIMESTAMP
-           WHERE guild_id = ? AND user_id = ?`,
+          `UPDATE member_activity SET points = MIN(1000000000, points + ?),
+          qualifying_cnc_pings = qualifying_cnc_pings + ?, qualifying_replays = qualifying_replays + ?,
+          last_cnc_ping_date = CASE WHEN ? = 1 THEN ? ELSE last_cnc_ping_date END,
+          updated_at = CURRENT_TIMESTAMP WHERE guild_id = ? AND user_id = ?`,
           [
-            MESSAGE_POINTS,
-            input.nowMs,
-            input.fingerprint,
-            input.nowMs,
+            pointsAwarded,
+            Number(cncPingAwarded),
+            replaysAwarded,
+            Number(cncPingAwarded),
+            input.activityDate,
             input.guildId,
             input.userId,
           ],
         );
       }
-
-      const updated = this.query<ActivityRow>(
-        'SELECT * FROM member_activity WHERE guild_id = ? AND user_id = ?',
-        [input.guildId, input.userId],
-      );
-      if (!updated) throw new Error('Member activity disappeared during update');
       return {
         before,
-        after: mapMember(updated),
-        messageAwarded,
+        after: this.getMember(input.guildId, input.userId)!,
         cncPingAwarded,
+        replaysAwarded,
         pointsAwarded,
-        messageBlockedBy,
       };
-    });
-    return transaction();
+    })();
   }
 
   getRankDefinitions(guildId: string): ActivityRankDefinition[] {
-    const configured = this.queryAll<{ rank: number; role_id: string; threshold: number }>(
-      `SELECT rank, role_id, threshold FROM activity_rank_roles
-       WHERE guild_id = ? ORDER BY rank ASC`,
-      [guildId],
+    this.initialize(guildId);
+    return this.queryAll<{
+      id: number;
+      rank: number;
+      title: string;
+      role_id: string | null;
+      threshold: number;
+    }>('SELECT * FROM activity_rank_roles WHERE guild_id = ? ORDER BY rank', [guildId]).map(
+      (row) => ({
+        id: row.id,
+        rank: row.rank,
+        title: row.title,
+        roleId: row.role_id ?? undefined,
+        threshold: row.threshold,
+      }),
     );
-    const byRank = new Map(configured.map((row) => [row.rank, row]));
-    return DEFAULT_ACTIVITY_RANKS.map((defaults) => {
-      const row = byRank.get(defaults.rank);
-      return {
-        rank: defaults.rank,
-        title: defaults.title,
-        threshold: row?.threshold ?? defaults.threshold,
-        roleId: row?.role_id,
-      };
+  }
+
+  getRank(guildId: string, id: number): ActivityRankDefinition | undefined {
+    return this.getRankDefinitions(guildId).find((rank) => rank.id === id);
+  }
+
+  private rescaleRanks(guildId: string): void {
+    const settings = this.getSettings(guildId);
+    const ranks = this.getRankDefinitions(guildId);
+    if (
+      settings.progressionMode === 'max_days' &&
+      settings.maxRankDays * settings.pingPoints < ranks.length
+    ) {
+      throw new Error(
+        'Increase days to the top rank or ping XP so every rank has a distinct threshold.',
+      );
+    }
+    ranks.forEach((rank, index) => {
+      const days =
+        settings.progressionMode === 'per_rank'
+          ? settings.daysPerRank * (index + 1)
+          : (settings.maxRankDays * (index + 1)) / ranks.length;
+      this.run('UPDATE activity_rank_roles SET threshold = ? WHERE id = ? AND guild_id = ?', [
+        Math.ceil(days * settings.pingPoints),
+        rank.id,
+        guildId,
+      ]);
     });
   }
 
-  setRankRole(guildId: string, rank: number, roleId: string, threshold: number): void {
-    if (!Number.isInteger(rank) || rank < 1 || rank > 9) throw new Error('Rank must be 1-9');
-    if (!Number.isInteger(threshold) || threshold < 0) {
-      throw new Error('Threshold must be a non-negative integer');
-    }
-    const transaction = this.db.transaction(() => {
-      this.run('DELETE FROM activity_rank_roles WHERE guild_id = ? AND role_id = ? AND rank <> ?', [
-        guildId,
-        roleId,
-        rank,
-      ]);
-      this.run(
-        `INSERT INTO activity_rank_roles (guild_id, rank, role_id, threshold)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(guild_id, rank) DO UPDATE SET
-           role_id = excluded.role_id,
-           threshold = excluded.threshold,
-           updated_at = CURRENT_TIMESTAMP`,
-        [guildId, rank, roleId, threshold],
+  addRank(guildId: string, title: string, version: number): ActivityRankDefinition {
+    return this.db.transaction(() => {
+      this.assertVersion(guildId, version);
+      const ranks = this.getRankDefinitions(guildId);
+      if (ranks.length >= MAX_ACTIVITY_RANKS)
+        throw new Error('A server can configure up to ' + MAX_ACTIVITY_RANKS + ' ranks.');
+      const result = this.run(
+        'INSERT INTO activity_rank_roles (guild_id, rank, title, threshold) VALUES (?, ?, ?, 0)',
+        [guildId, ranks.length + 1, this.validateTitle(title)],
       );
-    });
-    transaction();
+      this.rescaleRanks(guildId);
+      this.bumpVersion(guildId);
+      return this.getRank(guildId, result.lastInsertRowid)!;
+    })();
+  }
+
+  private validateTitle(title: string): string {
+    const safeTitle = [...title]
+      .filter((char) => char.charCodeAt(0) >= 32 && char.charCodeAt(0) !== 127)
+      .join('')
+      .trim();
+    if (!safeTitle || safeTitle.length > 80)
+      throw new Error('Rank names must contain 1–80 characters.');
+    return safeTitle;
+  }
+
+  editRank(guildId: string, id: number, title: string, threshold: number, version: number): void {
+    this.db.transaction(() => {
+      this.assertVersion(guildId, version);
+      integer(threshold, 0, 1000000000, 'Rank XP');
+      const ranks = this.getRankDefinitions(guildId);
+      const index = ranks.findIndex((rank) => rank.id === id);
+      if (index < 0) throw new Error('This rank no longer exists.');
+      if (
+        (index > 0 && threshold <= ranks[index - 1].threshold) ||
+        (index < ranks.length - 1 && threshold >= ranks[index + 1].threshold)
+      ) {
+        throw new Error(
+          'Rank XP must be higher than the previous rank and lower than the next rank.',
+        );
+      }
+      this.run(
+        'UPDATE activity_rank_roles SET title = ?, threshold = ? WHERE id = ? AND guild_id = ?',
+        [this.validateTitle(title), threshold, id, guildId],
+      );
+      this.bumpVersion(guildId);
+    })();
+  }
+
+  setRankRole(guildId: string, id: number, roleId: string | null, version: number): void {
+    this.db.transaction(() => {
+      this.assertVersion(guildId, version);
+      const rank = this.getRank(guildId, id);
+      if (!rank) throw new Error('This rank no longer exists.');
+      if (roleId && !/^\d{17,20}$/.test(roleId)) throw new Error('Choose a valid role.');
+      if (
+        roleId &&
+        this.getRankDefinitions(guildId).some((rank) => rank.id !== id && rank.roleId === roleId)
+      ) {
+        throw new Error('That role is already assigned to another rank.');
+      }
+      if (rank.roleId && rank.roleId !== roleId) {
+        this.run('INSERT OR IGNORE INTO activity_retired_roles (guild_id, role_id) VALUES (?, ?)', [
+          guildId,
+          rank.roleId,
+        ]);
+      }
+      this.run('UPDATE activity_rank_roles SET role_id = ? WHERE id = ? AND guild_id = ?', [
+        roleId,
+        id,
+        guildId,
+      ]);
+      this.bumpVersion(guildId);
+    })();
+  }
+
+  moveRank(guildId: string, id: number, direction: -1 | 1, version: number): void {
+    this.db.transaction(() => {
+      this.assertVersion(guildId, version);
+      const ranks = this.getRankDefinitions(guildId);
+      const index = ranks.findIndex((rank) => rank.id === id);
+      const other = ranks[index + direction];
+      if (index < 0 || !other) throw new Error('The rank cannot move any further.');
+      const selected = ranks[index];
+      this.run('UPDATE activity_rank_roles SET rank = 1000000 WHERE id = ?', [selected.id]);
+      this.run('UPDATE activity_rank_roles SET rank = ?, threshold = ? WHERE id = ?', [
+        selected.rank,
+        selected.threshold,
+        other.id,
+      ]);
+      this.run('UPDATE activity_rank_roles SET rank = ?, threshold = ? WHERE id = ?', [
+        other.rank,
+        other.threshold,
+        selected.id,
+      ]);
+      this.bumpVersion(guildId);
+    })();
+  }
+
+  removeRank(guildId: string, id: number, version: number): void {
+    this.db.transaction(() => {
+      this.assertVersion(guildId, version);
+      const rank = this.getRank(guildId, id);
+      if (!rank) throw new Error('This rank no longer exists.');
+      if (rank.roleId)
+        this.run('INSERT OR IGNORE INTO activity_retired_roles (guild_id, role_id) VALUES (?, ?)', [
+          guildId,
+          rank.roleId,
+        ]);
+      this.run('DELETE FROM activity_rank_roles WHERE id = ? AND guild_id = ?', [id, guildId]);
+      this.getRankDefinitions(guildId).forEach((rank, index) => {
+        this.run('UPDATE activity_rank_roles SET rank = ? WHERE id = ?', [index + 1, rank.id]);
+      });
+      this.rescaleRanks(guildId);
+      this.bumpVersion(guildId);
+    })();
   }
 
   getLeaderboard(guildId: string, limit = 10): MemberActivity[] {
-    const safeLimit = Math.max(1, Math.min(25, Math.trunc(limit)));
     return this.queryAll<ActivityRow>(
-      `SELECT * FROM member_activity WHERE guild_id = ?
-       ORDER BY points DESC, updated_at ASC, user_id ASC LIMIT ?`,
-      [guildId, safeLimit],
+      `SELECT * FROM member_activity WHERE guild_id = ? AND points > 0
+      ORDER BY points DESC, updated_at ASC, user_id ASC LIMIT ?`,
+      [guildId, Math.max(1, Math.min(25, Math.trunc(limit)))],
     ).map(mapMember);
   }
 
   getMemberPosition(guildId: string, userId: string): number | undefined {
     const member = this.getMember(guildId, userId);
-    if (!member) return undefined;
-    const row = this.query<{ position: number }>(
-      `SELECT COUNT(*) + 1 AS position FROM member_activity
-       WHERE guild_id = ? AND points > ?`,
+    if (!member || !member.points) return undefined;
+    return this.query<{ position: number }>(
+      'SELECT COUNT(*) + 1 AS position FROM member_activity WHERE guild_id = ? AND points > ?',
       [guildId, member.points],
-    );
-    return row?.position;
+    )?.position;
   }
 
   getTrackedUserIds(guildId: string): string[] {
@@ -268,31 +494,33 @@ export class ActivityRankRepository extends BaseRepository {
     ).map((row) => row.user_id);
   }
 
+  getRetiredRoleIds(guildId: string): string[] {
+    return this.queryAll<{ role_id: string }>(
+      'SELECT role_id FROM activity_retired_roles WHERE guild_id = ?',
+      [guildId],
+    ).map((row) => row.role_id);
+  }
+
   adjustPoints(guildId: string, userId: string, amount: number): MemberActivity {
-    if (!Number.isInteger(amount)) throw new Error('Point adjustment must be an integer');
+    integer(amount, -1000000, 1000000, 'XP adjustment');
     this.run('INSERT OR IGNORE INTO member_activity (guild_id, user_id) VALUES (?, ?)', [
       guildId,
       userId,
     ]);
     this.run(
-      `UPDATE member_activity SET points = MAX(0, points + ?), updated_at = CURRENT_TIMESTAMP
-       WHERE guild_id = ? AND user_id = ?`,
+      'UPDATE member_activity SET points = MIN(1000000000, MAX(0, points + ?)), updated_at = CURRENT_TIMESTAMP WHERE guild_id = ? AND user_id = ?',
       [amount, guildId, userId],
     );
-    const member = this.getMember(guildId, userId);
-    if (!member) throw new Error('Could not update member activity');
-    return member;
+    return this.getMember(guildId, userId)!;
   }
 
   resetMember(guildId: string, userId: string): void {
-    const transaction = this.db.transaction(() => {
-      this.run('DELETE FROM activity_daily_totals WHERE guild_id = ? AND user_id = ?', [
-        guildId,
-        userId,
-      ]);
-      this.run('DELETE FROM member_activity WHERE guild_id = ? AND user_id = ?', [guildId, userId]);
-    });
-    transaction();
+    // Keep daily claims and replay fingerprints so a reset cannot bypass award limits.
+    this.run(
+      `UPDATE member_activity SET points = 0, qualifying_cnc_pings = 0, qualifying_replays = 0,
+      last_cnc_ping_date = NULL, updated_at = CURRENT_TIMESTAMP WHERE guild_id = ? AND user_id = ?`,
+      [guildId, userId],
+    );
   }
 }
 

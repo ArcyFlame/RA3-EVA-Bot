@@ -1,13 +1,14 @@
 import { createHash } from 'crypto';
-import { Guild, GuildMember, Message, PermissionFlagsBits, Role } from 'discord.js';
+import axios from 'axios';
+import { Attachment, Guild, GuildMember, Message, PermissionFlagsBits, Role } from 'discord.js';
 import {
   activityRankRepository,
   ActivityRankDefinition,
-  DEFAULT_ACTIVITY_RANKS,
   MemberActivity,
 } from '../repositories/activity-rank.repository';
 import { guildRepository } from '../repositories/guild.repository';
 import { audit, logger } from '../utils/logger';
+import { env } from '../config/env';
 
 export interface RankSyncResult {
   status: 'updated' | 'unchanged' | 'not_configured' | 'missing_permission' | 'blocked_role';
@@ -15,30 +16,58 @@ export interface RankSyncResult {
   detail?: string;
 }
 
-export function normalizeActivityText(content: string): string {
-  return content
-    .normalize('NFKC')
-    .toLocaleLowerCase('en-US')
-    .replace(/https?:\/\/\S+/giu, ' link ')
-    .replace(/<@!?\d+>|<@&\d+>|<#\d+>/g, ' ')
-    .replace(/<a?:([\w-]+):\d+>/g, ' $1 ')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim()
-    .replace(/\s+/g, ' ');
+export const MAX_REPLAY_BYTES = 10 * 1024 * 1024;
+
+export function replayFingerprint(bytes: Buffer): string | null {
+  if (bytes.length < 256 || bytes.length > MAX_REPLAY_BYTES) return null;
+  if (bytes.subarray(0, 17).toString('ascii') !== 'RA3 REPLAY HEADER') return null;
+  if (bytes[17] !== 4 && bytes[17] !== 5) return null;
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
-export function isMeaningfulActivity(content: string, attachmentNames: string[] = []): boolean {
-  const normalized = normalizeActivityText(content);
-  const textCharacters = normalized.replace(/\s/g, '').length;
-  return textCharacters >= 4 || attachmentNames.length > 0;
+export function isReplayAttachment(
+  attachment: Pick<Attachment, 'name' | 'size' | 'url'>,
+  channelId: string,
+): boolean {
+  if (
+    !attachment.name ||
+    !/\.ra3replay$/i.test(attachment.name) ||
+    attachment.size < 256 ||
+    attachment.size > MAX_REPLAY_BYTES
+  )
+    return false;
+  try {
+    const url = new URL(attachment.url);
+    return (
+      url.protocol === 'https:' &&
+      !url.username &&
+      !url.password &&
+      (!url.port || url.port === '443') &&
+      ['cdn.discordapp.com', 'media.discordapp.net'].includes(url.hostname) &&
+      url.pathname.startsWith('/attachments/' + channelId + '/')
+    );
+  } catch {
+    return false;
+  }
 }
 
-export function activityFingerprint(content: string, attachmentNames: string[] = []): string {
-  const normalized = normalizeActivityText(content);
-  const attachments = attachmentNames.map((name) => name.toLocaleLowerCase('en-US')).sort();
-  return createHash('sha256')
-    .update(`${normalized}\n${attachments.join('\n')}`)
-    .digest('hex');
+export function validateActivityRole(role: Role): string | null {
+  if (role.id === role.guild.id || role.managed) return 'Choose an ordinary server role.';
+  if (role.permissions.bitfield !== 0n)
+    return 'Activity ranks must be cosmetic roles with no server permissions.';
+  const settings = guildRepository.findByDiscordId(role.guild.id);
+  if ([settings?.adminRoleId, settings?.refereeRoleId, env.ADMIN_ROLE_ID].includes(role.id))
+    return 'Admin and referee roles cannot be awarded as activity ranks.';
+  if (
+    role.guild.channels.cache.some(
+      (channel) =>
+        'permissionOverwrites' in channel &&
+        !!channel.permissionOverwrites.cache.get(role.id)?.allow.bitfield,
+    )
+  )
+    return 'Activity ranks cannot grant channel access or channel permissions.';
+  if (!role.editable) return 'Move the bot role above this activity role.';
+  return null;
 }
 
 export function rankForPoints(
@@ -59,50 +88,95 @@ export function nextRankForPoints(
     .sort((a, b) => a.threshold - b.threshold || a.rank - b.rank)[0];
 }
 
-function onlineRankNumber(role: Role): number | null {
-  const match = role.name.match(/\bonline\s+rank\s*([1-9])\b/i);
-  return match ? Number(match[1]) : null;
-}
-
 export class ActivityRankService {
+  private replayDownloads = 0;
+  private pendingMembers = new Set<string>();
+  private syncingGuilds = new Set<string>();
+
+  private async downloadReplay(attachment: Attachment): Promise<string | null> {
+    if (this.replayDownloads >= 4) return null;
+    this.replayDownloads += 1;
+    try {
+      const response = await axios.get<ArrayBuffer>(attachment.url, {
+        responseType: 'arraybuffer',
+        timeout: 8000,
+        maxRedirects: 0,
+        maxContentLength: MAX_REPLAY_BYTES,
+        maxBodyLength: MAX_REPLAY_BYTES,
+      });
+      return replayFingerprint(Buffer.from(response.data));
+    } catch {
+      return null;
+    } finally {
+      this.replayDownloads -= 1;
+    }
+  }
+
   async handleMessage(message: Message): Promise<void> {
     if (!message.guild || message.author.bot || message.webhookId || message.system) return;
     const guildData = guildRepository.findByDiscordId(message.guild.id);
-    if (!guildData || guildData.activityRanksEnabled !== 1) return;
-
-    const attachmentNames = [
-      ...message.attachments.map((attachment) => attachment.name ?? 'attachment'),
-      ...message.stickers.map((sticker) => sticker.name),
-    ];
+    if (guildData?.activityRanksEnabled !== 1) return;
+    const settings = activityRankRepository.getSettings(message.guild.id);
     const hasCncPing =
-      !!guildData.cncPingRoleId && message.mentions.roles.has(guildData.cncPingRoleId);
-    const meaningfulMessage = isMeaningfulActivity(message.content, attachmentNames);
-    if (!hasCncPing && !meaningfulMessage) return;
-
+      settings.pingEnabled &&
+      !!guildData.cncPingRoleId &&
+      message.mentions.roles.has(guildData.cncPingRoleId);
+    const replays =
+      settings.replayEnabled && message.channelId === settings.replayChannelId
+        ? message.attachments.filter((attachment) =>
+            isReplayAttachment(attachment, message.channelId),
+          )
+        : null;
+    if (!hasCncPing && !replays?.size) return;
     const timestamp = message.createdTimestamp || Date.now();
+    const activityDate = new Date(timestamp).toISOString().slice(0, 10);
+    if (activityDate !== new Date().toISOString().slice(0, 10)) return;
+    const key = message.guild.id + ':' + message.author.id;
+    const replayFingerprints: string[] = [];
+    if (replays?.size && !this.pendingMembers.has(key)) {
+      this.pendingMembers.add(key);
+      try {
+        for (const attachment of [...replays.values()].slice(0, settings.replayDailyCap)) {
+          if (
+            this.replayDownloads >= 4 ||
+            !activityRankRepository.claimReplayDownload(
+              message.guild.id,
+              message.author.id,
+              activityDate,
+            )
+          )
+            break;
+          const fingerprint = await this.downloadReplay(attachment);
+          if (fingerprint) replayFingerprints.push(fingerprint);
+        }
+      } finally {
+        this.pendingMembers.delete(key);
+      }
+    }
+    // Recheck the feature after downloads in case an admin changed the setup.
+    const currentGuild = guildRepository.findByDiscordId(message.guild.id);
+    if (currentGuild?.activityRanksEnabled !== 1) return;
+    const currentSettings = activityRankRepository.getSettings(message.guild.id);
     const result = activityRankRepository.recordActivity({
       guildId: message.guild.id,
       userId: message.author.id,
-      nowMs: timestamp,
-      activityDate: new Date(timestamp).toISOString().slice(0, 10),
-      meaningfulMessage,
-      fingerprint: meaningfulMessage
-        ? activityFingerprint(message.content, attachmentNames)
-        : undefined,
-      hasCncPing,
+      activityDate,
+      hasCncPing:
+        !!currentGuild.cncPingRoleId && message.mentions.roles.has(currentGuild.cncPingRoleId),
+      replayFingerprints:
+        message.channelId === currentSettings.replayChannelId ? replayFingerprints : [],
     });
     if (result.pointsAwarded === 0) return;
 
     const definitions = activityRankRepository.getRankDefinitions(message.guild.id);
     const previousRank = rankForPoints(result.before.points, definitions);
     const currentRank = rankForPoints(result.after.points, definitions);
-    if (previousRank?.rank === currentRank?.rank) return;
 
     const member =
       message.member ?? (await message.guild.members.fetch(message.author.id).catch(() => null));
     if (!member) return;
     const sync = await this.syncMemberRank(member, result.after);
-    if (sync.status === 'updated' && currentRank) {
+    if (sync.status === 'updated' && currentRank && previousRank?.rank !== currentRank.rank) {
       audit('activity_rank_changed', {
         guildId: message.guild.id,
         userId: message.author.id,
@@ -113,29 +187,6 @@ export class ActivityRankService {
     }
   }
 
-  autoConfigureRoles(guild: Guild): { configured: number[]; missing: number[] } {
-    const detected = new Map<number, Role>();
-    const existing = activityRankRepository.getRankDefinitions(guild.id);
-    for (const role of guild.roles.cache.values()) {
-      const rank = onlineRankNumber(role);
-      if (rank && !role.managed && role.id !== guild.id) detected.set(rank, role);
-    }
-    for (const defaults of DEFAULT_ACTIVITY_RANKS) {
-      const role = detected.get(defaults.rank);
-      if (role) {
-        const threshold =
-          existing.find((definition) => definition.rank === defaults.rank)?.threshold ??
-          defaults.threshold;
-        activityRankRepository.setRankRole(guild.id, defaults.rank, role.id, threshold);
-      }
-    }
-    const configured = [...detected.keys()].sort((a, b) => a - b);
-    const missing = DEFAULT_ACTIVITY_RANKS.map((rank) => rank.rank).filter(
-      (rank) => !detected.has(rank),
-    );
-    return { configured, missing };
-  }
-
   async syncMemberRank(
     member: GuildMember,
     activity = activityRankRepository.getMember(member.guild.id, member.id),
@@ -143,7 +194,8 @@ export class ActivityRankService {
     if (member.user.bot) return { status: 'unchanged' };
     const definitions = activityRankRepository.getRankDefinitions(member.guild.id);
     const configured = definitions.filter((definition) => definition.roleId);
-    if (configured.length === 0) return { status: 'not_configured' };
+    const retiredRoleIds = activityRankRepository.getRetiredRoleIds(member.guild.id);
+    if (configured.length === 0 && retiredRoleIds.length === 0) return { status: 'not_configured' };
 
     const botMember = member.guild.members.me;
     if (!botMember?.permissions.has(PermissionFlagsBits.ManageRoles)) {
@@ -154,8 +206,10 @@ export class ActivityRankService {
     const desired = configured
       .filter((definition) => points >= definition.threshold)
       .sort((a, b) => b.threshold - a.threshold || b.rank - a.rank)[0];
-    const configuredRoles = configured
-      .map((definition) => member.guild.roles.cache.get(definition.roleId!))
+    const configuredRoles = [
+      ...new Set([...configured.map((definition) => definition.roleId!), ...retiredRoleIds]),
+    ]
+      .map((id) => member.guild.roles.cache.get(id))
       .filter((role): role is Role => !!role);
     const desiredRole = desired?.roleId ? member.guild.roles.cache.get(desired.roleId) : undefined;
 
@@ -168,12 +222,12 @@ export class ActivityRankService {
     }
 
     const touchedRoles = [...rolesToRemove, ...(needsAdd && desiredRole ? [desiredRole] : [])];
-    const blocked = touchedRoles.find((role) => !role.editable);
+    const blocked = touchedRoles.find((role) => validateActivityRole(role));
     if (blocked) {
       return {
         status: 'blocked_role',
         rank: desired,
-        detail: `Move the bot role above “${blocked.name}”.`,
+        detail: validateActivityRole(blocked)!,
       };
     }
 
@@ -192,17 +246,24 @@ export class ActivityRankService {
   }
 
   async syncGuild(guild: Guild): Promise<{ updated: number; unchanged: number; failed: number }> {
+    if (this.syncingGuilds.has(guild.id))
+      throw new Error('A rank sync is already running on this server.');
+    this.syncingGuilds.add(guild.id);
     const result = { updated: 0, unchanged: 0, failed: 0 };
-    for (const userId of activityRankRepository.getTrackedUserIds(guild.id)) {
-      const member = await guild.members.fetch(userId).catch(() => null);
-      if (!member) {
-        result.failed += 1;
-        continue;
+    try {
+      for (const userId of activityRankRepository.getTrackedUserIds(guild.id)) {
+        const member = await guild.members.fetch(userId).catch(() => null);
+        if (!member) {
+          result.failed += 1;
+          continue;
+        }
+        const sync = await this.syncMemberRank(member);
+        if (sync.status === 'updated') result.updated += 1;
+        else if (sync.status === 'unchanged') result.unchanged += 1;
+        else result.failed += 1;
       }
-      const sync = await this.syncMemberRank(member);
-      if (sync.status === 'updated') result.updated += 1;
-      else if (sync.status === 'unchanged') result.unchanged += 1;
-      else result.failed += 1;
+    } finally {
+      this.syncingGuilds.delete(guild.id);
     }
     return result;
   }

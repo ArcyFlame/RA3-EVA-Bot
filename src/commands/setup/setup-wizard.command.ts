@@ -5,20 +5,18 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
-  PermissionFlagsBits,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
-import { denyUnlessAdmin } from '../../utils/permissions';
-import { resolveMember } from '../../utils/members';
+import { requireAdminInteraction } from '../../utils/admin-interaction';
 import { guildRepository } from '../../repositories/guild.repository';
 import { GAME_CONFIGS, GameId } from '../../config/games';
 
 export const data = new SlashCommandBuilder()
   .setName('bot_setup')
   .setDescription('Run the server setup wizard (admin only)')
-  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
+  .setDefaultMemberPermissions(null);
 
 /** Games the bot supports; the choice switches platforms, news and help. */
 export const GAME_OPTIONS = [
@@ -39,12 +37,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     await interaction.reply({ content: 'Server only.', ephemeral: true });
     return;
   }
-  const member = await resolveMember(interaction);
-  const denial = denyUnlessAdmin(member);
-  if (denial) {
-    await interaction.reply({ content: denial, ephemeral: true });
-    return;
-  }
+  if (!(await requireAdminInteraction(interaction))) return;
 
   const guildData = guildRepository.findByDiscordId(interaction.guild.id);
   const game = guildData?.game ?? 'ra3';

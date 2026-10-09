@@ -20,6 +20,17 @@ export interface TwitchStream {
   thumbnailUrl: string;
 }
 
+interface HelixStream {
+  id: string;
+  user_id: string;
+  user_login: string;
+  title: string;
+  game_name: string;
+  viewer_count: number;
+  started_at: string;
+  thumbnail_url: string;
+}
+
 export class TwitchService {
   private appAccessToken: { token: string; expiresAt: number } | null = null;
   private userAccessToken: { token: string; expiresAt: number } | null = null;
@@ -156,8 +167,11 @@ export class TwitchService {
   }
 
   async getRA3GameId(): Promise<string | null> {
+    return this.getGameId(['Command & Conquer: Red Alert 3', 'Red Alert 3']);
+  }
+
+  async getGameId(searchNames: string[]): Promise<string | null> {
     const headers = await this.getHeaders();
-    const searchNames = ['Command & Conquer: Red Alert 3', 'Red Alert 3'];
     for (const name of searchNames) {
       try {
         const res = await axios.get('https://api.twitch.tv/helix/games', {
@@ -167,15 +181,48 @@ export class TwitchService {
         const games = res.data.data;
         if (games && games.length > 0) {
           const gameId = games[0].id;
-          logger.info(`✅ Resolved RA3 game: '${games[0].name}' (ID: ${gameId})`);
+          logger.info(`Resolved Twitch category: '${games[0].name}' (ID: ${gameId})`);
           return gameId;
         }
       } catch (error) {
         logger.error(`Failed to resolve game ID for '${name}':`, error);
       }
     }
-    logger.error('❌ Could not find Red Alert 3 on Twitch under any known name!');
     return null;
+  }
+
+  async getStreamsByUsers(userIds: string[]): Promise<TwitchStream[]> {
+    const ids = [...new Set(userIds.filter((id) => /^\d{1,20}$/.test(id)))];
+    const streams: TwitchStream[] = [];
+    if (!ids.length) return streams;
+    const headers = await this.getHeaders();
+    for (let index = 0; index < ids.length; index += 100) {
+      try {
+        const response = await axios.get<{ data: HelixStream[] }>(
+          'https://api.twitch.tv/helix/streams',
+          {
+            headers,
+            params: { user_id: ids.slice(index, index + 100), first: 100 },
+            timeout: 10000,
+          },
+        );
+        streams.push(
+          ...(response.data.data || []).map((stream) => ({
+            id: stream.id,
+            userId: stream.user_id,
+            userName: stream.user_login,
+            title: stream.title,
+            gameName: stream.game_name,
+            viewerCount: stream.viewer_count,
+            startedAt: stream.started_at,
+            thumbnailUrl: stream.thumbnail_url,
+          })),
+        );
+      } catch (error) {
+        logger.warn('Failed to fetch tracked Twitch streams:', error);
+      }
+    }
+    return streams;
   }
 
   async getStreamsByGame(gameId: string, first = 100): Promise<TwitchStream[]> {

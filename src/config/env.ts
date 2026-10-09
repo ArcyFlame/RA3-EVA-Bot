@@ -71,8 +71,9 @@ export const env = {
   // ── Core ──────────────────────────────────────────────────────────────
   DISCORD_TOKEN: required('DISCORD_TOKEN'),
   DATABASE_PATH: optional('DATABASE_PATH') ?? './data/bot.db',
-  /** Dev/testing guild for instant command registration. Omit for global registration. */
+  /** Guild used only when COMMAND_SCOPE=guild is explicitly selected. */
   GUILD_ID: snowflake('GUILD_ID'),
+  COMMAND_SCOPE: optional('COMMAND_SCOPE') ?? 'global',
   /** Fallback admin role (per-guild role configured via /setup takes precedence). */
   ADMIN_ROLE_ID: snowflake('ADMIN_ROLE_ID'),
   /** Bot owner — gates destructive commands (/kill, /restart). Strongly recommended. */
@@ -104,6 +105,13 @@ export const env = {
   /** Optional path for a file log transport (e.g. ./logs/bot.log). */
   LOG_FILE: optional('LOG_FILE'),
 } as const;
+
+if (
+  !['global', 'guild'].includes(env.COMMAND_SCOPE) ||
+  (env.COMMAND_SCOPE === 'guild' && !env.GUILD_ID)
+) {
+  throw new ConfigError('COMMAND_SCOPE must be global, or guild with GUILD_ID set.');
+}
 
 if (!env.CHALLONGE_API_KEY) {
   // eslint-disable-next-line no-console

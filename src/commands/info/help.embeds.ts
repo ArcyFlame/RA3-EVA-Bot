@@ -245,7 +245,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: '🎖️ Activity Ranks',
         value:
-          '`/activity_admin enable` - Detect Online Rank 1-9 roles and start tracking\n`/activity_admin status` - View role thresholds and anti-spam settings\n`/activity_admin role` - Configure one role\n`/activity_admin ping_role` - Set the daily C&C ping\n`/activity_admin adjust|reset|sync` - Manage points and roles',
+          '`/activity_admin` - Configure ping and replay XP, days, levels, ranks and roles with buttons\nAdd, edit, remove or reorder ranks, select existing roles or create new ones, and manage member XP.',
         inline: false,
       },
       {

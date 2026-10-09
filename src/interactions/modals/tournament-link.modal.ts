@@ -7,6 +7,7 @@ import { findTournament, getCurrentTournament } from '../../services/tournament-
 import { guildRepository } from '../../repositories/guild.repository';
 import { logger } from '../../utils/logger';
 import { statusFromChallonge } from '../../utils/tournament-status';
+import { requireAdminInteraction } from '../../utils/admin-interaction';
 
 /** /tournament_link modal: parses any Challonge URL/ID form, validates, stores. */
 export const customId = 'tournament_link_modal';
@@ -17,6 +18,7 @@ export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction)
     return;
   }
 
+  if (!(await requireAdminInteraction(interaction))) return;
   const raw = interaction.fields.getTextInputValue('bracket').trim();
   const ref = challongeService.parseTournamentRef(raw);
   if (!ref) {

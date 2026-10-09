@@ -133,7 +133,7 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     key: 'activityRanks',
     label: 'Discord activity ranks',
     emoji: '🎖️',
-    description: 'Anti-spam activity points and Online Rank roles',
+    description: 'Daily C&C pings, replay XP and customizable ranks',
     enabled: (g) => g.activityRanksEnabled === 1,
   },
   {

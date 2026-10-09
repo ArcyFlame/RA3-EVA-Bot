@@ -1,20 +1,19 @@
 import { StringSelectMenuInteraction } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { buildFeatureToggleView, isFeatureKey } from '../../commands/setup/feature-toggle.view';
-import { denyUnlessAdmin, isOwner } from '../../utils/permissions';
-import { resolveMember } from '../../utils/members';
+import { isOwner } from '../../utils/permissions';
+import { requireAdminInteraction } from '../../utils/admin-interaction';
 
 export const customId = 'feature_category';
 
 export async function execute(_bot: RA3Bot, interaction: StringSelectMenuInteraction) {
   if (!interaction.guild) return;
-  const denial = denyUnlessAdmin(await resolveMember(interaction));
-  if (denial) {
-    await interaction.reply({ content: denial, ephemeral: true });
-    return;
-  }
+  if (!(await requireAdminInteraction(interaction))) return;
   const selected = interaction.values[0];
-  if (!isFeatureKey(selected) || (selected === 'dmPublicCommands' && !isOwner(interaction.user.id))) {
+  if (
+    !isFeatureKey(selected) ||
+    (selected === 'dmPublicCommands' && !isOwner(interaction.user.id))
+  ) {
     await interaction.reply({ content: 'Unknown feature category.', ephemeral: true });
     return;
   }

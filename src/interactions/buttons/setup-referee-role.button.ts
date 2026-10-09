@@ -1,9 +1,11 @@
 import { ButtonInteraction, ActionRowBuilder, RoleSelectMenuBuilder } from 'discord.js';
 import { RA3Bot } from '../../bot';
+import { requireAdminInteraction } from '../../utils/admin-interaction';
 
 export const customId = 'setup_referee_role';
 
 export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
+  if (!(await requireAdminInteraction(interaction))) return;
   await interaction.deferReply({ ephemeral: true });
   const select = new RoleSelectMenuBuilder()
     .setCustomId('setup_referee_role_select')

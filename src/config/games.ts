@@ -60,7 +60,7 @@ export function getGameConfig(value: unknown): GameConfig {
   return GAME_CONFIGS[normalizeGame(value)];
 }
 
-const GENEVO_CONTENT = /generals\s*(?::|-)?\s*evolution|gen\s*evo|genevo/i;
+const GENEVO_CONTENT = /\b(?:generals\s*(?::|-)?\s*evolution|genevo(?:lution)?|gen[\s:_-]+evo)\b/i;
 const OTHER_GAME_CONTENT =
   /kane'?s wrath|tiberi(?:um|an)|\bc&c\s*3\b|\bzero hour\b|\bgenerals\s*(?:world series|ladder|tournament)\b/i;
 

@@ -69,7 +69,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
         const rank = rankForPoints(entry.points, definitions);
         const medal =
           index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `**${index + 1}.**`;
-        return `${medal} ${name} — **${entry.points.toLocaleString()}** points · ${rank ? `${rank.title} (Rank ${rank.rank})` : 'Recruit'}`;
+        return `${medal} ${name} — **${entry.points.toLocaleString()}** XP · ${rank ? `${escapeMarkdown(rank.title)} (Rank ${rank.rank})` : 'Recruit'}`;
       }),
     );
     const embed = new EmbedBuilder()
@@ -77,7 +77,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       .setDescription(lines.join('\n'))
       .setColor(0xf1c40f)
       .setFooter({
-        text: 'Spam, repeated messages and repeated C&C pings do not earn extra points.',
+        text: 'One C&C ping award per UTC day. Valid replay uploads can also earn XP.',
       });
     await interaction.editReply({ embeds: [embed] });
     return;
@@ -87,6 +87,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   const member = await interaction.guild.members.fetch(target.id).catch(() => null);
   const activity = activityRankRepository.getMember(interaction.guild.id, target.id);
   const points = activity?.points ?? 0;
+  const settings = activityRankRepository.getSettings(interaction.guild.id);
   const definitions = activityRankRepository.getRankDefinitions(interaction.guild.id);
   const currentRank = rankForPoints(points, definitions);
   const nextRank = nextRankForPoints(points, definitions);
@@ -106,29 +107,33 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       {
         name: 'Current Rank',
         value: currentRank
-          ? `**${currentRank.title}** · Online Rank ${currentRank.rank}`
+          ? `**${escapeMarkdown(currentRank.title)}** · Rank ${currentRank.rank}`
           : '**Recruit**',
         inline: true,
       },
-      { name: 'Points', value: `**${points.toLocaleString()}**`, inline: true },
+      {
+        name: 'XP / Level',
+        value: `**${points.toLocaleString()} XP** · Level **${Math.floor(points / settings.xpPerLevel)}**`,
+        inline: true,
+      },
       {
         name: 'Server Position',
         value: position ? `**#${position}**` : 'Not ranked',
         inline: true,
       },
       {
-        name: nextRank ? `Progress to ${nextRank.title}` : 'Highest Rank Reached',
+        name: nextRank ? `Progress to ${escapeMarkdown(nextRank.title)}` : 'Highest Rank Reached',
         value: nextRank
           ? `\`${progressBar(progress, targetProgress)}\` ${Math.max(0, progress).toLocaleString()} / ${targetProgress.toLocaleString()}`
-          : '`██████████` General',
+          : '`██████████` ' + escapeMarkdown(currentRank?.title ?? 'Complete'),
       },
       {
         name: 'Counted Activity',
-        value: `${activity?.qualifyingMessages ?? 0} messages · ${activity?.qualifyingCncPings ?? 0} daily C&C pings`,
+        value: `${activity?.qualifyingCncPings ?? 0} daily C&C pings · ${activity?.qualifyingReplays ?? 0} replay files`,
       },
     )
     .setFooter({
-      text: 'Messages have a cooldown and daily cap. The configured C&C ping counts once per UTC day.',
+      text: 'C&C pings count once per UTC day. Ordinary chat earns no XP.',
     });
   await interaction.reply({ embeds: [embed] });
 }
