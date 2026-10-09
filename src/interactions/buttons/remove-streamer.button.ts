@@ -6,6 +6,7 @@ import {
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { trackedStreamerRepository } from '../../repositories/tracked-streamer.repository';
+import { requireAdminInteraction } from '../../utils/admin-interaction';
 
 export const customId = 'remove_streamer';
 
@@ -14,16 +15,19 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     await interaction.reply({ content: 'Server only.', ephemeral: true });
     return;
   }
+  if (!(await requireAdminInteraction(interaction))) return;
   const streamers = trackedStreamerRepository.findByGuild(interaction.guild.id);
   if (streamers.length === 0) {
     await interaction.reply({ content: 'No tracked streamers to remove.', ephemeral: true });
     return;
   }
-  const options = streamers.map((s) =>
-    new StringSelectMenuOptionBuilder()
-      .setLabel(`${s.displayName} (${s.platform})`)
-      .setValue(s.platformId),
-  );
+  const options = streamers
+    .slice(0, 25)
+    .map((s) =>
+      new StringSelectMenuOptionBuilder()
+        .setLabel(`${s.displayName} (${s.platform})`.slice(0, 100))
+        .setValue(s.platformId),
+    );
   const select = new StringSelectMenuBuilder()
     .setCustomId('remove_streamer_select')
     .setPlaceholder('Select a streamer to remove')

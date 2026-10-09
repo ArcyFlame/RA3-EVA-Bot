@@ -3,8 +3,7 @@ import { RA3Bot } from '../../bot';
 import { trackedStreamerRepository } from '../../repositories/tracked-streamer.repository';
 import { twitchService } from '../../services/twitch.service';
 import { youTubeService } from '../../services/youtube.service';
-import { denyUnlessAdmin } from '../../utils/permissions';
-import { resolveMember } from '../../utils/members';
+import { requireAdminInteraction } from '../../utils/admin-interaction';
 
 export const customId = 'add_streamer_modal';
 
@@ -13,12 +12,7 @@ export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction)
     await interaction.reply({ content: 'Server only.', ephemeral: true });
     return;
   }
-  const member = await resolveMember(interaction);
-  const denial = denyUnlessAdmin(member);
-  if (denial) {
-    await interaction.reply({ content: denial, ephemeral: true });
-    return;
-  }
+  if (!(await requireAdminInteraction(interaction))) return;
 
   const platform = interaction.fields.getTextInputValue('platform').trim().toLowerCase();
   const identifier = interaction.fields.getTextInputValue('identifier').trim();
@@ -65,6 +59,7 @@ export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction)
     displayName = identifier;
   }
 
+  if (!(await requireAdminInteraction(interaction))) return;
   trackedStreamerRepository.addStreamer(interaction.guild.id, platform, platformId, displayName);
   await interaction.editReply({ content: `✅ Now tracking **${displayName}** on ${platform}.` });
 }

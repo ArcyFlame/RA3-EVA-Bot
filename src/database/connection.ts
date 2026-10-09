@@ -31,6 +31,7 @@ import { up as up029, down as down029 } from './migrations/029_tournament_artwor
 import { up as up030, down as down030 } from './migrations/030_results_and_news_media';
 import { up as up031, down as down031 } from './migrations/031_activity_ranks';
 import { up as up032, down as down032 } from './migrations/032_configurable_activity_ranks';
+import { up as up033, down as down033 } from './migrations/033_match_reminder_delivery';
 import { logger } from '../utils/logger';
 
 interface Migration {
@@ -74,6 +75,7 @@ const migrations: Migration[] = [
   { version: 30, name: '030_results_and_news_media', up: up030, down: down030 },
   { version: 31, name: '031_activity_ranks', up: up031, down: down031 },
   { version: 32, name: '032_configurable_activity_ranks', up: up032, down: down032 },
+  { version: 33, name: '033_match_reminder_delivery', up: up033, down: down033 },
 ];
 
 function ensureMigrationsTable(): void {

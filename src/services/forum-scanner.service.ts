@@ -76,7 +76,9 @@ export function classifyTopic(title: string): ForumTopic['kind'] {
 
 /** Edition numbers in a title ("FTW 91", "XMAS2025") — prize amounts ignored. */
 function editionNumbers(title: string): number[] {
-  const cleaned = title.replace(/[$€£]\s?\d+/gi, ' ');
+  const cleaned = title
+    .replace(/[$€£]\s?\d+|\d+\s?[$€£]/gi, ' ')
+    .replace(/\b[1-4]\s*v(?:s)?\s*[1-4]\b|\bbo\s*\d+\b|\b\d+\.\d+(?:\.\d+)*\b/gi, ' ');
   return [...cleaned.matchAll(/\d{1,4}/g)].map((m) => parseInt(m[0], 10));
 }
 
@@ -85,7 +87,7 @@ export function editionsCompatible(topicTitle: string, eventTitle: string): bool
   const t = editionNumbers(topicTitle);
   const e = editionNumbers(eventTitle);
   if (t.length === 0 || e.length === 0) return true;
-  return t.some((n) => e.includes(n));
+  return t.length === e.length && t.every((n) => e.includes(n));
 }
 
 /** Canonical https topic URL from any href variant (?s=0&showtopic=N&view=…). */
@@ -130,6 +132,11 @@ export interface TopicLinks {
 export function parseTopicPage(html: string): TopicLinks {
   const $ = cheerio.load(html);
   const links: TopicLinks = { challonge: [], mapLines: [], bodyText: '' };
+  const primary = $(
+    '.comment_display_content, .postcolor, .post_body, .postbody, [itemprop="articleBody"]',
+  ).first();
+  const body = primary.length ? primary.clone() : $('body').clone();
+  body.find('script, style, .signature, blockquote, .quote').remove();
 
   const addChallongeLink = (value: string) => {
     const directUrl = value.match(
@@ -143,7 +150,7 @@ export function parseTopicPage(html: string): TopicLinks {
     if (!links.challonge.includes(normalized)) links.challonge.push(normalized);
   };
 
-  $('a').each((_, el) => {
+  body.find('a').each((_, el) => {
     const href = ($(el).attr('href') || '').trim();
     const lower = href.toLowerCase();
     if (lower.includes('challonge.com')) {
@@ -174,13 +181,13 @@ export function parseTopicPage(html: string): TopicLinks {
   // Some old forum posts contain broken BBCode such as
   // "[url=https://challonge.com/example[/url]". It is visible in the page
   // source but never becomes an anchor, so scan the source for direct links.
-  for (const match of html.matchAll(
+  for (const match of (body.html() ?? '').matchAll(
     /(?:https?:\/\/)?(?:www\.)?(?:[a-z0-9-]+\.)?challonge\.com\/(?:[a-z]{2}(?:_[a-z]{2})?\/)?[a-z0-9][a-z0-9-]{0,60}/gi,
   )) {
     addChallongeLink(match[0]);
   }
 
-  links.bodyText = $.text().replace(/\r/g, '');
+  links.bodyText = body.text().replace(/\r/g, '');
   return links;
 }
 
@@ -855,7 +862,9 @@ export class ForumScannerService {
         break;
       }
       if (!html.includes('showtopic=')) {
-        completed = true;
+        completed = /no topics (?:found|to display)|there are no topics/i.test(html);
+        if (!completed)
+          logger.warn('Historical forum crawl: unrecognized page; checkpoint preserved');
         break;
       }
       const pageTopics = parseForumTopics(html);
@@ -865,7 +874,10 @@ export class ForumScannerService {
         .join('|');
       if (fingerprint && fingerprint === previousFingerprint) {
         logger.warn(`Historical forum crawl repeated page at offset ${offset}; stopping safely`);
-        completed = true;
+        break;
+      }
+      if (!fingerprint) {
+        logger.warn('Historical forum crawl: no usable tournament topics; checkpoint preserved');
         break;
       }
       previousFingerprint = fingerprint;

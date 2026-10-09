@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import xml2js from 'xml2js';
+import { parseSourceFeed } from '../utils/source-feed';
 import { Client, TextChannel } from 'discord.js';
 import { logger } from '../utils/logger';
 import { tournamentRepository } from '../repositories/tournament.repository';
@@ -11,6 +11,7 @@ import { contentDeliveryRepository } from '../repositories/content-delivery.repo
 import { safeGetText } from '../utils/safe-fetch';
 import { GameId } from '../config/games';
 import { gameMapNames } from '../data/game-maps';
+import { parsePortalCards } from '../utils/portal-source';
 
 export { parsePortalDate } from '../utils/tournament-status';
 
@@ -46,13 +47,6 @@ export interface FeedTournament {
 const EVENT_WORDS =
   /\b(tournament|competition|championship|cup|league|event|sign[ -]?up|register|registration)\b/i;
 
-function rssText(value: unknown): string {
-  if (value == null) return '';
-  if (Array.isArray(value)) return rssText(value[0]);
-  if (typeof value === 'object') return rssText((value as { _?: unknown })._);
-  return String(value).trim();
-}
-
 const ARTWORK_HOSTS = new Set([
   'www.gamereplays.org',
   'gamereplays.org',
@@ -78,35 +72,22 @@ function sourceImageUrl(value: string | undefined, baseUrl: string): string | un
 /** Parses official Generals Evolution articles and keeps event announcements only. */
 export async function parseGenevoTournaments(xml: string): Promise<FeedTournament[]> {
   try {
-    const parsed = await new xml2js.Parser({ explicitArray: false }).parseStringPromise(xml);
-    let items = parsed?.rss?.channel?.item ?? [];
-    if (!Array.isArray(items)) items = [items];
-    return items
-      .map((item: any) => {
-        const html = rssText(item.description);
-        const $ = cheerio.load(`<div>${html}</div>`);
-        const mediaUrl =
-          rssText(item?.enclosure?.$?.url) ||
-          rssText(item?.['media:content']?.$?.url) ||
-          rssText(item?.['media:thumbnail']?.$?.url) ||
-          $('img').first().attr('src');
-        const description = cheerio
-          .load(`<div>${html}</div>`)('div')
-          .text()
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 4000);
+    return (await parseSourceFeed(xml))
+      .map((item) => {
+        const $ = cheerio.load(`<div>${item.description}</div>`);
+        $('script, style').remove();
+        const description = $('div').text().replace(/\s+/g, ' ').trim().slice(0, 4000);
         return {
-          title: rssText(item.title),
-          url: rssText(item.link),
-          publishedAt: rssText(item.pubDate) || new Date().toISOString(),
+          title: item.title,
+          url: item.url,
+          publishedAt: item.publishedAt,
           description,
-          imageUrl: sourceImageUrl(mediaUrl, rssText(item.link) || 'https://www.moddb.com/'),
+          imageUrl: sourceImageUrl(item.image || $('img').first().attr('src'), item.url),
         };
       })
-      .filter((item: FeedTournament) => item.title && item.url)
-      .filter((item: FeedTournament) => EVENT_WORDS.test(`${item.title} ${item.description}`));
-  } catch {
+      .filter((item) => EVENT_WORDS.test(`${item.title} ${item.description}`));
+  } catch (error) {
+    logger.warn('Generals Evolution event feed could not be parsed:', error);
     return [];
   }
 }
@@ -129,24 +110,12 @@ export function isGenevoTournamentTitle(title: string): boolean {
 
 /** Parses the GameReplays esports portal HTML into tournament announcements. */
 export function parseTournaments(html: string): ParsedTournament[] {
-  const $ = cheerio.load(html);
-  const items: ParsedTournament[] = [];
-  $('.content_list_item').each((_, el) => {
-    const $item = $(el);
-    const titleEl = $item.find('.content_list_title a').first();
-    const title = titleEl.text().trim();
-    const url = titleEl.attr('href');
-    const dateText = $item.find('.content_list_infobar').first().text().trim();
-    if (!title || !url) return;
-
-    // Isolate the excerpt by dropping the title/date/type-label elements.
-    const $clone = $item.clone();
-    $clone.find('.content_list_title, .content_list_infobar, .content_type').remove();
-    const excerpt = $clone.text().replace(/\s+/g, ' ').trim().slice(0, 300);
-
-    items.push({ title, url, dateText, excerpt });
-  });
-  return items;
+  return parsePortalCards(html).filter(
+    (card) =>
+      !/^news$/i.test(card.type) &&
+      !/\/news\//i.test(card.url) &&
+      new URL(card.url).searchParams.get('show') !== 'news',
+  );
 }
 
 export interface ArticleActions {
@@ -193,13 +162,15 @@ function scoreTopicUrl(actions: ArticleActions, title: string): string | undefin
 export function extractArticleImage(html: string, articleUrl = ESPORTS_URL): string | undefined {
   const $ = cheerio.load(html);
   let result: string | undefined;
-  $('.contentpadding img').each((_, element) => {
-    if (result) return;
-    const src = $(element).attr('src');
-    if (/style_images|icon_|favicon|twitter|discord/i.test(src || '')) return;
-    result = sourceImageUrl(src, articleUrl);
-  });
-  return result;
+  $('.contentpadding img, .article-body img, [itemprop="articleBody"] img, main article img').each(
+    (_, element) => {
+      if (result) return;
+      const src = $(element).attr('data-src') || $(element).attr('src');
+      if (/style_images|icon_|favicon|twitter|discord/i.test(src || '')) return;
+      result = sourceImageUrl(src, articleUrl);
+    },
+  );
+  return result ?? sourceImageUrl($('meta[property="og:image"]').attr('content'), articleUrl);
 }
 
 /** Extracts the article body (prize pool, map pool, format, …) from an article page.
@@ -207,7 +178,11 @@ export function extractArticleImage(html: string, articleUrl = ESPORTS_URL): str
  * useful body while still putting a firm ceiling on stored source text. */
 export function extractArticleDescription(html: string): string | undefined {
   const $ = cheerio.load(html);
-  const text = $('.contentpadding').first().text().replace(/\s+/g, ' ').trim();
+  const body = $('.contentpadding, .article-body, [itemprop="articleBody"], main article')
+    .first()
+    .clone();
+  body.find('script, style, nav, footer').remove();
+  const text = body.text().replace(/\s+/g, ' ').trim();
   return text.slice(0, 12_000) || undefined;
 }
 
@@ -523,6 +498,12 @@ export class TournamentScannerService {
 
       const existingId = tournamentRepository.findEventIdByUrl(t.url);
       if (existingId !== undefined) {
+        if (!articleHtml || !extractArticleDescription(articleHtml)) {
+          logger.warn(
+            `Tournament scanner: no usable article body for ${t.url}; keeping stored details`,
+          );
+          continue;
+        }
         // Already known — refresh the sign-up URL, description and facts.
         // Facts are only rewritten when the article was actually fetched;
         // a failed fetch must not wipe existing values.
@@ -629,6 +610,12 @@ export class TournamentScannerService {
 
       const existingId = tournamentRepository.findEventIdByUrl(item.url);
       if (existingId !== undefined) {
+        if (!articleHtml || !extractArticleDescription(articleHtml)) {
+          logger.warn(
+            `Tournament scanner: no usable article body for ${item.url}; keeping stored details`,
+          );
+          continue;
+        }
         tournamentRepository.updateEventDetails(
           item.url,
           signUpUrl ?? null,

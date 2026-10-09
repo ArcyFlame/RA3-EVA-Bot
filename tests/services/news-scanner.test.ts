@@ -2,6 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { parseRa3PortalNews, RA3_NEWS_URL } from '../../src/services/news-scanner.service';
 
 describe('parseRa3PortalNews', () => {
+  it('accepts the root portal news links returned by the live RA3 news index', () => {
+    const html = `<div class="content_list_item"><div class="content_type">News</div>
+      <h3 class="content_list_title"><a href="https://www.gamereplays.org/portals.php?show=news&amp;news_id=1083323">Naval Play</a></h3>
+      <div class="content_list_infobar">Thursday, 12 Feb 2026</div>Community article.</div>`;
+    expect(parseRa3PortalNews(html)).toMatchObject([
+      {
+        title: 'Naval Play',
+        url: 'https://www.gamereplays.org/portals.php?show=news&news_id=1083323',
+      },
+    ]);
+  });
   it('reads News cards and ignores mixed portal article and esports cards', () => {
     const html = `
       <div class="content_list_item">

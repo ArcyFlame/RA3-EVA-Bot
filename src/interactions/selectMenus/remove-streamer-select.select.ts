@@ -1,11 +1,13 @@
 import { StringSelectMenuInteraction } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { trackedStreamerRepository } from '../../repositories/tracked-streamer.repository';
+import { requireAdminInteraction } from '../../utils/admin-interaction';
 
 export const customId = 'remove_streamer_select';
 
 export async function execute(_bot: RA3Bot, interaction: StringSelectMenuInteraction) {
   if (!interaction.guild) return;
+  if (!(await requireAdminInteraction(interaction))) return;
   const platformId = interaction.values[0];
   const removed = trackedStreamerRepository.removeStreamer(interaction.guild.id, platformId);
   if (removed) {

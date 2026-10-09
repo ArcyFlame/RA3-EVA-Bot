@@ -1,5 +1,5 @@
 import { Client, TextChannel, EmbedBuilder } from 'discord.js';
-import xml2js from 'xml2js';
+import { parseSourceFeed } from '../utils/source-feed';
 import * as cheerio from 'cheerio';
 import { logger } from '../utils/logger';
 import { newsRepository } from '../repositories/news.repository';
@@ -7,6 +7,7 @@ import { guildRepository } from '../repositories/guild.repository';
 import { safeGetText } from '../utils/safe-fetch';
 import { contentDeliveryRepository } from '../repositories/content-delivery.repository';
 import { GameId, GAME_CONFIGS } from '../config/games';
+import { parsePortalCards } from '../utils/portal-source';
 
 const RA3_PORTAL_URL = 'https://www.gamereplays.org/redalert3/';
 export const RA3_NEWS_URL = 'https://www.gamereplays.org/redalert3/portals.php?show=news_index';
@@ -26,13 +27,6 @@ export interface ParsedNews {
   imageUrl?: string;
 }
 
-function rssText(value: unknown): string {
-  if (value == null) return '';
-  if (Array.isArray(value)) return rssText(value[0]);
-  if (typeof value === 'object') return rssText((value as { _?: unknown })._);
-  return String(value).trim();
-}
-
 function safeImageUrl(value: string | undefined, baseUrl: string): string | undefined {
   if (!value) return undefined;
   try {
@@ -48,82 +42,43 @@ function safeImageUrl(value: string | undefined, baseUrl: string): string | unde
   }
 }
 
-function absolutePortalUrl(href: string): string {
-  try {
-    const parsed = new URL(href, RA3_PORTAL_URL);
-    if (parsed.hostname.endsWith('gamereplays.org')) parsed.protocol = 'https:';
-    return parsed.toString();
-  } catch {
-    return '';
-  }
-}
-
 /** Parses the current RA3 portal cards (newest first). */
 export function parseRa3PortalNews(html: string): ParsedNews[] {
-  const $ = cheerio.load(html);
-  const items: ParsedNews[] = [];
-  const seen = new Set<string>();
-
-  $('.content_list_item').each((_, element) => {
-    const card = $(element);
-    const type = card.find('.content_type').first().text().replace(/\s+/g, ' ').trim();
-    if (!/^news$/i.test(type)) return;
-
-    const link = card.find('.content_list_title a').first();
-    const title = link.text().replace(/\s+/g, ' ').trim();
-    const url = absolutePortalUrl(link.attr('href') || '');
-    if (!title || !url || seen.has(url)) return;
-
-    const copy = card.clone();
-    copy
-      .find(
-        '.content_list_title, .content_list_infobar, .content_type, .portal_news_preview_footer, script, style',
-      )
-      .remove();
-    const excerpt = copy.text().replace(/\s+/g, ' ').trim().slice(0, 300);
-    const thumbnailStyle = card.find('.content_list_thumbnail').first().attr('style') || '';
-    const imageUrl = safeImageUrl(
-      thumbnailStyle.match(/url\((['"]?)(.*?)\1\)/i)?.[2],
-      RA3_PORTAL_URL,
-    );
-    items.push({ title, url, excerpt, imageUrl });
-    seen.add(url);
-  });
-
-  return items;
+  return parsePortalCards(html)
+    .filter(
+      (card) =>
+        /^news$/i.test(card.type) ||
+        (!card.type &&
+          (/\/news\//i.test(card.url) || new URL(card.url).searchParams.get('show') === 'news')),
+    )
+    .map((card) => ({
+      title: card.title,
+      url: card.url,
+      excerpt: card.excerpt,
+      imageUrl: safeImageUrl(card.image, RA3_PORTAL_URL),
+    }));
 }
 
 async function fetchFeedItems(url: string, filter?: RegExp): Promise<ParsedNews[]> {
   const xml = await safeGetText(url);
   if (!xml) return [];
-  const parser = new xml2js.Parser({ explicitArray: false });
-  let result: any;
   try {
-    result = await parser.parseStringPromise(xml);
-  } catch {
+    return (await parseSourceFeed(xml))
+      .map((item) => {
+        const $ = cheerio.load(`<div>${item.description}</div>`);
+        $('script, style').remove();
+        return {
+          title: item.title,
+          url: item.url,
+          excerpt: $('div').text().replace(/\s+/g, ' ').trim().slice(0, 300),
+          imageUrl: safeImageUrl(item.image || $('img').first().attr('src'), item.url),
+        };
+      })
+      .filter((item) => (filter ? filter.test(`${item.title} ${item.excerpt}`) : true));
+  } catch (error) {
+    logger.warn('News feed could not be parsed:', error);
     return [];
   }
-  let items = result?.rss?.channel?.item ?? [];
-  if (!Array.isArray(items)) items = [items];
-  return items
-    .map((item: any) => {
-      const url = rssText(item.link);
-      const description = rssText(item.description);
-      const $ = cheerio.load(`<div>${description}</div>`);
-      const image =
-        rssText(item?.['media:content']?.$?.url) ||
-        rssText(item?.['media:thumbnail']?.$?.url) ||
-        rssText(item?.enclosure?.$?.url) ||
-        $('img').first().attr('src');
-      return {
-        title: rssText(item.title),
-        url,
-        excerpt: $('div').text().replace(/\s+/g, ' ').trim().slice(0, 300),
-        imageUrl: safeImageUrl(image, url || 'https://www.moddb.com/'),
-      };
-    })
-    .filter((item: ParsedNews) => item.title && item.url)
-    .filter((item: ParsedNews) => (filter ? filter.test(`${item.title} ${item.excerpt}`) : true));
 }
 
 async function fetchGameItems(game: GameId): Promise<ParsedNews[]> {

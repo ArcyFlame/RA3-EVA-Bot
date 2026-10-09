@@ -7,6 +7,7 @@ import {
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { trackedStreamerRepository } from '../../repositories/tracked-streamer.repository';
+import { requireAdminInteraction } from '../../utils/admin-interaction';
 
 export const customId = 'tracked_streamers';
 
@@ -16,6 +17,7 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     await interaction.editReply({ content: 'Server only.' });
     return;
   }
+  if (!(await requireAdminInteraction(interaction))) return;
   const streamers = trackedStreamerRepository.findByGuild(interaction.guild.id);
   const embed = new EmbedBuilder()
     .setTitle('📡 Tracked Streamers')

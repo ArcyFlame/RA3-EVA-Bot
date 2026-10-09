@@ -1,6 +1,83 @@
 import axios from 'axios';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
+import { sourceGet } from '../utils/safe-fetch';
+
+function sourceRows(data: unknown): Record<string, unknown>[] {
+  const list = Array.isArray(data) ? data : (data as { data?: unknown })?.data;
+  if (!Array.isArray(list)) throw new Error('Challonge response layout is not recognized');
+  return list.map((entry) => {
+    const wrapper = entry as Record<string, unknown> | null;
+    const value = wrapper?.participant ?? wrapper?.match ?? wrapper;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('Challonge response contains an invalid row');
+    }
+    const row = value as Record<string, unknown>;
+    return row.attributes && typeof row.attributes === 'object'
+      ? { ...(row.attributes as Record<string, unknown>), id: row.id }
+      : row;
+  });
+}
+
+function sourceId(value: unknown): number {
+  if ((typeof value !== 'number' && typeof value !== 'string') || !/^\d+$/.test(String(value))) {
+    throw new Error('Challonge response contains an invalid identifier');
+  }
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Challonge identifier is out of range');
+  return id;
+}
+
+function optionalSourceId(value: unknown): number | undefined {
+  return value == null ? undefined : sourceId(value);
+}
+
+export function parseChallongeMatches(data: unknown): ChallongeMatch[] {
+  return sourceRows(data).map((m) => {
+    if (!['pending', 'open', 'complete'].includes(String(m.state))) {
+      throw new Error('Challonge match state is not recognized');
+    }
+    return {
+      id: sourceId(m.id),
+      tournamentId: sourceId(m.tournament_id ?? m.tournamentId),
+      state: m.state as ChallongeMatch['state'],
+      player1Id: optionalSourceId(m.player1_id ?? m.player1Id),
+      player2Id: optionalSourceId(m.player2_id ?? m.player2Id),
+      winnerId: optionalSourceId(m.winner_id ?? m.winnerId),
+      scoresCsv:
+        typeof (m.scores_csv ?? m.scoresCsv) === 'string'
+          ? String(m.scores_csv ?? m.scoresCsv)
+          : undefined,
+      scheduledTime:
+        typeof (m.scheduled_time ?? m.scheduledTime) === 'string'
+          ? String(m.scheduled_time ?? m.scheduledTime)
+          : undefined,
+      round: typeof m.round === 'number' ? m.round : undefined,
+      identifier: typeof m.identifier === 'string' ? m.identifier : undefined,
+    };
+  });
+}
+
+export function parseChallongeParticipants(data: unknown): ChallongeParticipantSnapshot {
+  const rows = sourceRows(data).map((p) => {
+    if (typeof p.name !== 'string' || !p.name.trim())
+      throw new Error('Challonge participant name is missing');
+    const rank = p.final_rank ?? p.finalRank;
+    return {
+      id: sourceId(p.id),
+      name: p.name.trim(),
+      tournamentId: sourceId(p.tournament_id ?? p.tournamentId),
+      rank: rank == null || rank === 0 ? null : sourceId(rank),
+    };
+  });
+  return {
+    participants: rows.map(({ id, name, tournamentId }) => ({ id, name, tournamentId })),
+    rankings: rows
+      .filter((p) => p.rank !== null)
+      .map(({ id, name, rank }) => ({ id, name, rank }))
+      .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999)),
+  };
+}
 
 export interface ChallongeMatch {
   id: number;
@@ -46,6 +123,16 @@ export interface ChallongeParticipantSnapshot {
 
 export class ChallongeService {
   private readonly baseUrl = 'https://api.challonge.com/v1';
+  private readonly observedBracketUrls = new Map<string, string>();
+
+  private rememberBracket(ref: string, url: string): string {
+    if (this.observedBracketUrls.size >= 1000) {
+      const oldest = this.observedBracketUrls.keys().next().value;
+      if (oldest !== undefined) this.observedBracketUrls.delete(oldest);
+    }
+    this.observedBracketUrls.set(ref, url);
+    return ref;
+  }
 
   /**
    * Accepts anything a user can paste: a full URL (challonge.com/slug or
@@ -91,10 +178,15 @@ export class ChallongeService {
         if (parts[0] && /^[a-z]{2}(?:_[a-z]{2})?$/i.test(parts[0])) parts.shift();
         const slug = parts[0];
         if (!validSlug(slug)) return null;
-        if (host === 'challonge.com' || host === 'www.challonge.com') return slug.toLowerCase();
+        if (host === 'challonge.com' || host === 'www.challonge.com') {
+          return this.rememberBracket(slug.toLowerCase(), `https://challonge.com/${slug.toLowerCase()}`);
+        }
         const subdomain = host.match(/^([a-z0-9][a-z0-9-]{0,30})\.challonge\.com$/i)?.[1];
         if (subdomain && subdomain.toLowerCase() !== 'www') {
-          return `${subdomain}-${slug}`.toLowerCase();
+          return this.rememberBracket(
+            `${subdomain}-${slug}`.toLowerCase(),
+            `https://${host}/${slug.toLowerCase()}`,
+          );
         }
         return null;
       } catch {
@@ -107,7 +199,7 @@ export class ChallongeService {
 
   /** Absolute bracket URL for an API identifier (for link buttons). */
   bracketUrl(identifier: string): string {
-    return `https://challonge.com/${identifier}`;
+    return this.observedBracketUrls.get(identifier) ?? `https://challonge.com/${identifier}`;
   }
 
   private async request<T>(endpoint: string, method = 'GET', data?: any): Promise<T> {
@@ -116,7 +208,10 @@ export class ChallongeService {
     if (env.CHALLONGE_SUBDOMAIN) params.subdomain = env.CHALLONGE_SUBDOMAIN;
 
     try {
-      const response = await axios({ method, url, params, data, timeout: 10000 });
+      const response =
+        method === 'GET'
+          ? await sourceGet<T>(url, { params, timeout: 10000 })
+          : await axios({ method, url, params, data, timeout: 10000, maxRedirects: 0 });
       return response.data;
     } catch (error: any) {
       if (error.response?.status === 404) {
@@ -124,7 +219,7 @@ export class ChallongeService {
       } else {
         logger.error(`Challonge API error: ${error.message}`);
       }
-      throw new Error(`Challonge request failed: ${error.response?.data || error.message}`);
+      throw new Error(`Challonge request failed (${error.response?.status ?? 'unavailable'})`);
     }
   }
 
@@ -132,27 +227,30 @@ export class ChallongeService {
     const data = await this.request<{ tournament: ChallongeTournament }>(
       `/tournaments/${tournamentId}.json`,
     );
-    return data.tournament;
+    const tournament = data?.tournament;
+    if (
+      !tournament ||
+      typeof tournament !== 'object' ||
+      typeof tournament.state !== 'string' ||
+      ![
+        'pending',
+        'checking_in',
+        'checked_in',
+        'underway',
+        'group_stages_underway',
+        'group_stages_finalized',
+        'awaiting_review',
+        'complete',
+      ].includes(tournament.state)
+    ) {
+      throw new Error('Challonge tournament response layout is not recognized');
+    }
+    return tournament;
   }
 
   async getMatches(tournamentId: string): Promise<ChallongeMatch[]> {
     const data = await this.request<any[]>(`/tournaments/${tournamentId}/matches.json`);
-    // The API answers in snake_case; map to the interface's camelCase.
-    return (Array.isArray(data) ? data : []).map((entry) => {
-      const m = entry.match ?? entry;
-      return {
-        id: m.id as number,
-        tournamentId: m.tournament_id as number,
-        state: m.state as ChallongeMatch['state'],
-        player1Id: m.player1_id ?? undefined,
-        player2Id: m.player2_id ?? undefined,
-        winnerId: m.winner_id ?? undefined,
-        scoresCsv: m.scores_csv ?? undefined,
-        scheduledTime: m.scheduled_time ?? undefined,
-        round: m.round ?? undefined,
-        identifier: m.identifier ?? undefined,
-      };
-    });
+    return parseChallongeMatches(data);
   }
 
   async getParticipants(tournamentId: string): Promise<ChallongeParticipant[]> {
@@ -162,17 +260,7 @@ export class ChallongeService {
   /** One participant request supplies both names and final ranks, conserving API quota. */
   async getParticipantSnapshot(tournamentId: string): Promise<ChallongeParticipantSnapshot> {
     const data = await this.request<any[]>(`/tournaments/${tournamentId}/participants.json`);
-    const rows = (Array.isArray(data) ? data : []).map((entry) => entry.participant ?? entry);
-    const participants = rows.map((p: any) => ({
-      id: p.id as number,
-      name: p.name as string,
-      tournamentId: p.tournament_id as number,
-    }));
-    const rankings = rows
-      .map((p: any) => ({ rank: p.final_rank ?? null, name: p.name, id: p.id }))
-      .filter((p) => p.rank !== null && p.rank > 0)
-      .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
-    return { participants, rankings };
+    return parseChallongeParticipants(data);
   }
 
   async updateMatchScore(

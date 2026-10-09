@@ -1,15 +1,14 @@
-export type TournamentStatus =
-  | 'unknown'
-  | 'registration'
-  | 'checkin'
-  | 'in_progress'
-  | 'ended';
+export type TournamentStatus = 'unknown' | 'registration' | 'checkin' | 'in_progress' | 'ended';
 
 export const ESPORTS_FALLBACK_URL =
   'https://www.gamereplays.org/redalert3/portals.php?show=esports';
 
 export function parsePortalDate(text: string): number | null {
-  const match = text.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/);
+  if (/^\d{4}-\d{2}-\d{2}(?:T[\d:.+-]+Z?)?$/.test(text.trim())) {
+    const time = Date.parse(text);
+    return Number.isFinite(time) ? time : null;
+  }
+  const match = text.match(/(\d{1,2})\s+([A-Za-z]{3})[A-Za-z]*\s+(\d{4})/);
   if (!match) return null;
   const months: Record<string, number> = {
     Jan: 0,
@@ -25,7 +24,7 @@ export function parsePortalDate(text: string): number | null {
     Nov: 10,
     Dec: 11,
   };
-  const month = months[match[2]];
+  const month = months[match[2][0].toUpperCase() + match[2].slice(1).toLowerCase()];
   if (month === undefined) return null;
   return new Date(Number(match[3]), month, Number(match[1])).getTime();
 }

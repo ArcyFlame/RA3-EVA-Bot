@@ -1,16 +1,14 @@
 import { ModalSubmitInteraction } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { tournamentRepository } from '../../repositories/tournament.repository';
-import { parseCustomIdInt, parseIntSafe } from '../../utils/parse';
+import { parseIntSafe } from '../../utils/parse';
+import { authorizeReminderControl } from '../../utils/match-reminder-controls';
 
 export const customIdPrefix = 'delay_modal_';
 
-export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction) {
-  const matchId = parseCustomIdInt(interaction.customId, 2);
-  if (matchId === null) {
-    await interaction.reply({ content: 'Invalid match.', ephemeral: true });
-    return;
-  }
+export async function execute(bot: RA3Bot, interaction: ModalSubmitInteraction) {
+  const reminder = await authorizeReminderControl(bot.client, interaction, customIdPrefix);
+  if (!reminder) return;
   const minutes = parseIntSafe(interaction.fields.getTextInputValue('minutes').trim());
   if (minutes === null || minutes < 5 || minutes > 30) {
     await interaction.reply({
@@ -19,6 +17,6 @@ export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction)
     });
     return;
   }
-  tournamentRepository.recordDelay(String(matchId), interaction.user.id, minutes);
+  tournamentRepository.recordDelay(reminder.id, interaction.user.id, minutes);
   await interaction.reply({ content: `✅ Requested a ${minutes}-minute delay.`, ephemeral: true });
 }

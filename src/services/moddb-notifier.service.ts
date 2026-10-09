@@ -1,5 +1,5 @@
 import { Client, TextChannel, EmbedBuilder } from 'discord.js';
-import xml2js from 'xml2js';
+import { parseSourceFeed } from '../utils/source-feed';
 import * as cheerio from 'cheerio';
 import { logger } from '../utils/logger';
 import { guildRepository } from '../repositories/guild.repository';
@@ -230,48 +230,17 @@ export class ModDBNotifierService {
     return sent;
   }
 
-  /** xml2js can hand back guid/link as arrays or {_ : text} objects — flatten to a string. */
-  private static flattenRssValue(value: unknown): string {
-    if (value == null) return '';
-    if (Array.isArray(value)) return ModDBNotifierService.flattenRssValue(value[0]);
-    if (typeof value === 'object') {
-      const obj = value as { _?: unknown };
-      return ModDBNotifierService.flattenRssValue(obj._);
-    }
-    return String(value);
-  }
-
   private async fetchFeed(url: string): Promise<RSSItem[]> {
     const xml = await safeGetText(url, { timeoutMs: 15_000 });
     if (!xml) return [];
-    const parser = new xml2js.Parser({ explicitArray: false });
-    const result = await parser.parseStringPromise(xml);
-
-    if (!result.rss?.channel?.item) return [];
-
-    let items = result.rss.channel.item;
-    if (!Array.isArray(items)) items = [items];
-
-    return items.map((item: any) => {
-      const link = ModDBNotifierService.flattenRssValue(item.link);
-      const description = ModDBNotifierService.flattenRssValue(item.description);
-      const feedImage =
-        ModDBNotifierService.flattenRssValue(item?.['media:content']?.$?.url) ||
-        ModDBNotifierService.flattenRssValue(item?.['media:thumbnail']?.$?.url) ||
-        ModDBNotifierService.flattenRssValue(item?.enclosure?.$?.url);
-      return {
-        title: ModDBNotifierService.flattenRssValue(item.title) || 'Untitled',
-        link,
-        pubDate: ModDBNotifierService.flattenRssValue(item.pubDate) || new Date().toISOString(),
-        description,
-        guid:
-          ModDBNotifierService.flattenRssValue(item.guid) ||
-          link ||
-          ModDBNotifierService.flattenRssValue(item.title),
-        category: item.category,
-        imageUrl: extractModdbImage(feedImage || description, link || 'https://www.moddb.com/'),
-      };
-    });
+    return (await parseSourceFeed(xml)).map((item) => ({
+      title: item.title,
+      link: item.url,
+      pubDate: item.publishedAt,
+      description: item.description,
+      guid: item.guid,
+      imageUrl: extractModdbImage(item.image || item.description, item.url),
+    }));
   }
 
   private async isAlreadyNotified(guid: string): Promise<boolean> {

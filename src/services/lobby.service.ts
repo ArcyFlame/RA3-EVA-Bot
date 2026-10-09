@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { sourceGet } from '../utils/safe-fetch';
 import { logger } from '../utils/logger';
 import { cleanMapName } from './ra3-stats.service';
 import { GameId } from '../config/games';
@@ -22,7 +22,7 @@ export class LobbyService {
     // C&C Online
     if (sources.cncOnline !== false)
       try {
-        const cncRes = await axios.get('https://cnc-online.net/api/serverinfo/?site=cnconline', {
+        const cncRes = await sourceGet('https://cnc-online.net/api/serverinfo/?site=cnconline', {
           timeout: 5000,
         });
         const ra3 = cncRes.data.ra3 || {};
@@ -53,7 +53,7 @@ export class LobbyService {
     // RA3BattleNet
     if (sources.ra3BattleNet !== false)
       try {
-        const ra3bRes = await axios.get('https://api.ra3battle.cn/api/server/status/detail', {
+        const ra3bRes = await sourceGet('https://api.ra3battle.cn/api/server/status/detail', {
           timeout: 5000,
         });
         const games = ra3bRes.data.games || [];

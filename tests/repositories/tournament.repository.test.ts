@@ -10,6 +10,7 @@ import { up as up024 } from '../../src/database/migrations/024_game_modes_and_so
 import { up as up026 } from '../../src/database/migrations/026_tournament_manual_metadata';
 import { up as up029 } from '../../src/database/migrations/029_tournament_artwork';
 import { up as up030 } from '../../src/database/migrations/030_results_and_news_media';
+import { up as up033 } from '../../src/database/migrations/033_match_reminder_delivery';
 import { TournamentRepository } from '../../src/repositories/tournament.repository';
 import { ClanRepository } from '../../src/repositories/clan.repository';
 import { renderEventPage } from '../../src/commands/tournaments/events.utils';
@@ -30,6 +31,7 @@ beforeAll(() => {
   up026();
   up029();
   up030();
+  up033();
 });
 
 describe('TournamentRepository', () => {
@@ -63,9 +65,12 @@ describe('TournamentRepository', () => {
   });
 
   it('confirmMatch marks only the clicking player', () => {
-    tournamentRepo.confirmMatch('1', 'p1');
-    const reminder = tournamentRepo.getMatchReminder('g1', '123', '1');
-    expect(reminder).toBeDefined();
+    const id = tournamentRepo.getMatchReminder('g1', '123', '1')!.id;
+    tournamentRepo.confirmMatch(id, 'p1');
+    expect(tournamentRepo.getMatchReminderById(id)).toMatchObject({
+      player1Confirmed: 1,
+      player2Confirmed: 0,
+    });
   });
 
   it('protects staff-entered tournament facts from scanner refreshes', () => {

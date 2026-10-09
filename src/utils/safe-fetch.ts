@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosRequestConfig, AxiosResponse } from 'axios';
 import { logger } from './logger';
 
 /**
@@ -18,6 +18,8 @@ const HOST_ALLOWLIST = new Set([
   'rss.moddb.com',
   'www.moddb.com',
   'www.youtube.com',
+  'www.googleapis.com',
+  'api.twitch.tv',
   'shatabrick.com',
   'www.shatabrick.com',
   'steamplayercount.com',
@@ -41,6 +43,9 @@ function assertAllowed(rawUrl: string): URL {
     throw new FetchRefusedError(`refused non-HTTPS protocol ${parsed.protocol}`);
   }
   const host = parsed.hostname.toLowerCase();
+  if (parsed.username || parsed.password || (parsed.port && parsed.port !== '443')) {
+    throw new FetchRefusedError('credentials and nonstandard ports are not allowed');
+  }
   if (!HOST_ALLOWLIST.has(host)) {
     throw new FetchRefusedError(`host not in allowlist: ${host}`);
   }
@@ -62,6 +67,61 @@ function assertAllowed(rawUrl: string): URL {
 
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+const blockedUntil = new Map<string, number>();
+const MAX_SOURCE_BYTES = 4 * 1024 * 1024;
+
+/** Bounded retries for read-only sources; never retry writes or bypass rate limits. */
+export async function sourceGet<T = AxiosResponse['data']>(
+  url: string,
+  config: AxiosRequestConfig = {},
+): Promise<AxiosResponse<T>> {
+  const parsed = assertAllowed(url);
+  const origin = parsed.origin;
+  if ((blockedUntil.get(origin) ?? 0) > Date.now())
+    throw new Error(`Source cooling down: ${parsed.host}`);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await axios.get<T>(url, {
+        ...config,
+        timeout: Math.min(Math.max(config.timeout || 15_000, 1), 15_000),
+        maxContentLength: MAX_SOURCE_BYTES,
+        maxBodyLength: MAX_SOURCE_BYTES,
+        maxRedirects: 0,
+      });
+    } catch (error) {
+      const failure = error as {
+        code?: string;
+        response?: { status?: number; headers?: Record<string, unknown> };
+      };
+      const status = failure.response?.status;
+      if (status === 429) {
+        const value = String(failure.response?.headers?.['retry-after'] ?? '');
+        const delay = /^\d+$/.test(value) ? Number(value) * 1000 : Date.parse(value) - Date.now();
+        blockedUntil.set(
+          origin,
+          Date.now() +
+            Math.min(
+              24 * 60 * 60_000,
+              Math.max(60_000, Number.isFinite(delay) && delay > 0 ? delay : 30 * 60_000),
+            ),
+        );
+        throw error;
+      }
+      const transient =
+        (status !== undefined && [408, 500, 502, 503, 504].includes(status)) ||
+        ['ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT', 'EAI_AGAIN'].includes(failure.code ?? '');
+      if (!transient || attempt === 1) throw error;
+      const value = String(failure.response?.headers?.['retry-after'] ?? '');
+      const wait = /^\d+$/.test(value) ? Number(value) * 1000 : 500;
+      if (wait > 2000) {
+        blockedUntil.set(origin, Date.now() + Math.min(wait, 24 * 60 * 60_000));
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.max(100, wait)));
+    }
+  }
+}
 
 /** Decodes response bytes using the declared HTTP or HTML charset. */
 export function decodeResponseText(
@@ -94,7 +154,7 @@ export async function safeGetText(
   try {
     let current = assertAllowed(url);
     for (let redirects = 0; redirects <= 4; redirects++) {
-      const res = await axios.get<ArrayBuffer>(current.toString(), {
+      const res = await sourceGet<ArrayBuffer>(current.toString(), {
         headers: { 'User-Agent': BROWSER_UA },
         timeout: opts.timeoutMs ?? 15_000,
         responseType: 'arraybuffer',

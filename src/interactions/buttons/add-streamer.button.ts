@@ -6,10 +6,12 @@ import {
   ActionRowBuilder,
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
+import { requireAdminInteraction } from '../../utils/admin-interaction';
 
 export const customId = 'add_streamer';
 
 export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
+  if (!(await requireAdminInteraction(interaction))) return;
   const modal = new ModalBuilder().setCustomId('add_streamer_modal').setTitle('Add Streamer');
   const platformInput = new TextInputBuilder()
     .setCustomId('platform')

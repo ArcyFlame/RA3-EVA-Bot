@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { sourceGet } from '../utils/safe-fetch';
 import { logger } from '../utils/logger';
 import { db } from '../database/sqlite';
 import { masterRepository } from '../repositories/master.repository';
@@ -693,7 +693,7 @@ export class RA3StatsService {
     const entries: Ra3bLadderEntry[] = [];
     for (let page = 1; page <= 20; page++) {
       try {
-        const res = await axios.get(
+        const res = await sourceGet(
           `https://api.ra3battle.cn/api/stats/ladder/ra3/${mode}/records/page/${page}/result`,
           { timeout: 5000 },
         );
@@ -740,7 +740,7 @@ export class RA3StatsService {
   /** Live per-ladder stats of one persona (elo, rank, W/L, factions). */
   async getRa3bPersonaStats(personaId: number): Promise<Ra3bPersonaStats | null> {
     try {
-      const res = await axios.get(
+      const res = await sourceGet(
         `https://api.ra3battle.cn/api/stats/persona/${personaId}/ra3/result`,
         { timeout: 5000 },
       );
@@ -760,7 +760,7 @@ export class RA3StatsService {
   /** Finished-season placements of one persona (end elo + rank per ladder). */
   async getRa3bPersonaHistory(personaId: number): Promise<Ra3bSeasonHistory[]> {
     try {
-      const res = await axios.get(
+      const res = await sourceGet(
         `https://api.ra3battle.cn/api/stats/persona/${personaId}/ra3/history`,
         { timeout: 5000 },
       );
@@ -783,7 +783,7 @@ export class RA3StatsService {
   // ------------------------------------------------------------------
   private async fetchCnCOnline(gameId: GameId): Promise<CncLiveData> {
     try {
-      const res = await axios.get('https://cnc-online.net/api/serverinfo/?site=cnconline', {
+      const res = await sourceGet('https://cnc-online.net/api/serverinfo/?site=cnconline', {
         timeout: 5000,
       });
       const ra3 = res.data.ra3 || {};
@@ -901,7 +901,7 @@ export class RA3StatsService {
   // ------------------------------------------------------------------
   private async fetchRA3BattleNet(gameId: GameId): Promise<Ra3bLiveData> {
     try {
-      const res = await axios.get('https://api.ra3battle.cn/api/server/status/detail', {
+      const res = await sourceGet('https://api.ra3battle.cn/api/server/status/detail', {
         timeout: 5000,
       });
       const games = res.data.games || [];
@@ -969,7 +969,7 @@ export class RA3StatsService {
     for (const mode of modes) {
       try {
         const url = `https://api.ra3battle.cn/api/stats/ladder/ra3/${mode}/records/page/1/result`;
-        const res = await axios.get(url, { timeout: 5000 });
+        const res = await sourceGet(url, { timeout: 5000 });
         const records = res.data.records || [];
         result[mode] = records.slice(0, 10).map((r: any) => ({
           personaName: r.personaName || 'Unknown',
@@ -990,7 +990,7 @@ export class RA3StatsService {
     Empire: number;
   }> {
     try {
-      const res = await axios.get('https://api.ra3battle.cn/api/stats/1v1/factions/ra3/2', {
+      const res = await sourceGet('https://api.ra3battle.cn/api/stats/1v1/factions/ra3/2', {
         timeout: 5000,
       });
       // The faction totals sit under byModFullName, not the top level.
@@ -1015,7 +1015,7 @@ export class RA3StatsService {
 
   private async fetchRA3BattleNetMaps(): Promise<Record<string, number>> {
     try {
-      const res = await axios.get('https://api.ra3battle.cn/api/stats/1v1/maps/ra3/2', {
+      const res = await sourceGet('https://api.ra3battle.cn/api/stats/1v1/maps/ra3/2', {
         timeout: 5000,
       });
       const mapCounts: Record<string, number> = {};
@@ -1043,7 +1043,7 @@ export class RA3StatsService {
     { chineseName?: string; englishName?: string } | undefined
   > {
     try {
-      const res = await axios.get('https://api.ra3battle.cn/api/stats/season/current/result', {
+      const res = await sourceGet('https://api.ra3battle.cn/api/stats/season/current/result', {
         timeout: 5000,
       });
       return res.data;

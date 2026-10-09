@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { sourceGet } from '../utils/safe-fetch';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 
@@ -34,7 +34,7 @@ export class YouTubeService {
     const cleanHandle = handle.replace('@', '');
     const url = 'https://www.googleapis.com/youtube/v3/channels';
     try {
-      const res = await axios.get(url, {
+      const res = await sourceGet(url, {
         params: { part: 'id', forHandle: cleanHandle, key: this.apiKey },
       });
       return res.data.items?.[0]?.id || null;
@@ -48,7 +48,7 @@ export class YouTubeService {
     if (!this.apiKey) return null;
     const url = 'https://www.googleapis.com/youtube/v3/channels';
     try {
-      const res = await axios.get(url, {
+      const res = await sourceGet(url, {
         params: { part: 'snippet', id: channelId, key: this.apiKey },
       });
       const item = res.data.items?.[0];
@@ -68,7 +68,7 @@ export class YouTubeService {
     if (!this.apiKey) return null;
     const url = 'https://www.googleapis.com/youtube/v3/videos';
     try {
-      const res = await axios.get(url, {
+      const res = await sourceGet(url, {
         params: { part: 'snippet,liveStreamingDetails', id: videoId, key: this.apiKey },
       });
       const item = res.data.items?.[0];
@@ -91,14 +91,14 @@ export class YouTubeService {
   async getRecentUploads(channelId: string, limit = 5): Promise<YouTubeVideo[]> {
     if (!this.apiKey) return [];
     try {
-      const channelsRes = await axios.get('https://www.googleapis.com/youtube/v3/channels', {
+      const channelsRes = await sourceGet('https://www.googleapis.com/youtube/v3/channels', {
         params: { part: 'contentDetails', id: channelId, key: this.apiKey },
         timeout: 10_000,
       });
       const uploadsPlaylistId =
         channelsRes.data.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
       if (!uploadsPlaylistId) return [];
-      const res = await axios.get('https://www.googleapis.com/youtube/v3/playlistItems', {
+      const res = await sourceGet('https://www.googleapis.com/youtube/v3/playlistItems', {
         params: {
           part: 'snippet',
           playlistId: uploadsPlaylistId,

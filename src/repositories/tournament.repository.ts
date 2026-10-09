@@ -3,6 +3,24 @@ import { normalizeTournamentWinnerNames } from '../utils/winner-names';
 import { GameId } from '../config/games';
 import { TournamentStatus } from '../utils/tournament-status';
 
+export interface MatchReminder {
+  id: number;
+  guildId: string;
+  tournamentId: string;
+  matchId: string;
+  player1Id: string;
+  player2Id: string;
+  scheduledTime: string | null;
+  reminderSent: number;
+  active: number;
+  player1Notified: number;
+  player2Notified: number;
+  player1Confirmed: number;
+  player2Confirmed: number;
+  player1Delay: number | null;
+  player2Delay: number | null;
+}
+
 export interface TournamentEvent {
   id: number;
   game: GameId;
@@ -120,9 +138,8 @@ export class TournamentRepository extends BaseRepository {
 
   /**
    * Refreshes the sign-up URL, description and extracted facts for a stored
-   * event. `facts: null` means "the article was fetched but contains no
-   * facts" (clears stale garbage); omitting `facts` keeps the old values
-   * (article fetch failed).
+   * event. Missing extracted fields retain verified facts. Explicit `facts: null`
+   * clears unprotected facts; omitting `facts` keeps them (article fetch failed).
    */
   updateEventDetails(
     eventUrl: string,
@@ -133,18 +150,18 @@ export class TournamentRepository extends BaseRepository {
   ): void {
     if (facts === undefined) {
       this.run(
-        'UPDATE tournament_events SET sign_up_url = ?, description = ?, image_url = COALESCE(?, image_url) WHERE event_url = ?',
+        'UPDATE tournament_events SET sign_up_url = COALESCE(?, sign_up_url), description = COALESCE(?, description), image_url = COALESCE(?, image_url) WHERE event_url = ?',
         [signUpUrl, description, imageUrl ?? null, eventUrl],
       );
       return;
     }
     this.run(
       `UPDATE tournament_events
-       SET sign_up_url = ?, description = ?,
+       SET sign_up_url = COALESCE(?, sign_up_url), description = COALESCE(?, description),
            image_url = COALESCE(?, image_url),
-           format = CASE WHEN manual_format = 1 THEN format ELSE ? END,
-           prize_pool = CASE WHEN manual_prize_pool = 1 THEN prize_pool ELSE ? END,
-           maps = CASE WHEN manual_maps = 1 THEN maps ELSE ? END,
+           format = CASE WHEN manual_format = 1 THEN format WHEN ? THEN NULL ELSE COALESCE(?, format) END,
+           prize_pool = CASE WHEN manual_prize_pool = 1 THEN prize_pool WHEN ? THEN NULL ELSE COALESCE(?, prize_pool) END,
+           maps = CASE WHEN manual_maps = 1 THEN maps WHEN ? THEN NULL ELSE COALESCE(?, maps) END,
            start_date = CASE
              WHEN manual_start_date = 1 OR ? IS NULL THEN start_date
              ELSE ?
@@ -154,8 +171,11 @@ export class TournamentRepository extends BaseRepository {
         signUpUrl,
         description,
         imageUrl ?? null,
+        facts === null ? 1 : 0,
         facts?.format ?? null,
+        facts === null ? 1 : 0,
         facts?.prizePool ?? null,
+        facts === null ? 1 : 0,
         facts?.maps ?? null,
         facts?.startDate ?? null,
         facts?.startDate ?? null,
@@ -492,8 +512,11 @@ export class TournamentRepository extends BaseRepository {
       sourceType: 'challonge' | 'forum';
     },
   ): void {
+    // Missing/empty scanner snapshots must not erase previously verified results.
     const json = (value: unknown): string | null =>
-      value === undefined ? null : JSON.stringify(value);
+      value === undefined || value === null || (Array.isArray(value) && value.length === 0)
+        ? null
+        : JSON.stringify(value);
     this.run(
       `INSERT INTO tournament_result_cache
          (source_url, event_id, source_type, tournament_json, rankings_json,
@@ -534,10 +557,8 @@ export class TournamentRepository extends BaseRepository {
   }
 
   /**
-   * Overwrites extracted facts. Format and prize are written even when null
-   * (an improved extractor must clear stale junk like "$2"/"ion"); the map
-   * pool only improves (null keeps the old value — pool lists appear
-   * inconsistently across article and topic pages).
+   * Refreshes extracted facts without discarding verified fields when a source
+   * layout no longer exposes them. Explicit clearing uses updateEventDetails.
    */
   updateEventFacts(
     eventId: number,
@@ -545,8 +566,8 @@ export class TournamentRepository extends BaseRepository {
   ): void {
     this.run(
       `UPDATE tournament_events
-       SET format = CASE WHEN manual_format = 1 THEN format ELSE ? END,
-           prize_pool = CASE WHEN manual_prize_pool = 1 THEN prize_pool ELSE ? END,
+       SET format = CASE WHEN manual_format = 1 THEN format ELSE COALESCE(?, format) END,
+           prize_pool = CASE WHEN manual_prize_pool = 1 THEN prize_pool ELSE COALESCE(?, prize_pool) END,
            maps = CASE WHEN manual_maps = 1 THEN maps ELSE COALESCE(?, maps) END
        WHERE id = ?`,
       [facts.format ?? null, facts.prizePool ?? null, facts.maps ?? null, eventId],
@@ -771,6 +792,15 @@ export class TournamentRepository extends BaseRepository {
     return row?.tournament_id ?? undefined;
   }
 
+  getLinkedTournamentUrl(guildId: string): string | undefined {
+    return (
+      this.query<{ tournament_url: string }>(
+        'SELECT tournament_url FROM tournament_cache WHERE guild_id = ?',
+        [guildId],
+      )?.tournament_url ?? undefined
+    );
+  }
+
   insertMatch(data: MatchReportInput): number {
     const result = this.run(
       `INSERT INTO tournament_matches
@@ -876,24 +906,29 @@ export class TournamentRepository extends BaseRepository {
   }
 
   /** Marks the clicking user as confirmed (player1 or player2) for a match reminder. */
-  confirmMatch(challongeMatchId: string, userId: string): void {
-    this.run(
-      `UPDATE tournament_match_confirmations
+  confirmMatch(reminderId: number, userId: string): boolean {
+    return (
+      this.run(
+        `UPDATE tournament_match_confirmations
        SET player1_confirmed = CASE WHEN player1_id = ? THEN 1 ELSE player1_confirmed END,
            player2_confirmed = CASE WHEN player2_id = ? THEN 1 ELSE player2_confirmed END
-       WHERE challonge_match_id = ?`,
-      [userId, userId, challongeMatchId],
+       WHERE id = ? AND (player1_id = ? OR player2_id = ?)`,
+        [userId, userId, reminderId, userId, userId],
+      ).changes > 0
     );
   }
 
   /** Records a requested delay (minutes) for whichever player clicked, self-scoped. */
-  recordDelay(challongeMatchId: string, userId: string, minutes: number): void {
-    this.run(
-      `UPDATE tournament_match_confirmations
+  recordDelay(reminderId: number, userId: string, minutes: number): boolean {
+    if (!Number.isInteger(minutes) || minutes < 5 || minutes > 30) return false;
+    return (
+      this.run(
+        `UPDATE tournament_match_confirmations
        SET player1_delay = CASE WHEN player1_id = ? THEN ? ELSE player1_delay END,
            player2_delay = CASE WHEN player2_id = ? THEN ? ELSE player2_delay END
-       WHERE challonge_match_id = ?`,
-      [userId, minutes, userId, minutes, challongeMatchId],
+       WHERE id = ? AND (player1_id = ? OR player2_id = ?)`,
+        [userId, minutes, userId, minutes, reminderId, userId, userId],
+      ).changes > 0
     );
   }
 
@@ -911,13 +946,26 @@ export class TournamentRepository extends BaseRepository {
     guildId: string,
     tournamentId: string,
     challongeMatchId: string,
-  ): { id: number; reminderSent: number } | undefined {
-    const row = this.query<{ id: number; reminder_sent: number }>(
-      `SELECT id, reminder_sent FROM tournament_match_confirmations
+  ): MatchReminder | undefined {
+    const row = this.query<{ id: number }>(
+      `SELECT id FROM tournament_match_confirmations
        WHERE guild_id = ? AND tournament_id = ? AND challonge_match_id = ?`,
       [guildId, tournamentId, challongeMatchId],
     );
-    return row ? { id: row.id, reminderSent: row.reminder_sent } : undefined;
+    return row ? this.getMatchReminderById(row.id) : undefined;
+  }
+
+  getMatchReminderById(id: number): MatchReminder | undefined {
+    return this.query<MatchReminder>(
+      `SELECT id, guild_id AS guildId, CAST(tournament_id AS TEXT) AS tournamentId,
+        challonge_match_id AS matchId, player1_id AS player1Id, player2_id AS player2Id,
+        scheduled_time AS scheduledTime, reminder_sent AS reminderSent, active,
+        player1_notified AS player1Notified, player2_notified AS player2Notified,
+        player1_confirmed AS player1Confirmed, player2_confirmed AS player2Confirmed,
+        player1_delay AS player1Delay, player2_delay AS player2Delay
+       FROM tournament_match_confirmations WHERE id = ?`,
+      [id],
+    );
   }
 
   recordMatchReminder(
@@ -927,17 +975,72 @@ export class TournamentRepository extends BaseRepository {
     player1Id: string,
     player2Id: string,
     scheduledTime: string | null,
+    pending = false,
   ): void {
+    if (pending) {
+      // Before any delivery, a replaced participant can safely receive a new row.
+      this.run(
+        `DELETE FROM tournament_match_confirmations
+        WHERE guild_id = ? AND tournament_id = ? AND challonge_match_id = ?
+          AND player1_notified = 0 AND player2_notified = 0
+          AND (player1_id <> ? OR player2_id <> ?)`,
+        [guildId, tournamentId, challongeMatchId, player1Id, player2Id],
+      );
+      // Once a control has been sent, changed identities invalidate it rather than reassigning it.
+      this.run(
+        `UPDATE tournament_match_confirmations SET active = 0
+        WHERE guild_id = ? AND tournament_id = ? AND challonge_match_id = ?
+          AND (player1_id <> ? OR player2_id <> ?)`,
+        [guildId, tournamentId, challongeMatchId, player1Id, player2Id],
+      );
+      this.run(
+        `UPDATE tournament_match_confirmations SET scheduled_time = ?
+        WHERE guild_id = ? AND tournament_id = ? AND challonge_match_id = ?
+          AND player1_id = ? AND player2_id = ? AND active = 1`,
+        [scheduledTime, guildId, tournamentId, challongeMatchId, player1Id, player2Id],
+      );
+    }
     this.run(
-      `INSERT INTO tournament_match_confirmations
-         (guild_id, tournament_id, challonge_match_id, player1_id, player2_id, scheduled_time, reminder_sent)
-       VALUES (?, ?, ?, ?, ?, ?, 1)`,
-      [guildId, tournamentId, challongeMatchId, player1Id, player2Id, scheduledTime],
+      `INSERT OR IGNORE INTO tournament_match_confirmations
+         (guild_id, tournament_id, challonge_match_id, player1_id, player2_id,
+          scheduled_time, reminder_sent, player1_notified, player2_notified)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        guildId,
+        tournamentId,
+        challongeMatchId,
+        player1Id,
+        player2Id,
+        scheduledTime,
+        pending ? 0 : 1,
+        pending ? 0 : 1,
+        pending ? 0 : 1,
+      ],
     );
   }
 
-  markReminderSent(id: number): void {
-    this.run('UPDATE tournament_match_confirmations SET reminder_sent = 1 WHERE id = ?', [id]);
+  claimReminderDelivery(id: number, userId: string): boolean {
+    // At-most-once attempts survive restarts and partial DM failures. Claim before sending.
+    return (
+      this.run(
+        `UPDATE tournament_match_confirmations SET
+        player1_notified = CASE WHEN player1_id = ? THEN 1 ELSE player1_notified END,
+        player2_notified = CASE WHEN player2_id = ? THEN 1 ELSE player2_notified END,
+        reminder_sent = CASE WHEN (player1_notified = 1 OR player1_id = ?)
+          AND (player2_notified = 1 OR player2_id = ?) THEN 1 ELSE 0 END
+       WHERE id = ? AND active = 1 AND ((player1_id = ? AND player1_notified = 0)
+         OR (player2_id = ? AND player2_notified = 0))`,
+        [userId, userId, userId, userId, id, userId, userId],
+      ).changes > 0
+    );
+  }
+
+  invalidateMatchReminder(guildId: string, tournamentId: string, matchId: string): void {
+    this.run(
+      `UPDATE tournament_match_confirmations SET active = 0
+      WHERE guild_id = ? AND tournament_id = ? AND challonge_match_id = ?`,
+      [guildId, tournamentId, matchId],
+    );
   }
 }
 

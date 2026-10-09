@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { sourceGet } from '../utils/safe-fetch';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 
@@ -98,7 +99,7 @@ export class TwitchService {
   async getUserByLogin(login: string): Promise<TwitchUser | null> {
     try {
       const headers = await this.getHeaders();
-      const res = await axios.get('https://api.twitch.tv/helix/users', {
+      const res = await sourceGet('https://api.twitch.tv/helix/users', {
         headers,
         params: { login },
       });
@@ -122,7 +123,7 @@ export class TwitchService {
       const headers = await this.getHeaders();
       for (let i = 0; i < ids.length; i += 100) {
         const batch = ids.slice(i, i + 100);
-        const res = await axios.get('https://api.twitch.tv/helix/users', {
+        const res = await sourceGet('https://api.twitch.tv/helix/users', {
           headers,
           params: { id: batch },
         });
@@ -144,7 +145,7 @@ export class TwitchService {
   async getStreamByUserId(userId: string): Promise<TwitchStream | null> {
     try {
       const headers = await this.getHeaders();
-      const res = await axios.get('https://api.twitch.tv/helix/streams', {
+      const res = await sourceGet('https://api.twitch.tv/helix/streams', {
         headers,
         params: { user_id: userId },
       });
@@ -174,7 +175,7 @@ export class TwitchService {
     const headers = await this.getHeaders();
     for (const name of searchNames) {
       try {
-        const res = await axios.get('https://api.twitch.tv/helix/games', {
+        const res = await sourceGet('https://api.twitch.tv/helix/games', {
           headers,
           params: { name },
         });
@@ -198,7 +199,7 @@ export class TwitchService {
     const headers = await this.getHeaders();
     for (let index = 0; index < ids.length; index += 100) {
       try {
-        const response = await axios.get<{ data: HelixStream[] }>(
+        const response = await sourceGet<{ data: HelixStream[] }>(
           'https://api.twitch.tv/helix/streams',
           {
             headers,
@@ -228,7 +229,7 @@ export class TwitchService {
   async getStreamsByGame(gameId: string, first = 100): Promise<TwitchStream[]> {
     try {
       const headers = await this.getHeaders();
-      const res = await axios.get('https://api.twitch.tv/helix/streams', {
+      const res = await sourceGet('https://api.twitch.tv/helix/streams', {
         headers,
         params: { game_id: gameId, first },
       });

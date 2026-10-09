@@ -113,6 +113,11 @@ export class UserRepository extends BaseRepository {
     );
   }
 
+  isTournamentMatchDmEnabled(discordId: string): boolean {
+    // Unknown users have not opened personal settings or registered with the bot.
+    return this.findByDiscordId(discordId)?.tournamentMatchDmEnabled === 1;
+  }
+
   setRank(discordId: string, rank: string): void {
     this.run(`UPDATE users SET rank = ?, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ?`, [
       rank,
@@ -189,10 +194,10 @@ export class UserRepository extends BaseRepository {
 
   setLanguage(discordId: string, language: Language): void {
     this.ensureUser(discordId);
-    this.run(
-      `UPDATE users SET language = ?, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ?`,
-      [language, discordId],
-    );
+    this.run(`UPDATE users SET language = ?, updated_at = CURRENT_TIMESTAMP WHERE discord_id = ?`, [
+      language,
+      discordId,
+    ]);
   }
 }
 

@@ -6,17 +6,16 @@ import {
   ActionRowBuilder,
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
-import { parseCustomIdInt } from '../../utils/parse';
+import { authorizeReminderControl } from '../../utils/match-reminder-controls';
 
 export const customIdPrefix = 'delay_match_';
 
-export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
-  const matchId = parseCustomIdInt(interaction.customId, 2);
-  if (matchId === null) {
-    await interaction.reply({ content: 'Invalid match.', ephemeral: true });
-    return;
-  }
-  const modal = new ModalBuilder().setCustomId(`delay_modal_${matchId}`).setTitle('Request Delay');
+export async function execute(bot: RA3Bot, interaction: ButtonInteraction) {
+  const reminder = await authorizeReminderControl(bot.client, interaction, customIdPrefix);
+  if (!reminder) return;
+  const modal = new ModalBuilder()
+    .setCustomId(`delay_modal_v1_${reminder.id}`)
+    .setTitle('Request Delay');
   const input = new TextInputBuilder()
     .setCustomId('minutes')
     .setLabel('Minutes (5-30)')

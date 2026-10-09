@@ -1,8 +1,7 @@
 import { ButtonInteraction, Message } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { GuildChannelsWizardView, wizardViews } from '../../commands/notifications/views';
-import { denyUnlessAdmin } from '../../utils/permissions';
-import { resolveMember } from '../../utils/members';
+import { requireAdminInteraction } from '../../utils/admin-interaction';
 
 export const customId = 'global_channels';
 
@@ -11,12 +10,7 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     await interaction.reply({ content: 'Server only.', ephemeral: true });
     return;
   }
-  const member = await resolveMember(interaction);
-  const denial = denyUnlessAdmin(member);
-  if (denial) {
-    await interaction.reply({ content: denial, ephemeral: true });
-    return;
-  }
+  if (!(await requireAdminInteraction(interaction))) return;
 
   const view = new GuildChannelsWizardView(interaction.guild, interaction.user.id);
   const reply = await interaction.reply({
@@ -34,5 +28,5 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
       wizardViews.delete(reply.id);
     },
     10 * 60 * 1000,
-  );
+  ).unref();
 }

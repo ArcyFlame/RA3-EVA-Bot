@@ -11,12 +11,16 @@ import {
   ChannelType,
   Message,
   Guild,
+  ChannelSelectMenuInteraction,
+  Client,
 } from 'discord.js';
 import { guildRepository } from '../../repositories/guild.repository';
 import { statsPanelRepository } from '../../repositories/stats-panel.repository';
 import { logger } from '../../utils/logger';
 import { Language } from '../../repositories/user.repository';
 import { t } from '../../utils/i18n';
+import { requireAdminInteraction } from '../../utils/admin-interaction';
+import { postRecentIfChannelEmpty } from '../../services/content-bootstrap.service';
 
 /** Live wizard sessions keyed by the message id currently hosting the wizard UI. */
 export const wizardViews = new Map<string, GuildChannelsWizardView>();
@@ -97,6 +101,7 @@ export class NotificationsMainView {
 }
 
 export class GuildChannelsWizardView {
+  private readonly expiresAt = Date.now() + 10 * 60 * 1000;
   private selectedCategory: string = 'clan';
   private guild: Guild;
   private originalMessage: Message | null = null;
@@ -170,6 +175,7 @@ export class GuildChannelsWizardView {
       { name: '📊 Stats Panel', value: statsMention, inline: true },
       { name: '📦 ModDB Updates', value: getChannel(guildData?.moddbChannelId), inline: true },
       { name: '🎮 Lobby Updates', value: getChannel(guildData?.lobbyChannelId), inline: true },
+      { name: '📰 Game News', value: getChannel(guildData?.newsChannelId), inline: true },
     ];
 
     for (const field of fields) {
@@ -220,30 +226,67 @@ export class GuildChannelsWizardView {
   }
 
   /** Deletes the live stats-panel message before clearing its config (avoids a zombie panel). */
-  private async deleteStatsPanelMessage(): Promise<void> {
+  private async deleteStatsPanelMessage(interaction: ButtonInteraction): Promise<boolean> {
     const panel = statsPanelRepository.get(this.guild.id);
-    if (!panel?.channelId || !panel.messageId) return;
+    if (!panel?.channelId || !panel.messageId) return true;
     const channel = await this.guild.channels.fetch(panel.channelId).catch(() => null);
+    if (!(await this.authorize(interaction))) return false;
     if (channel?.isTextBased()) {
       await channel.messages.delete(panel.messageId).catch(() => null);
     }
+    return true;
+  }
+
+  private invalidate(): void {
+    for (const [id, view] of wizardViews) if (view === this) wizardViews.delete(id);
+  }
+
+  async authorize(
+    interaction: ButtonInteraction | StringSelectMenuInteraction | ChannelSelectMenuInteraction,
+  ): Promise<boolean> {
+    const deny = async (content: string) => {
+      const response = { content, ephemeral: true, allowedMentions: { parse: [] as [] } };
+      if (interaction.deferred || interaction.replied) await interaction.followUp(response);
+      else await interaction.reply(response);
+      return false;
+    };
+    if (interaction.user.id !== this.ownerId || interaction.guild?.id !== this.guild.id) {
+      return deny('This menu belongs to another administrator or server.');
+    }
+    const live = () =>
+      Date.now() < this.expiresAt && wizardViews.get(interaction.message.id) === this;
+    if (!live()) return deny('Session expired. Please reopen the wizard.');
+    if (!(await requireAdminInteraction(interaction))) {
+      this.invalidate();
+      return false;
+    }
+    if (!live()) return deny('Session expired. Please reopen the wizard.');
+    return true;
   }
 
   async handleSelect(interaction: StringSelectMenuInteraction) {
+    const category = interaction.values[0];
     await interaction.deferUpdate();
-    this.selectedCategory = interaction.values[0];
+    if (!(await this.authorize(interaction))) return;
+    if (!this.categories.some((item) => item.value === category)) {
+      await interaction.followUp({ content: 'Unknown notification category.', ephemeral: true });
+      return;
+    }
+    this.selectedCategory = category;
     await interaction.editReply({ embeds: [this.buildEmbed()], components: this.getComponents() });
   }
 
   async handleSet(interaction: ButtonInteraction) {
+    const category = this.selectedCategory;
     await interaction.deferReply({ ephemeral: true });
+    if (!(await this.authorize(interaction))) return;
     const channelSelect = new ChannelSelectMenuBuilder()
-      .setCustomId(`set_global_channel_${this.selectedCategory}`)
+      .setCustomId(`set_global_channel_${category}`)
       .setPlaceholder('Select a text channel')
       .setChannelTypes([ChannelType.GuildText]);
     const row = new ActionRowBuilder<ChannelSelectMenuBuilder>().addComponents(channelSelect);
     const reply = await interaction.editReply({
-      content: `Select a channel for **${this.selectedCategory}**:`,
+      content: `Select a channel for **${category}**:`,
       components: [row],
     });
     wizardViews.set(reply.id, this);
@@ -251,32 +294,75 @@ export class GuildChannelsWizardView {
       () => {
         wizardViews.delete(reply.id);
       },
-      10 * 60 * 1000,
-    );
+      Math.max(0, this.expiresAt - Date.now()),
+    ).unref();
+  }
+
+  async handleChannelSet(client: Client, interaction: ChannelSelectMenuInteraction) {
+    await interaction.deferUpdate();
+    if (!(await this.authorize(interaction))) return;
+    const category = interaction.customId.slice('set_global_channel_'.length);
+    const channelId = interaction.values[0];
+    if (!this.categories.some((item) => item.value === category) || !channelId) {
+      await interaction.editReply({
+        content: 'Invalid channel or notification category.',
+        components: [],
+      });
+      return;
+    }
+    const channel = await this.guild.channels.fetch(channelId).catch(() => null);
+    if (!(await this.authorize(interaction))) return;
+    if (channel?.type !== ChannelType.GuildText || channel.guildId !== this.guild.id) {
+      await interaction.editReply({
+        content: 'Select a text channel in this server.',
+        components: [],
+      });
+      return;
+    }
+    if (category === 'stats_panel') statsPanelRepository.setChannel(this.guild.id, channel.id);
+    else guildRepository.updateNotifyChannel(this.guild.id, category, channel.id);
+    const bootstrap = await postRecentIfChannelEmpty(
+      client,
+      this.guild.id,
+      category,
+      channel.id,
+    ).catch(() => 'unavailable' as const);
+    await interaction.editReply({
+      content:
+        `✅ **${category}** channel set to ${channel}.` +
+        (bootstrap === 'posted'
+          ? ' The newest available post was added because the channel was empty.'
+          : ''),
+      components: [],
+      allowedMentions: { parse: [] },
+    });
+    wizardViews.delete(interaction.message.id);
   }
 
   async handleClear(interaction: ButtonInteraction) {
+    const category = this.selectedCategory;
     await interaction.deferUpdate();
-    if (this.selectedCategory === 'stats_panel') {
-      await this.deleteStatsPanelMessage();
+    if (!(await this.authorize(interaction))) return;
+    if (category === 'stats_panel') {
+      if (!(await this.deleteStatsPanelMessage(interaction))) return;
+      if (!(await this.authorize(interaction))) return;
       statsPanelRepository.delete(this.guild.id);
     } else {
-      guildRepository.updateNotifyChannel(this.guild.id, this.selectedCategory, null);
+      guildRepository.updateNotifyChannel(this.guild.id, category, null);
     }
     await interaction.editReply({ embeds: [this.buildEmbed()], components: this.getComponents() });
   }
 
   async handleClearAll(interaction: ButtonInteraction) {
     await interaction.deferUpdate();
-    // Clear all guild channels
-    guildRepository.updateNotifyChannel(this.guild.id, 'clan', null);
-    guildRepository.updateNotifyChannel(this.guild.id, 'tournament', null);
-    guildRepository.updateNotifyChannel(this.guild.id, 'twitch', null);
-    guildRepository.updateNotifyChannel(this.guild.id, 'youtube', null);
-    guildRepository.updateNotifyChannel(this.guild.id, 'tournament_events', null);
-    guildRepository.updateNotifyChannel(this.guild.id, 'moddb', null);
-    guildRepository.updateNotifyChannel(this.guild.id, 'lobby', null);
-    await this.deleteStatsPanelMessage();
+    if (!(await this.authorize(interaction))) return;
+    if (!(await this.deleteStatsPanelMessage(interaction))) return;
+    if (!(await this.authorize(interaction))) return;
+    for (const category of this.categories) {
+      if (category.value !== 'stats_panel') {
+        guildRepository.updateNotifyChannel(this.guild.id, category.value, null);
+      }
+    }
     statsPanelRepository.delete(this.guild.id);
     await interaction.editReply({ embeds: [this.buildEmbed()], components: this.getComponents() });
   }
