@@ -187,6 +187,9 @@ function buildEnvironment(environment = process.env) {
 }
 
 function run(file, args, cwd, timeout = 120_000, environment = buildEnvironment(), signal) {
+  const command = /npm-cli\.js$/.test(args[0] || '')
+    ? `npm ${args.slice(1, 3).join(' ')}`
+    : `${path.basename(file)} ${args[0] || ''}`;
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new Error('Update preparation cancelled'));
     const child = spawn(file, args, {
@@ -256,12 +259,7 @@ function run(file, args, cwd, timeout = 120_000, environment = buildEnvironment(
       signal?.removeEventListener('abort', terminate);
       await termination;
       if (code === 0 && !timedOut) resolve(output.trim());
-      else
-        reject(
-          new Error(
-            `${path.basename(file)} ${args[0]} failed${timedOut ? ' (timeout)' : ` (${code})`}`,
-          ),
-        );
+      else reject(new Error(`${command} failed${timedOut ? ' (timeout)' : ` (${code})`}`));
     });
   });
 }

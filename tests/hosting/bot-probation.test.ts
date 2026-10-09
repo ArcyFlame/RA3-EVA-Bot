@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RA3Bot } from '../../src/bot';
 
 const calls = vi.hoisted(() => ({
   login: vi.fn(),
@@ -54,7 +55,6 @@ afterEach(() => {
 
 describe('managed update probation', () => {
   it('checks migrations and login without registering guild events or changing commands', async () => {
-    const { RA3Bot } = await import('../../src/bot');
     const bot = new RA3Bot();
     await bot.start();
     expect(calls.connect).toHaveBeenCalledOnce();
@@ -69,7 +69,6 @@ describe('managed update probation', () => {
 
   it('leaves direct hosting unchanged when no private supervisor IPC exists', async () => {
     process.send = undefined;
-    const { RA3Bot } = await import('../../src/bot');
     await new RA3Bot().start();
     expect(calls.registerEvents).toHaveBeenCalledOnce();
     expect(calls.registerCommands).toHaveBeenCalledOnce();
@@ -77,7 +76,6 @@ describe('managed update probation', () => {
 
   it('never activates after a failed login', async () => {
     calls.login.mockRejectedValueOnce(new Error('login failed'));
-    const { RA3Bot } = await import('../../src/bot');
     const bot = new RA3Bot();
     await expect(bot.start()).rejects.toThrow('login failed');
     expect(calls.registerEvents).not.toHaveBeenCalled();
