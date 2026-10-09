@@ -197,17 +197,10 @@ WantedBy=multi-user.target</code></pre>
         deployment platform instead.
       </p>
 
-      <h2>Wispbyte</h2>
+      <h2>Moving to another host</h2>
       <p>
-        In <a href="https://wispbyte.com/kb/startup-settings">Startup settings</a>, select a Node.js
-        22.12+ or Node.js 24 image and use <code>node scripts/host-bot.js</code> as the startup
-        command (or <code>scripts/host-bot.js</code> as <code>JS_FILE</code>). Compile the initial
-        installation with <code>npm run build</code> after installing its locked dependencies.
-        Windows <code>node_modules</code> cannot be copied to a Linux container.
-      </p>
-      <p>
-        Keep the bot token and other secrets in the panel's environment variables. Leave the panel's
-        GitHub auto-pull disabled if using this stable-release updater: an in-place
+        Keep the bot token and other secrets in the host's environment variables. Do not combine
+        automatic GitHub branch pulls with this stable-release updater: an in-place
         <code>git pull</code> is not a checked release deployment. Avoid startup commands which
         reinstall unpinned packages on every restart. The runtime needs Git, npm, native module
         support and writable, persistent <code>data/</code>, <code>logs/</code> and
@@ -218,8 +211,7 @@ WantedBy=multi-user.target</code></pre>
         container memory limits are included. These are minimum headroom checks, not a guarantee
         that every future release fits. Small hosting plans may need updates built elsewhere and
         uploaded manually, with <code>AUTO_UPDATE_ENABLED=false</code>. Confirm your server's limits
-        and panel inactivity policy before relying on unattended hosting. This guide does not imply
-        that a particular Wispbyte server has been deployed or tested.
+        before relying on unattended hosting.
       </p>
       <p>
         Stop the local bot before starting the hosted copy with the same token. Transfer the SQLite
