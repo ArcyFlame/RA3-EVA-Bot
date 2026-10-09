@@ -33,3 +33,15 @@ jobs:
       - run: npm run build
       - run: npm run lint
       - run: npm test
+      - name: Install optional Discord testing MCP
+        working-directory: tools/discord-test-mcp
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Audit Discord testing MCP
+        working-directory: tools/discord-test-mcp
+        run: npm audit --omit=dev --audit-level=high
+      - name: Test Discord MCP protocol and safeguards
+        working-directory: tools/discord-test-mcp
+        run: npm test
+      - name: Run network-blocked Discord component suite
+        run: >-
+          node --input-type=module -e "import {runOfflineTests} from './tools/discord-test-mcp/runner.mjs'; const result = await runOfflineTests('components'); console.log(JSON.stringify(result)); process.exitCode = result.success ? 0 : 1;"

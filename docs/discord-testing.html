@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Discord component testing — E.V.A.</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        max-width: 900px;
+        margin: 40px auto;
+        padding: 0 24px;
+        font:
+          17px/1.6 system-ui,
+          sans-serif;
+        background: #14191f;
+        color: #e1e7ee;
+      }
+      h1,
+      h2 {
+        color: #e3bd70;
+      }
+      a {
+        color: #8dc9f5;
+      }
+      pre {
+        overflow-x: auto;
+        padding: 18px;
+        background: #202832;
+        border-radius: 8px;
+      }
+      code {
+        font-family: Consolas, monospace;
+      }
+      td,
+      th {
+        padding: 10px;
+        text-align: left;
+        border-bottom: 1px solid #39424d;
+      }
+      aside {
+        padding: 18px;
+        background: #253128;
+        border-left: 4px solid #69a979;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Discord component testing</h1>
+    <p>
+      The optional local MCP server in <code>tools/discord-test-mcp</code> gives an MCP client
+      access to the bot’s component inventory, offline regression tests and read-only inspection of
+      a private Discord test server. It is separate from the bot host and has its own dependency
+      lockfile.
+    </p>
+    <aside>
+      No live buttons are clicked. There are no message-posting, deletion, role-editing,
+      command-registration or arbitrary-code tools. Discord does not provide a bot-to-bot user-click
+      interface, and
+      <a
+        href="https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots"
+        >automating a normal user account is prohibited</a
+      >.
+    </aside>
+    <h2>Install and connect</h2>
+    <p>
+      Install the bot’s development dependencies first, then the separate MCP package. Use Node.js
+      22.12 or newer.
+    </p>
+    <pre><code>npm ci
+cd tools/discord-test-mcp
+npm ci --ignore-scripts
+npm test</code></pre>
+    <p>
+      Launch the server with <code>node tools/discord-test-mcp/server.mjs</code> from the repository
+      root. It communicates over standard input/output; stdout is reserved for MCP messages.
+    </p>
+    <p>
+      For Codex, add the server using an absolute path, following the
+      <a href="https://learn.chatgpt.com/docs/extend/mcp?surface=cli"
+        >official MCP configuration guide</a
+      >:
+    </p>
+    <pre><code>codex mcp add eva-discord-test -- node /absolute/path/to/RA3-EVA-Bot/tools/discord-test-mcp/server.mjs</code></pre>
+    <p>
+      On Windows, quote paths containing spaces. Set <code>tool_timeout_sec = 240</code> in the
+      <code>[mcp_servers.eva-discord-test]</code> configuration table for long test runs. New MCP
+      connections may require reopening the chat or restarting the client. Other MCP clients can
+      launch the same Node command.
+    </p>
+    <h2>Tools</h2>
+    <table>
+      <tr>
+        <th>Tool</th>
+        <th>Purpose</th>
+      </tr>
+      <tr>
+        <td><code>discord_test_status</code></td>
+        <td>
+          Show capabilities, component counts and configured test scope without contacting Discord.
+        </td>
+      </tr>
+      <tr>
+        <td><code>discord_component_inventory</code></td>
+        <td>
+          List registered handlers or inline controls. Filter by kind or search text; paginate
+          larger inventories.
+        </td>
+      </tr>
+      <tr>
+        <td><code>discord_run_component_tests</code></td>
+        <td>
+          Run the fixed <code>components</code> or <code>permissions</code> suite in a separate
+          child process.
+        </td>
+      </tr>
+      <tr>
+        <td><code>discord_inspect_messages</code></td>
+        <td>
+          Inspect this bot’s public messages in allowlisted channels; map controls to handlers and
+          inspect embed image/link fields.
+        </td>
+      </tr>
+      <tr>
+        <td><code>discord_inspect_commands</code></td>
+        <td>
+          Compare global and test-server command definitions and report name collisions without
+          changing registrations.
+        </td>
+      </tr>
+    </table>
+    <h2>Private live configuration</h2>
+    <p>
+      Live inspection is off until you create <code>data/discord-test-mcp.json</code>. The data
+      directory is ignored by Git. Include only text or announcement channels that you authorize the
+      inspector to read, not their category ID.
+    </p>
+    <pre><code>{
+  "guildId": "YOUR_TEST_SERVER_ID",
+  "channelIds": ["YOUR_TEST_CHANNEL_ID"],
+  "useBotEnv": false
+}</code></pre>
+    <p>
+      Supply a bot credential locally through <code>DISCORD_MCP_BOT_TOKEN</code>. Alternatively,
+      explicitly set <code>useBotEnv</code> to <code>true</code> to reuse only
+      <code>DISCORD_TOKEN</code> from the bot’s root <code>.env</code>. No token is accepted as a
+      tool argument or returned by a tool. Never paste credentials into a chat or commit them.
+    </p>
+    <p>
+      The bot must belong to the test server and have View Channel and Read Message History
+      permissions. The inspector verifies that each channel belongs to the configured server and
+      returns only messages authored by the token’s bot. Threads, DMs and other servers are not in
+      scope. All live requests use the official Discord API, GET only, with redirects blocked,
+      bounded responses, timeouts and rate-limit backoff.
+    </p>
+    <h2>What the tests prove</h2>
+    <p>
+      Every registered handler is checked for its export contract, duplicate route and routing
+      behavior. Scenario tests execute actual handlers for selected setup, feature, notification,
+      personal-settings and malformed-input paths. Existing activity, notification and map-picking
+      tests are also included. Import references in the inventory are navigation aids, not proof of
+      complete branch coverage.
+    </p>
+    <p>
+      Offline tests use stub credentials and in-memory SQLite. The child receives a minimal
+      environment, dotenv loading is disabled, and fetch/HTTP/socket network entry points are
+      blocked. No production bot instance is imported by the MCP server. This is a guard against
+      accidental side effects, not an operating-system sandbox: only run tests from a repository you
+      trust. The tool does not accept arbitrary commands, test paths or source code.
+    </p>
+    <h2>Finish with real Discord checks</h2>
+    <ol>
+      <li>Run <code>discord_run_component_tests</code> and review any failures.</li>
+      <li>
+        Use a test administrator, referee and regular member to open the relevant commands in
+        Discord.
+      </li>
+      <li>
+        Click every enabled action, submit valid/invalid forms, try expired sessions and revoke a
+        role while a manager is open.
+      </li>
+      <li>
+        Inspect public messages with the MCP tool; check that links, images, labels, navigation and
+        permission denials match expectations.
+      </li>
+      <li>
+        Keep a separate record of manual results. Ephemeral replies, modal layouts and collector
+        interactions cannot be verified by reading channel history.
+      </li>
+    </ol>
+    <p>
+      Passing registry and handler tests does not establish complete live UI coverage, a 100-member
+      load test or a security certification.
+    </p>
+  </body>
+</html>
