@@ -198,10 +198,11 @@ describe('activity event handling', () => {
       guild: {
         id,
         roles: { cache: new Collection([[role.id, role]]) },
-        members: { me: { permissions: { has: () => true } } },
+        members: { me: { permissions: { has: () => true } }, fetch: vi.fn() },
       },
       roles: { cache: new Collection(), add, remove: vi.fn() },
     } as unknown as GuildMember;
+    vi.mocked(member.guild.members.fetch).mockResolvedValue(member as any);
     expect((await new ActivityRankService().syncMemberRank(member, activity)).status).toBe(
       'blocked_role',
     );
@@ -216,5 +217,62 @@ describe('activity event handling', () => {
     expect(rankForPoints(1250, definitions)?.title).toBe('First');
     expect(nextRankForPoints(1250, definitions)?.title).toBe('Second');
     expect(nextRankForPoints(2500, definitions)).toBeUndefined();
+  });
+  it('serializes rank updates and uses the latest staff override rather than an old XP snapshot', async () => {
+    const id = 'queued-role-service';
+    guildRepository.upsert(id, { game: 'genevo', activityRanksEnabled: 1 });
+    const definitions = activityRankRepository.getRankDefinitions(id);
+    const firstId = '111111111111111111',
+      secondId = '222222222222222222';
+    activityRankRepository.setRankRole(id, definitions[0].id, firstId, 0);
+    activityRankRepository.setRankRole(id, definitions[1].id, secondId, 1);
+    const old = activityRankRepository.adjustPoints(id, 'member', 2500);
+    const cache = new Collection<string, any>();
+    let release!: () => void;
+    const guild: any = {
+      id,
+      channels: { cache: new Collection() },
+      roles: { cache: new Collection() },
+      members: { fetch: vi.fn(), me: { permissions: { has: () => true } } },
+    };
+    for (const roleId of [firstId, secondId])
+      guild.roles.cache.set(roleId, {
+        id: roleId,
+        guild,
+        managed: false,
+        editable: true,
+        permissions: { bitfield: 0n },
+      });
+    const member: any = {
+      id: 'member',
+      guild,
+      user: { bot: false },
+      roles: {
+        cache,
+        add: vi.fn(async (role) => {
+          cache.set(role.id, role);
+          if (role.id === secondId)
+            await new Promise<void>((resolve) => {
+              release = resolve;
+            });
+        }),
+        remove: vi.fn(async (roles) => {
+          for (const role of roles) cache.delete(role.id);
+        }),
+      },
+    };
+    guild.members.fetch.mockResolvedValue(member);
+    const service = new ActivityRankService();
+    const initial = service.syncMemberRank(member, old);
+    await vi.waitFor(() => expect(release).toBeDefined());
+    activityRankRepository.setManualRank(id, 'member', definitions[0].id);
+    const pinned = service.syncMemberRank(member, old);
+    expect(member.roles.add).toHaveBeenCalledTimes(1);
+    release();
+    await Promise.all([initial, pinned]);
+    expect([...cache.keys()]).toEqual([firstId]);
+    expect(activityRankRepository.getMember(id, 'member')?.manualRankId).toBe(definitions[0].id);
+    guildRepository.toggleFeature(id, 'activityRanks', false);
+    expect((await service.syncMemberRank(member)).status).toBe('disabled');
   });
 });

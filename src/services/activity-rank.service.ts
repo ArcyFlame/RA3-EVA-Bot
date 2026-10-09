@@ -11,7 +11,13 @@ import { audit, logger } from '../utils/logger';
 import { env } from '../config/env';
 
 export interface RankSyncResult {
-  status: 'updated' | 'unchanged' | 'not_configured' | 'missing_permission' | 'blocked_role';
+  status:
+    | 'updated'
+    | 'unchanged'
+    | 'not_configured'
+    | 'missing_permission'
+    | 'blocked_role'
+    | 'disabled';
   rank?: ActivityRankDefinition;
   detail?: string;
 }
@@ -92,6 +98,7 @@ export class ActivityRankService {
   private replayDownloads = 0;
   private pendingMembers = new Set<string>();
   private syncingGuilds = new Set<string>();
+  private rankSyncs = new Map<string, Promise<RankSyncResult>>();
 
   async downloadReplay(attachment: Attachment): Promise<string | null> {
     if (this.replayDownloads >= 4) return null;
@@ -202,6 +209,33 @@ export class ActivityRankService {
   async syncMemberRank(
     member: GuildMember,
     activity = activityRankRepository.getMember(member.guild.id, member.id),
+  ): Promise<RankSyncResult> {
+    const key = member.guild.id + ':' + member.id;
+    const previous = this.rankSyncs.get(key);
+    const next = (previous ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(async (): Promise<RankSyncResult> => {
+        const fresh = await member.guild.members
+          .fetch({ user: member.id, force: true })
+          .catch(() => null);
+        if (!fresh) return { status: 'blocked_role', detail: 'The member is no longer available.' };
+        if (guildRepository.findByDiscordId(member.guild.id)?.activityRanksEnabled !== 1)
+          return { status: 'disabled', detail: 'Activity ranks are disabled.' };
+        return this.applyMemberRank(
+          fresh,
+          activityRankRepository.getMember(member.guild.id, member.id) ?? activity,
+        );
+      })
+      .finally(() => {
+        if (this.rankSyncs.get(key) === next) this.rankSyncs.delete(key);
+      });
+    this.rankSyncs.set(key, next);
+    return next;
+  }
+
+  private async applyMemberRank(
+    member: GuildMember,
+    activity?: MemberActivity,
   ): Promise<RankSyncResult> {
     if (member.user.bot) return { status: 'unchanged' };
     const definitions = activityRankRepository.getRankDefinitions(member.guild.id);
