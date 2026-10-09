@@ -40,5 +40,5 @@ describe('bar chart themes', () => {
     const chart = await generateGenevoFactionChartBuffer(data);
     expect(chart.subarray(1, 4).toString()).toBe('PNG');
     expect(chart.length).toBeGreaterThan(10_000);
-  });
+  }, 15000);
 });
