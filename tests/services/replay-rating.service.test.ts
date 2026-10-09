@@ -163,6 +163,58 @@ describe('replay reaction safety', () => {
     expect(await f.service.scan(f.guild)).toEqual({ cards: 0, checked: 20 });
     expect(download).toHaveBeenCalledTimes(20);
   });
+  it('recovers missing cards on startup even after the upload XP cap is full', async () => {
+    const f = fixture();
+    const channel: any = Object.create(TextChannel.prototype);
+    const source: any = {
+      id: 'missed-upload',
+      author: { id: 'author' },
+      createdTimestamp: Date.now() - 1000,
+      attachments: new Collection([
+        [
+          'file',
+          {
+            id: 'file',
+            name: 'missed.RA3Replay',
+            size: 256,
+            url: `https://cdn.discordapp.com/attachments/${f.channelId}/500/missed.RA3Replay`,
+          },
+        ],
+      ]),
+    };
+    Object.defineProperties(channel, {
+      id: { value: f.channelId },
+      messages: {
+        value: { fetch: vi.fn().mockResolvedValue(new Collection([[source.id, source]])) },
+      },
+    });
+    f.guild.channels = { fetch: vi.fn().mockResolvedValue(channel) };
+    const date = new Date().toISOString().slice(0, 10);
+    activity.recordActivity({
+      guildId: f.id,
+      userId: 'author',
+      activityDate: date,
+      hasCncPing: false,
+      replayFingerprints: ['a', 'b', 'c'].map((c) => c.repeat(64)),
+    });
+    vi.spyOn(activityRankService, 'downloadReplay').mockResolvedValue('d'.repeat(64));
+    const post = vi.spyOn(f.service, 'post').mockResolvedValue(true);
+    const client: any = { guilds: { cache: new Collection([[f.id, f.guild]]) } };
+    await f.service.reconcileRecentCards(client, f.id);
+    expect(post).toHaveBeenCalledWith(source, expect.anything(), 'd'.repeat(64));
+    expect(activity.getMember(f.id, 'author')?.points).toBe(75);
+    await f.service.reconcileRecentCards(client, f.id);
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+  it('skips automatic recovery when scanning is off but still allows a manual scan', async () => {
+    const f = fixture();
+    activity.updateSettings(f.id, { replayAutoScan: false }, 0);
+    f.guild.channels = { fetch: vi.fn() };
+    expect(await f.service.scan(f.guild, { automatic: true })).toEqual({ cards: 0, checked: 0 });
+    expect(f.guild.channels.fetch).not.toHaveBeenCalled();
+    f.guild.channels.fetch.mockResolvedValue(null);
+    await expect(f.service.scan(f.guild)).rejects.toThrow('text channel');
+  });
   it('orders reaction clears after in-flight votes so a delayed member fetch cannot recreate cleared votes', async () => {
     const f = fixture();
     let release!: (value: any) => void;
@@ -283,5 +335,19 @@ describe('replay reaction safety', () => {
     expect(await f.service.post(source, { id: 'file' } as any, pending.fingerprint)).toBe(false);
     expect(repo.get(pending.id)?.card_message_id).toBe('recovered');
     expect(channel.send).toHaveBeenCalledTimes(1);
+  });
+  it('does not let recovery assign an already credited replay to another uploader', async () => {
+    const f = fixture();
+    const fingerprint = '9'.repeat(64);
+    activity.recordActivity({
+      guildId: f.id,
+      userId: 'original',
+      activityDate: new Date().toISOString().slice(0, 10),
+      hasCncPing: false,
+      replayFingerprints: [fingerprint],
+    });
+    const source: any = { guild: f.guild, channelId: f.channelId, author: { id: 'copy' } };
+    expect(await f.service.post(source, { id: 'copy' } as any, fingerprint)).toBe(false);
+    expect(repo.findFingerprint(f.id, fingerprint)).toBeUndefined();
   });
 });

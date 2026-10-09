@@ -77,6 +77,20 @@ describe('activity awards', () => {
     expect(repo.getTrackedUserIds('reset')).toContain('member');
     expect(award('reset', 'member', '2026-10-09', [hash(6)]).pointsAwarded).toBe(0);
   });
+  it('keeps rating verification separate from upload XP limits with a persistent traffic cap', () => {
+    const id = 'rating-traffic';
+    award(id, 'member', '2026-10-09', [hash(10), hash(11), hash(12)], false);
+    expect(repo.claimReplayDownload(id, 'member', '2026-10-09')).toBe(false);
+    for (let n = 0; n < 20; n++)
+      expect(repo.claimReplayDownload(id, 'member', '2026-10-09', true)).toBe(true);
+    expect(new ActivityRankRepository().claimReplayDownload(id, 'member', '2026-10-09', true)).toBe(
+      false,
+    );
+    expect(repo.getMember(id, 'member')?.points).toBe(75);
+    expect(repo.claimReplayDownload(id, 'member', '2026-10-10', true)).toBe(true);
+    repo.updateSettings(id, { ratingsEnabled: false }, 0);
+    expect(repo.claimReplayDownload(id, 'member', '2026-10-09', true)).toBe(false);
+  });
 });
 
 describe('configurable ranks', () => {

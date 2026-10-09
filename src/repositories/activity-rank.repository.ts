@@ -48,6 +48,10 @@ export interface ActivitySettings {
   chatDailyCap: number;
 }
 
+export function replayVerificationLimit(settings: ActivitySettings, forRatings = false): number {
+  return Math.max(forRatings && settings.ratingsEnabled ? 20 : 0, settings.replayDailyCap * 2);
+}
+
 export interface MemberActivity {
   guildId: string;
   userId: string;
@@ -205,10 +209,11 @@ export class ActivityRankRepository extends BaseRepository {
     this.bumpVersion(guildId);
   }
 
-  claimReplayDownload(guildId: string, userId: string, date: string): boolean {
+  claimReplayDownload(guildId: string, userId: string, date: string, forRatings = false): boolean {
     return this.db.transaction(() => {
       const settings = this.getSettings(guildId);
       if (!settings.replayEnabled) return false;
+      const ratingScan = forRatings && settings.ratingsEnabled;
       this.run(
         'INSERT OR IGNORE INTO activity_daily_totals (guild_id, user_id, activity_date) VALUES (?, ?, ?)',
         [guildId, userId, date],
@@ -217,8 +222,15 @@ export class ActivityRankRepository extends BaseRepository {
       return (
         this.run(
           `UPDATE activity_daily_totals SET replay_downloads = replay_downloads + 1
-        WHERE guild_id = ? AND user_id = ? AND activity_date = ? AND replay_awards < ? AND replay_downloads < ?`,
-          [guildId, userId, date, settings.replayDailyCap, settings.replayDailyCap * 2],
+        WHERE guild_id = ? AND user_id = ? AND activity_date = ? AND (? OR replay_awards < ?) AND replay_downloads < ?`,
+          [
+            guildId,
+            userId,
+            date,
+            Number(ratingScan),
+            settings.replayDailyCap,
+            replayVerificationLimit(settings, ratingScan),
+          ],
         ).changes === 1
       );
     })();

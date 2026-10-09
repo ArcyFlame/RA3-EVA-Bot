@@ -112,6 +112,12 @@ describe('activity admin permissions and rendering', () => {
     guildRepository.upsert(f.id, { game: 'genevo' });
     const view = buildActivityAdminView(f.guild, ownerId, screen);
     expect(view.embeds[0].toJSON().title).toContain('Replay Ratings');
+    expect(view.embeds[0].toJSON().fields).toContainEqual(
+      expect.objectContaining({
+        name: 'Automatic Cards',
+        value: expect.stringContaining('Cards do not stop'),
+      }),
+    );
     expect(view.components.length).toBeLessThanOrEqual(5);
     for (const row of view.components)
       expect(row.toJSON().components.length).toBeLessThanOrEqual(5);

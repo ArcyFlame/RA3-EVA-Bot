@@ -4,6 +4,8 @@ import axios from 'axios';
 import { connectDatabase } from '../../src/database/connection';
 import { activityRankRepository } from '../../src/repositories/activity-rank.repository';
 import { guildRepository } from '../../src/repositories/guild.repository';
+import { replayRatingRepository } from '../../src/repositories/replay-rating.repository';
+import { replayRatingService } from '../../src/services/replay-rating.service';
 import {
   ActivityRankService,
   isReplayAttachment,
@@ -19,7 +21,9 @@ beforeAll(async () => {
   await connectDatabase();
 });
 beforeEach(() => {
+  vi.restoreAllMocks();
   vi.clearAllMocks();
+  vi.spyOn(replayRatingService, 'post').mockResolvedValue(false);
 });
 const bytes = () => {
   const b = Buffer.alloc(256);
@@ -151,9 +155,9 @@ describe('activity event handling', () => {
     guildRepository.upsert(id, { game: 'genevo', activityRanksEnabled: 1 });
     vi.mocked(axios.get).mockResolvedValue({ data: bytes() });
     const msg = message(id, { attachments: new Collection([['file', attachment]]) });
-    for (let n = 0; n < 15; n++) await new ActivityRankService().handleMessage(msg);
+    for (let n = 0; n < 25; n++) await new ActivityRankService().handleMessage(msg);
     expect(activityRankRepository.getMember(id, 'member')?.qualifyingReplays).toBe(1);
-    expect(axios.get).toHaveBeenCalledTimes(6);
+    expect(axios.get).toHaveBeenCalledTimes(20);
     expect(axios.get).toHaveBeenCalledWith(
       attachment.url,
       expect.objectContaining({
@@ -162,6 +166,94 @@ describe('activity event handling', () => {
         timeout: 8000,
       }),
     );
+  });
+  it('creates cards for all files in an upload even after upload XP reaches its daily cap', async () => {
+    const id = 'rating-after-xp-cap';
+    guildRepository.upsert(id, { game: 'genevo', activityRanksEnabled: 1 });
+    vi.mocked(axios.get).mockImplementation(async (url) => {
+      const b = bytes();
+      b[255] = Number(String(url).split('/').at(-2));
+      return { data: b };
+    });
+    const files = new Collection(
+      Array.from({ length: 5 }, (_, index) => [
+        String(index),
+        { ...attachment, id: String(index), url: attachment.url.replace('/123/', `/${index}/`) },
+      ]),
+    );
+    await new ActivityRankService().handleMessage(
+      message(id, { mentions: { roles: new Collection() }, attachments: files }),
+    );
+    expect(activityRankRepository.getMember(id, 'member')).toMatchObject({
+      points: 75,
+      qualifyingReplays: 3,
+    });
+    expect(replayRatingService.post).toHaveBeenCalledTimes(5);
+    const another = bytes();
+    another[255] = 10;
+    vi.mocked(axios.get).mockResolvedValue({ data: another });
+    await new ActivityRankService().handleMessage(
+      message(id, {
+        mentions: { roles: new Collection() },
+        attachments: new Collection([['file', attachment]]),
+      }),
+    );
+    expect(replayRatingService.post).toHaveBeenCalledTimes(6);
+    expect(activityRankRepository.getMember(id, 'member')?.points).toBe(75);
+  });
+  it('retries a missing card for an already credited replay without awarding duplicate XP', async () => {
+    const id = 'retry-rating-card';
+    guildRepository.upsert(id, { game: 'genevo', activityRanksEnabled: 1 });
+    vi.mocked(axios.get).mockResolvedValue({ data: bytes() });
+    const msg = message(id, {
+      mentions: { roles: new Collection() },
+      attachments: new Collection([['file', attachment]]),
+    });
+    const service = new ActivityRankService();
+    await service.handleMessage(msg);
+    await service.handleMessage(msg);
+    expect(replayRatingService.post).toHaveBeenCalledTimes(2);
+    expect(activityRankRepository.getMember(id, 'member')?.points).toBe(25);
+  });
+  it('does not award upload XP again for a replay previously rated without upload XP', async () => {
+    const id = 'rating-dedup-before-xp';
+    guildRepository.upsert(id, { game: 'genevo', activityRanksEnabled: 1 });
+    const fingerprint = replayFingerprint(bytes())!;
+    replayRatingRepository.create({
+      guild_id: id,
+      user_id: 'original',
+      channel_id: channelId,
+      source_message_id: 'old',
+      attachment_id: 'old-file',
+      fingerprint,
+      filename: attachment.name,
+    });
+    vi.mocked(axios.get).mockResolvedValue({ data: bytes() });
+    await new ActivityRankService().handleMessage(
+      message(id, {
+        mentions: { roles: new Collection() },
+        attachments: new Collection([['file', attachment]]),
+      }),
+    );
+    expect(activityRankRepository.getMember(id, 'member')?.points ?? 0).toBe(0);
+    expect(replayRatingService.post).not.toHaveBeenCalled();
+    expect(replayRatingRepository.findFingerprint(id, fingerprint)?.user_id).toBe('original');
+  });
+  it('does not post when automatic scanning is disabled while a file is downloading', async () => {
+    const id = 'scan-disabled-during-download';
+    guildRepository.upsert(id, { game: 'genevo', activityRanksEnabled: 1 });
+    vi.mocked(axios.get).mockImplementation(async () => {
+      activityRankRepository.updateSettings(id, { replayAutoScan: false }, 0);
+      return { data: bytes() };
+    });
+    await new ActivityRankService().handleMessage(
+      message(id, {
+        mentions: { roles: new Collection() },
+        attachments: new Collection([['file', attachment]]),
+      }),
+    );
+    expect(replayRatingService.post).not.toHaveBeenCalled();
+    expect(activityRankRepository.getMember(id, 'member')?.points ?? 0).toBe(0);
   });
   it('ignores wrong channels, bots, webhooks and disabled features', async () => {
     const id = 'ignore-service';

@@ -7,6 +7,7 @@ import {
   MemberActivity,
 } from '../repositories/activity-rank.repository';
 import { guildRepository } from '../repositories/guild.repository';
+import { replayRatingRepository } from '../repositories/replay-rating.repository';
 import { audit, logger } from '../utils/logger';
 import { env } from '../config/env';
 
@@ -161,16 +162,21 @@ export class ActivityRankService {
     const key = message.guild.id + ':' + message.author.id;
     const replayFingerprints: string[] = [];
     const verifiedReplays: Array<{ attachment: Attachment; fingerprint: string }> = [];
+    const forRatings = guildData.game === 'genevo' && settings.ratingsEnabled;
     if (replays?.size && !this.pendingMembers.has(key)) {
       this.pendingMembers.add(key);
       try {
-        for (const attachment of [...replays.values()].slice(0, settings.replayDailyCap)) {
+        for (const attachment of [...replays.values()].slice(
+          0,
+          forRatings ? 10 : settings.replayDailyCap,
+        )) {
           if (
             this.replayDownloads >= 4 ||
             !activityRankRepository.claimReplayDownload(
               message.guild.id,
               message.author.id,
               activityDate,
+              forRatings,
             )
           )
             break;
@@ -196,20 +202,34 @@ export class ActivityRankService {
         !!currentGuild.cncPingRoleId && message.mentions.roles.has(currentGuild.cncPingRoleId),
       replayFingerprints:
         currentSettings.replayAutoScan && message.channelId === currentSettings.replayChannelId
-          ? replayFingerprints
+          ? replayFingerprints.filter(
+              (fingerprint) =>
+                currentGuild.game !== 'genevo' ||
+                !replayRatingRepository.findFingerprint(currentGuild.discordId, fingerprint),
+            )
           : [],
       chatContentHash,
       occurredAt: timestamp,
     });
-    if (result.pointsAwarded === 0) return;
-    if (currentGuild.game === 'genevo' && result.replaysAwarded > 0) {
+    if (
+      currentGuild.game === 'genevo' &&
+      currentSettings.replayEnabled &&
+      currentSettings.ratingsEnabled &&
+      currentSettings.replayAutoScan &&
+      message.channelId === currentSettings.replayChannelId
+    ) {
       const { replayRatingService } = await import('./replay-rating.service');
       for (const replay of verifiedReplays) {
         const accepted = this.getReplayOwner(message.guild.id, replay.fingerprint);
-        if (accepted === message.author.id)
+        const card = replayRatingRepository.findFingerprint(message.guild.id, replay.fingerprint);
+        if (
+          (!accepted || accepted === message.author.id) &&
+          (!card || card.user_id === message.author.id)
+        )
           await replayRatingService.post(message, replay.attachment, replay.fingerprint);
       }
     }
+    if (result.pointsAwarded === 0) return;
 
     const definitions = activityRankRepository.getRankDefinitions(message.guild.id);
     const previousRank = rankForPoints(result.before.points, definitions);

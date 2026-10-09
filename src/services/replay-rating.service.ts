@@ -108,6 +108,12 @@ export class ReplayRatingService {
             continue;
           this.refresh(message, card.id);
         }
+        if (activityRankRepository.getSettings(settings.discordId).replayAutoScan && guild) {
+          const recovered = await this.scan(guild, { automatic: true });
+          if (recovered.cards) {
+            audit('replay_rating_recovered', { guildId: guild.id, ...recovered });
+          }
+        }
       } catch (error) {
         logger.warn('Existing replay cards could not be refreshed:', error);
       }
@@ -125,6 +131,8 @@ export class ReplayRatingService {
 
   async post(message: Message, attachment: Attachment, fingerprint: string): Promise<boolean> {
     if (!message.guild || !this.enabled(message.guild.id, message.channelId)) return false;
+    const creditedOwner = activityRankRepository.getReplayOwner(message.guild.id, fingerprint);
+    if (creditedOwner && creditedOwner !== message.author.id) return false;
     const key = message.guild.id + ':' + fingerprint;
     if (this.posting.has(key)) return false;
     this.posting.add(key);
@@ -155,8 +163,13 @@ export class ReplayRatingService {
           PermissionFlagsBits.AddReactions,
           PermissionFlagsBits.ReadMessageHistory,
         ])
-      )
+      ) {
+        logger.warn('Replay rating card needs channel permissions.', {
+          guildId: message.guild.id,
+          channelId: message.channelId,
+        });
         return false;
+      }
       // Recover a send that succeeded just before a crash, without posting the same card again.
       const recent = await message.channel.messages.fetch({ limit: 50 });
       const existing = recent.find(
@@ -174,6 +187,13 @@ export class ReplayRatingService {
       await sent.react('👍').catch(() => null);
       if (activityRankRepository.getSettings(card.guild_id).ratingMode === 'both')
         await sent.react('👎').catch(() => null);
+      if (!existing)
+        audit('replay_rating_posted', {
+          guildId: card.guild_id,
+          userId: card.user_id,
+          cardId: card.id,
+          messageId: sent.id,
+        });
       return !existing;
     } catch (error) {
       logger.warn('Replay rating card could not be posted:', error);
@@ -291,20 +311,28 @@ export class ReplayRatingService {
     await next;
   }
 
-  async scan(guild: Guild): Promise<{ cards: number; checked: number }> {
+  async scan(
+    guild: Guild,
+    options: { automatic?: boolean } = {},
+  ): Promise<{ cards: number; checked: number }> {
     const settings = activityRankRepository.getSettings(guild.id);
     if (!this.enabled(guild.id, settings.replayChannelId))
       throw new Error('Enable GenEvo activity, replay XP and ratings first.');
-    if (!replayRatingRepository.claimScan(guild.id))
+    if (options.automatic && !settings.replayAutoScan) return { cards: 0, checked: 0 };
+    if (!replayRatingRepository.claimScan(guild.id)) {
+      if (options.automatic) return { cards: 0, checked: 0 };
       throw new Error('Wait 10 minutes before scanning again.');
+    }
     const channel = await guild.channels.fetch(settings.replayChannelId);
     if (!(channel instanceof TextChannel))
       throw new Error('Choose a server text channel for replays.');
     const messages = await channel.messages.fetch({ limit: 100 });
     let cards = 0,
       checked = 0;
-    for (const message of [...messages.values()].sort(
-      (a, b) => a.createdTimestamp - b.createdTimestamp,
+    for (const message of [...messages.values()].sort((a, b) =>
+      options.automatic
+        ? b.createdTimestamp - a.createdTimestamp
+        : a.createdTimestamp - b.createdTimestamp,
     )) {
       if (
         message.author.bot ||
@@ -315,10 +343,16 @@ export class ReplayRatingService {
         continue;
       for (const attachment of message.attachments.values()) {
         if (cards >= 10 || checked >= 20) return { cards, checked };
+        if (options.automatic && !activityRankRepository.getSettings(guild.id).replayAutoScan)
+          return { cards, checked };
         if (!isReplayAttachment(attachment, channel.id)) continue;
         checked++;
         const fingerprint = await activityRankService.downloadReplay(attachment);
-        if (fingerprint && this.enabled(guild.id, channel.id)) {
+        if (
+          fingerprint &&
+          this.enabled(guild.id, channel.id) &&
+          (!options.automatic || activityRankRepository.getSettings(guild.id).replayAutoScan)
+        ) {
           const prior = replayRatingRepository.findFingerprint(guild.id, fingerprint);
           if (
             !prior?.card_message_id &&

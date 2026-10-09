@@ -21,6 +21,7 @@ import {
 import {
   activityRankRepository,
   MAX_ACTIVITY_RANKS,
+  replayVerificationLimit,
 } from '../../repositories/activity-rank.repository';
 import { guildRepository } from '../../repositories/guild.repository';
 import { denyUnlessAdmin } from '../../utils/permissions';
@@ -205,6 +206,10 @@ export function buildActivityAdminView(
         {
           name: 'Rating XP',
           value: `${settings.ratingsEnabled ? '🟢 Enabled' : '🔴 Disabled'}\n${settings.ratingPoints} XP per ${settings.ratingMode === 'both' ? 'net positive vote' : 'upvote'}, starting at ${settings.ratingMinVotes} votes\nUp to ${settings.ratingReplayCap} XP per replay and ${settings.ratingDailyCap} XP per uploader per UTC day`,
+        },
+        {
+          name: 'Automatic Cards',
+          value: `Automatic scanning: ${settings.replayAutoScan ? 'On' : 'Off'}\nCards do not stop at the ${settings.replayDailyCap}-replay upload XP limit. Up to ${replayVerificationLimit(settings, true)} files per uploader are checked per UTC day, including invalid files and reposts. Missing recent cards are recovered after a restart without backdated upload XP.`,
         },
         {
           name: 'Voters & Channel',
