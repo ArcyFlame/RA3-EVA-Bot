@@ -255,6 +255,15 @@ describe('replay reaction safety', () => {
     expect(activity.getMember(f.id, 'author')?.points).toBe(75);
     await f.service.reconcileRecentCards(client, f.id);
     expect(post).toHaveBeenCalledTimes(1);
+    const afterCooldown = Date.now() + 600001;
+    vi.spyOn(Date, 'now').mockReturnValue(afterCooldown);
+    await f.service.reconcileRecentCards(client, f.id);
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(activity.getMember(f.id, 'author')?.points).toBe(75);
+    activity.updateSettings(f.id, { replayAutoScan: false }, 0);
+    vi.mocked(Date.now).mockReturnValue(afterCooldown + 600001);
+    await f.service.reconcileRecentCards(client, f.id);
+    expect(post).toHaveBeenCalledTimes(2);
   });
   it('skips automatic recovery when scanning is off but still allows a manual scan', async () => {
     const f = fixture();

@@ -58,6 +58,11 @@ export async function execute(bot: RA3Bot): Promise<void> {
     .reconcile(bot.client)
     .catch((error) => logger.warn('Bot profile refresh failed:', error));
   setTimeout(() => void replayRatingService.reconcileRecentCards(bot.client), 30000).unref();
+  managedInterval(
+    () => replayRatingService.reconcileRecentCards(bot.client),
+    10 * 60 * 1000,
+    'replay card recovery',
+  );
 
   // Clean up wizard views when their messages are deleted.
   bot.client.on('messageDelete', (message) => {
