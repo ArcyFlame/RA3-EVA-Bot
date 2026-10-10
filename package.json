@@ -1,11 +1,11 @@
 {
   "name": "ra3-community-bot",
-  "version": "5.2.1",
+  "version": "5.3.0",
   "description": "Community bot for Red Alert 3 and Generals Evolution",
   "license": "GPL-3.0-or-later",
   "botUpdater": {
     "protocol": 1,
-    "schemaVersion": 35
+    "schemaVersion": 36
   },
   "main": "dist/index.js",
   "engines": {

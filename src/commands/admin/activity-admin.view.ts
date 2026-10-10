@@ -199,7 +199,7 @@ export function buildActivityAdminView(
     embed
       .setTitle('🎬 GenEvo Replay Ratings')
       .setDescription(
-        `Each accepted replay gets its own card with ${settings.ratingMode === 'both' ? '👍 and 👎 reactions' : 'a single 👍 reaction (default)'}. Original uploads stay intact.\n\n` +
+        `Each accepted replay gets its own downloadable card with ${settings.ratingMode === 'both' ? '👍 and 👎 reactions' : 'a single 👍 reaction (default)'}. Original replay-only posts are removed only after every file is safely copied. Uploaders can edit or remove their cards.\n\n` +
           'Only human server members can vote, with one active vote each. Self-votes are removed with a private notice; the bot needs Manage Messages for removal. Duplicate files and removing/re-adding a reaction earn no extra XP. In dual mode, downvotes reduce future bonuses, not XP already earned.',
       )
       .addFields(
@@ -218,7 +218,7 @@ export function buildActivityAdminView(
         {
           name: 'Required Bot Permissions',
           value:
-            'View Channel, Send Messages, Embed Links, Read Message History and Add Reactions. Manage Messages to remove self-votes.',
+            'View Channel, Send Messages, Attach Files, Embed Links, Read Message History and Add Reactions. Manage Messages to remove safely archived originals and self-votes.',
         },
       );
     if (screen === 'scan') {

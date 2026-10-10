@@ -9,16 +9,23 @@ import {
 import { RA3Bot } from '../bot';
 import { guildRepository } from '../repositories/guild.repository';
 import { logger } from '../utils/logger';
+import { db } from '../database/sqlite';
+import {
+  serviceCredentials,
+  SERVICE_FIELDS,
+  ServiceId,
+} from '../services/service-credentials.service';
 
 export const name = Events.GuildCreate;
 export const once = false;
 
 export async function execute(_bot: RA3Bot, guild: Guild): Promise<void> {
+  const firstJoin = !guildRepository.findByDiscordId(guild.id);
   guildRepository.upsert(guild.id, { discordId: guild.id });
   logger.info(`Bot added to guild ${guild.name} (${guild.id})`);
 
   const guildData = guildRepository.findByDiscordId(guild.id);
-  if (guildData?.welcomeEnabled === 0) {
+  if (guildData?.welcomeEnabled === 0 && !firstJoin) {
     logger.info(`Welcome message disabled for guild ${guild.id}, skipping.`);
     return;
   }
@@ -32,6 +39,10 @@ export async function execute(_bot: RA3Bot, guild: Guild): Promise<void> {
     !!guildData?.twitchChannelId;
 
   try {
+    const onboardingKey = `onboarding_sent:${guild.id}`;
+    if (db.prepare('SELECT 1 FROM app_settings WHERE key=?').get(onboardingKey)) return;
+    db.prepare('INSERT INTO app_settings(key,value) VALUES(?,?)').run(onboardingKey, '1');
+    await serviceCredentials.checkAll().catch(() => undefined);
     const owner = await guild.fetchOwner();
     if (configured) {
       const embed = new EmbedBuilder()
@@ -45,9 +56,9 @@ export async function execute(_bot: RA3Bot, guild: Guild): Promise<void> {
     }
 
     const embed = new EmbedBuilder()
-      .setTitle('🛠️ Welcome - let\u2019s set up your RA3 server!')
+      .setTitle('🛠️ Welcome - set up your community bot')
       .setDescription(
-        `Thanks for adding me to **${guild.name}**! Three quick steps and everything is running:`,
+        `Thanks for adding me to **${guild.name}**! This guide is sent only to the server owner. Run /bot setup inside the server for a private configuration menu.`,
       )
       .setColor(0x5865f2)
       .addFields(
@@ -64,6 +75,19 @@ export async function execute(_bot: RA3Bot, guild: Guild): Promise<void> {
           name: '3. Bind channels',
           value:
             'In `/bot setup` → Notification Channels, pick where tournaments, news and streams should post.',
+        },
+        {
+          name: '4. Optional service connections',
+          value:
+            'Use /api to check connections. The bot owner can add shared keys later; missing or invalid keys do not stop public news, stats, replays or the rest of the bot.\n' +
+            (Object.keys(SERVICE_FIELDS) as ServiceId[])
+              .map((service) => `${service}: ${serviceCredentials.status(service)}`)
+              .join('\n'),
+        },
+        {
+          name: '5. Customize the bot profile',
+          value:
+            'Use /bot profile or Bot Server Profile in the wizard to change the nickname, description, avatar and banner for this server. Upload an image or use a direct image link.',
         },
         {
           name: 'Need help?',

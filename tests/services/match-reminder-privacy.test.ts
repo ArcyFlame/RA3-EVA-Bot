@@ -398,7 +398,7 @@ describe('joining a public server', () => {
     await join({} as any, guild);
     guildRepository.upsert(guild.id, { welcomeEnabled: 0 });
     await join({} as any, guild);
-    expect(owner.send).toHaveBeenCalledTimes(2);
+    expect(owner.send).toHaveBeenCalledTimes(1);
     expect(publicSend).not.toHaveBeenCalled();
     expect(enumerate).not.toHaveBeenCalled();
   });

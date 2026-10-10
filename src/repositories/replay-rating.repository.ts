@@ -14,6 +14,9 @@ export interface ReplayRatingCard {
   bonus_awarded: number;
   rewarded_net_votes: number;
   closed: number;
+  archive_attachment_id?: string | null;
+  description?: string | null;
+  revision?: number;
 }
 export class ReplayRatingRepository extends BaseRepository {
   create(
@@ -53,6 +56,28 @@ export class ReplayRatingRepository extends BaseRepository {
   }
   get(id: number): ReplayRatingCard | undefined {
     return this.query<ReplayRatingCard>('SELECT * FROM replay_rating_cards WHERE id = ?', [id]);
+  }
+  bySource(guildId: string, messageId: string): ReplayRatingCard[] {
+    return this.queryAll<ReplayRatingCard>(
+      'SELECT * FROM replay_rating_cards WHERE guild_id=? AND source_message_id=?',
+      [guildId, messageId],
+    );
+  }
+  archive(id: number, attachmentId: string, description: string): void {
+    this.run('UPDATE replay_rating_cards SET archive_attachment_id=?,description=? WHERE id=?', [
+      attachmentId,
+      description.slice(0, 1500),
+      id,
+    ]);
+  }
+  editDescription(id: number, description: string, revision: number): void {
+    if (
+      this.run(
+        'UPDATE replay_rating_cards SET description=?,revision=revision+1 WHERE id=? AND revision=? AND closed=0',
+        [description.slice(0, 1500), id, revision],
+      ).changes !== 1
+    )
+      throw new Error('This replay changed. Open its current card.');
   }
   attachMessage(id: number, messageId: string): void {
     this.run(

@@ -1,5 +1,4 @@
 import { createHash } from 'crypto';
-import axios from 'axios';
 import { Attachment, Guild, GuildMember, Message, PermissionFlagsBits, Role } from 'discord.js';
 import {
   activityRankRepository,
@@ -10,6 +9,7 @@ import { guildRepository } from '../repositories/guild.repository';
 import { replayRatingRepository } from '../repositories/replay-rating.repository';
 import { audit, logger } from '../utils/logger';
 import { env } from '../config/env';
+import { readDiscordFile } from '../utils/discord-file';
 
 export interface RankSyncResult {
   status:
@@ -117,17 +117,18 @@ export class ActivityRankService {
   private rankSyncs = new Map<string, Promise<RankSyncResult>>();
 
   async downloadReplay(attachment: Attachment): Promise<string | null> {
+    return (await this.downloadReplayFile(attachment))?.fingerprint ?? null;
+  }
+
+  async downloadReplayFile(
+    attachment: Attachment,
+  ): Promise<{ bytes: Buffer; fingerprint: string } | null> {
     if (this.replayDownloads >= 4) return null;
     this.replayDownloads += 1;
     try {
-      const response = await axios.get<ArrayBuffer>(attachment.url, {
-        responseType: 'arraybuffer',
-        timeout: 8000,
-        maxRedirects: 0,
-        maxContentLength: MAX_REPLAY_BYTES,
-        maxBodyLength: MAX_REPLAY_BYTES,
-      });
-      return replayFingerprint(Buffer.from(response.data));
+      const bytes = await readDiscordFile(attachment, MAX_REPLAY_BYTES);
+      const fingerprint = replayFingerprint(bytes);
+      return fingerprint ? { bytes, fingerprint } : null;
     } catch {
       return null;
     } finally {
@@ -161,7 +162,9 @@ export class ActivityRankService {
     if (activityDate !== new Date().toISOString().slice(0, 10)) return;
     const key = message.guild.id + ':' + message.author.id;
     const replayFingerprints: string[] = [];
-    const verifiedReplays: Array<{ attachment: Attachment; fingerprint: string }> = [];
+    const verifiedReplays: Array<{ attachment: Attachment; fingerprint: string; bytes: Buffer }> =
+      [];
+    let bufferedBytes = 0;
     const forRatings = guildData.game === 'genevo' && settings.ratingsEnabled;
     if (replays?.size && !this.pendingMembers.has(key)) {
       this.pendingMembers.add(key);
@@ -172,6 +175,7 @@ export class ActivityRankService {
         )) {
           if (
             this.replayDownloads >= 4 ||
+            bufferedBytes + attachment.size > 20 * 1024 * 1024 ||
             !activityRankRepository.claimReplayDownload(
               message.guild.id,
               message.author.id,
@@ -180,10 +184,12 @@ export class ActivityRankService {
             )
           )
             break;
-          const fingerprint = await this.downloadReplay(attachment);
-          if (fingerprint) {
-            replayFingerprints.push(fingerprint);
-            verifiedReplays.push({ attachment, fingerprint });
+          const file = await this.downloadReplayFile(attachment);
+          if (file) {
+            if (bufferedBytes + file.bytes.length > 20 * 1024 * 1024) break;
+            bufferedBytes += file.bytes.length;
+            replayFingerprints.push(file.fingerprint);
+            verifiedReplays.push({ attachment, ...file });
           }
         }
       } finally {
@@ -226,8 +232,9 @@ export class ActivityRankService {
           (!accepted || accepted === message.author.id) &&
           (!card || card.user_id === message.author.id)
         )
-          await replayRatingService.post(message, replay.attachment, replay.fingerprint);
+          await replayRatingService.post(message, replay.attachment, replay.fingerprint, replay);
       }
+      await replayRatingService.hideSource(message);
     }
     if (result.pointsAwarded === 0) return;
 

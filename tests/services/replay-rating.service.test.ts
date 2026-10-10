@@ -5,7 +5,7 @@ import { guildRepository } from '../../src/repositories/guild.repository';
 import { activityRankRepository as activity } from '../../src/repositories/activity-rank.repository';
 import { replayRatingRepository as repo } from '../../src/repositories/replay-rating.repository';
 import { ReplayRatingService } from '../../src/services/replay-rating.service';
-import { activityRankService } from '../../src/services/activity-rank.service';
+import { activityRankService, replayFingerprint } from '../../src/services/activity-rank.service';
 beforeAll(async () => {
   await connectDatabase();
 });
@@ -41,6 +41,56 @@ function fixture(game: 'genevo' | 'ra3' = 'genevo') {
   const service = new ReplayRatingService();
   vi.spyOn(service, 'refresh').mockImplementation(() => undefined);
   return { id, card, guild, message, reaction, service, member, channelId };
+}
+function archiveFixture() {
+  const f = fixture();
+  const bytes = Buffer.alloc(256);
+  bytes.write('RA3 REPLAY HEADER');
+  bytes[17] = 5;
+  bytes[30] = sequence;
+  const fingerprint = replayFingerprint(bytes)!;
+  const file = { bytes, fingerprint };
+  const attachment = {
+    id: '500',
+    name: 'upload.RA3Replay',
+    size: bytes.length,
+    url: `https://cdn.discordapp.com/attachments/${f.channelId}/500/upload.RA3Replay`,
+  };
+  const copy = { ...attachment, id: '600' };
+  const sent: any = {
+    id: `new-card-${sequence}`,
+    author: { id: 'bot' },
+    embeds: [],
+    attachments: new Collection([['600', copy]]),
+    react: vi.fn().mockResolvedValue(null),
+  };
+  sent.edit = vi.fn().mockImplementation(async (payload) => {
+    if (payload.files) sent.attachments = new Collection([['600', copy]]);
+    return sent;
+  });
+  const channel: any = Object.create(TextChannel.prototype);
+  const fetch = vi
+    .fn()
+    .mockImplementation(async (arg) => (typeof arg === 'string' ? sent : new Collection()));
+  Object.defineProperties(channel, {
+    id: { value: f.channelId },
+    messages: { value: { fetch } },
+    permissionsFor: { value: () => ({ has: () => true }), configurable: true },
+    send: { value: vi.fn().mockResolvedValue(sent) },
+  });
+  const source: any = {
+    id: 'upload',
+    guild: f.guild,
+    channelId: f.channelId,
+    channel,
+    author: { id: 'author' },
+    client: { user: { id: 'bot' } },
+    content: 'Great game',
+    attachments: new Collection([['500', attachment]]),
+    edit: vi.fn(),
+    delete: vi.fn().mockResolvedValue(null),
+  };
+  return { ...f, bytes, fingerprint, file, attachment, copy, sent, channel, source, fetch };
 }
 describe('replay reaction safety', () => {
   it('accepts a downvote only when an admin enables dual voting', async () => {
@@ -276,66 +326,91 @@ describe('replay reaction safety', () => {
     expect(repo.get(f.card.id)?.bonus_awarded).toBe(10);
     expect(activity.getMember(f.id, 'author')?.points).toBe(10);
   });
-  it('posts a separate card without editing or deleting the uploader message, and recovers an interrupted send', async () => {
-    const f = fixture();
-    const sent = {
-      id: 'new-card',
-      react: vi.fn().mockResolvedValue(null),
-      author: { id: 'bot' },
-      embeds: [],
-    };
-    const channel: any = Object.create(TextChannel.prototype);
-    Object.defineProperties(channel, {
-      messages: { value: { fetch: vi.fn().mockResolvedValue(new Collection()) } },
-      permissionsFor: { value: () => ({ has: () => true }) },
-      send: { value: vi.fn().mockResolvedValue(sent) },
-    });
-    const source: any = {
-      id: 'upload',
-      guild: f.guild,
-      channelId: f.channelId,
-      channel,
-      author: { id: 'author' },
-      client: { user: { id: 'bot' } },
-      edit: vi.fn(),
-      delete: vi.fn(),
-    };
-    const hash = 'f'.repeat(64);
-    expect(
-      await f.service.post(source, { id: 'file', name: '@everyone.RA3Replay' } as any, hash),
-    ).toBe(true);
-    expect(channel.send.mock.calls[0][0].allowedMentions).toEqual({
+  it('copies the replay into its card before removing the original, and keeps downloads and owner controls', async () => {
+    const f = archiveFixture();
+    expect(await f.service.post(f.source, f.attachment as any, f.fingerprint, f.file)).toBe(true);
+    const card = repo.findFingerprint(f.id, f.fingerprint)!;
+    expect(card.archive_attachment_id).toBe('600');
+    expect(card.description).toBe('Great game');
+    expect(f.channel.send.mock.calls[0][0].files[0].attachment).toEqual(f.bytes);
+    expect(f.channel.send.mock.calls[0][0].allowedMentions).toEqual({
       parse: [],
       repliedUser: false,
     });
-    expect(sent.react.mock.calls.map((c: any[]) => c[0])).toEqual(['👍']);
-    expect(source.edit).not.toHaveBeenCalled();
-    expect(source.delete).not.toHaveBeenCalled();
-    expect(
-      await f.service.post(source, { id: 'file', name: 'duplicate.RA3Replay' } as any, hash),
-    ).toBe(false);
-    expect(channel.send).toHaveBeenCalledTimes(1);
-    const pending = repo.create({
-      ...f.card,
-      fingerprint: 'e'.repeat(64),
-      card_message_id: undefined,
-    } as any);
-    channel.messages.fetch.mockResolvedValue(
-      new Collection([
-        [
-          'recovered',
-          {
-            ...sent,
-            id: 'recovered',
-            embeds: [{ footer: { text: `Replay #${pending.id} - rules` } }],
-          },
-        ],
-      ]),
+    const payload = f.sent.edit.mock.calls.at(-1)![0];
+    expect(payload.embeds[0].toJSON().description).toContain(`/${f.sent.id})`);
+    expect(payload.components[0].toJSON().components.map((c: any) => c.label)).toEqual([
+      'Edit Replay',
+      'Remove Replay',
+    ]);
+    expect(f.sent.react).toHaveBeenCalledWith('👍');
+    expect(f.source.delete).toHaveBeenCalledOnce();
+    expect(f.source.delete.mock.invocationCallOrder[0]).toBeGreaterThan(
+      f.sent.edit.mock.invocationCallOrder[0],
     );
-    expect(await f.service.post(source, { id: 'file' } as any, pending.fingerprint)).toBe(false);
-    expect(repo.get(pending.id)?.card_message_id).toBe('recovered');
-    expect(channel.send).toHaveBeenCalledTimes(1);
+    expect(f.source.edit).not.toHaveBeenCalled();
+    expect(await f.service.post(f.source, f.attachment as any, f.fingerprint, f.file)).toBe(false);
+    expect(f.channel.send).toHaveBeenCalledOnce();
   });
+  it('upgrades an existing legacy card instead of duplicating it', async () => {
+    const f = archiveFixture();
+    const pending = repo.create({
+      guild_id: f.id,
+      user_id: 'author',
+      channel_id: f.channelId,
+      source_message_id: f.source.id,
+      attachment_id: f.attachment.id,
+      filename: f.attachment.name,
+      fingerprint: f.fingerprint,
+    });
+    repo.attachMessage(pending.id, f.sent.id);
+    f.sent.attachments = new Collection();
+    expect(await f.service.post(f.source, f.attachment as any, f.fingerprint, f.file)).toBe(false);
+    expect(f.channel.send).not.toHaveBeenCalled();
+    expect(f.sent.edit.mock.calls[0][0].files[0].attachment).toEqual(f.bytes);
+    expect(repo.get(pending.id)?.archive_attachment_id).toBe('600');
+    expect(f.source.delete).toHaveBeenCalledOnce();
+  });
+  it('recovers a successful send after a crash without creating a second card', async () => {
+    const f = archiveFixture();
+    const pending = repo.create({
+      guild_id: f.id,
+      user_id: 'author',
+      channel_id: f.channelId,
+      source_message_id: f.source.id,
+      attachment_id: f.attachment.id,
+      filename: f.attachment.name,
+      fingerprint: f.fingerprint,
+    });
+    f.sent.embeds = [{ footer: { text: `Replay #${pending.id} - rules` } }];
+    f.fetch.mockImplementation(async (arg) =>
+      typeof arg === 'string' ? f.sent : new Collection([[f.sent.id, f.sent]]),
+    );
+    expect(await f.service.post(f.source, f.attachment as any, f.fingerprint, f.file)).toBe(false);
+    expect(repo.get(pending.id)?.card_message_id).toBe(f.sent.id);
+    expect(f.channel.send).not.toHaveBeenCalled();
+    expect(f.source.delete).toHaveBeenCalledOnce();
+  });
+  it.each(['failed-copy', 'missing-copy', 'other-file', 'missing-permission', 'disabled-scan'])(
+    'preserves the original upload when archiving is unsafe: %s',
+    async (reason) => {
+      const f = archiveFixture();
+      if (reason === 'failed-copy') f.channel.send.mockRejectedValue(new Error('upload failed'));
+      if (reason === 'missing-copy') {
+        f.sent.attachments = new Collection();
+        f.sent.edit.mockResolvedValue(f.sent);
+      }
+      if (reason === 'other-file')
+        f.source.attachments.set('extra', { ...f.attachment, id: 'extra', name: 'notes.txt' });
+      if (reason === 'missing-permission')
+        Object.defineProperty(f.channel, 'permissionsFor', {
+          value: () => ({ has: (p: any) => Array.isArray(p) }),
+        });
+      if (reason === 'disabled-scan') activity.updateSettings(f.id, { replayAutoScan: false }, 0);
+      await f.service.post(f.source, f.attachment as any, f.fingerprint, f.file);
+      expect(f.source.delete).not.toHaveBeenCalled();
+    },
+  );
   it('does not let recovery assign an already credited replay to another uploader', async () => {
     const f = fixture();
     const fingerprint = '9'.repeat(64);

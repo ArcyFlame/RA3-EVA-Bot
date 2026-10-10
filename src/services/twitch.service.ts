@@ -35,6 +35,10 @@ interface HelixStream {
 export class TwitchService {
   private appAccessToken: { token: string; expiresAt: number } | null = null;
   private userAccessToken: { token: string; expiresAt: number } | null = null;
+  resetCredentials(): void {
+    this.appAccessToken = null;
+    this.userAccessToken = null;
+  }
 
   private async getAppAccessToken(): Promise<string> {
     if (this.appAccessToken && Date.now() < this.appAccessToken.expiresAt) {
@@ -43,6 +47,9 @@ export class TwitchService {
 
     try {
       const res = await axios.post('https://id.twitch.tv/oauth2/token', null, {
+        timeout: 8000,
+        maxRedirects: 0,
+        maxContentLength: 512 * 1024,
         params: {
           client_id: env.TWITCH_CLIENT_ID,
           client_secret: env.TWITCH_CLIENT_SECRET,
@@ -69,6 +76,9 @@ export class TwitchService {
 
     try {
       const res = await axios.post('https://id.twitch.tv/oauth2/token', null, {
+        timeout: 8000,
+        maxRedirects: 0,
+        maxContentLength: 512 * 1024,
         params: {
           client_id: env.TWITCH_CLIENT_ID,
           client_secret: env.TWITCH_CLIENT_SECRET,

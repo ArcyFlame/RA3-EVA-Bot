@@ -6,6 +6,8 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: '30 6 * * *'
 
 permissions:
   contents: read
@@ -29,7 +31,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm rebuild better-sqlite3 canvas --ignore-scripts=false
-      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=low
       - run: npm run build
       - run: npm run lint
       - run: npm test
@@ -38,7 +40,7 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Audit Discord testing MCP
         working-directory: tools/discord-test-mcp
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --audit-level=low
       - name: Test Discord MCP protocol and safeguards
         working-directory: tools/discord-test-mcp
         run: npm test

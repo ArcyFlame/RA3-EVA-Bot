@@ -221,7 +221,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: '⚙️ Server Configuration',
         value:
-          '`/bot setup` - Server setup wizard (admin role, channels, features)\n`/set admin role <role>` - Set the bot admin role\n`/toggle` - Choose a feature, then enable or disable it\n`/notifications` - Notification channels & streamers (admin view)',
+          '`/bot setup` - Server setup wizard (roles, channels, services, profile and features)\n`/bot profile` - This server’s bot nickname, avatar, banner and description\n`/api` - Service status; shared credentials can be changed only by the bot owner\n`/set admin role <role>` - Set the bot admin role\n`/toggle` - Choose a feature, then enable or disable it\n`/notifications` - Notification channels & streamers (admin view)',
         inline: false,
       },
       {
@@ -270,7 +270,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
             {
               name: '🎬 Replay Ratings',
               value:
-                '`/activity admin` → Replay Ratings - Enable ratings, set bonus XP limits or scan recent uploads. Each accepted file gets its own 👍 card. Original messages are kept.',
+                '`/activity admin` → Replay Ratings - Enable ratings, set bonus XP limits or scan recent uploads. Each accepted file gets its own downloadable 👍 card. Replay-only original messages are removed after copying. The uploader can edit or remove the card.',
               inline: false,
             },
           ]

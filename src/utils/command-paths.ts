@@ -8,6 +8,7 @@ export const COMMAND_PATHS: Readonly<Record<string, readonly string[]>> = {
   remove_master: ['master', 'remove'],
   list_masters: ['master', 'list'],
   bot_setup: ['bot', 'setup'],
+  bot_profile: ['bot', 'profile'],
   clan_approve: ['clan', 'approve'],
   clan_manager: ['clan', 'manager'],
   clan_create: ['clan', 'create'],

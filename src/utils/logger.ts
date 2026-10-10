@@ -1,5 +1,6 @@
 import winston from 'winston';
 import { env } from '../config/env';
+import { credentialSecrets } from '../config/runtime-credentials';
 
 const LEVELS = { error: 0, warn: 1, audit: 2, info: 3, debug: 4 } as const;
 
@@ -28,7 +29,7 @@ function scrub(value: unknown, depth = 0): unknown {
   if (depth > 6) return value;
   if (typeof value === 'string') {
     let out = value;
-    for (const secret of secrets) {
+    for (const secret of [...secrets, ...collectSecrets(), ...credentialSecrets()]) {
       if (out.includes(secret)) out = out.split(secret).join('[REDACTED]');
     }
     return out;

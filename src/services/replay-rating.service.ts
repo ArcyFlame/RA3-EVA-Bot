@@ -1,5 +1,8 @@
 import {
   Attachment,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   Client,
   EmbedBuilder,
   Guild,
@@ -29,7 +32,8 @@ export function replayRatingEmbed(card: ReplayRatingCard): EmbedBuilder {
     .setColor(0xd6ad43)
     .setDescription(
       `**${escapeMarkdown(card.filename)}**\nUploaded by <@${card.user_id}>\n` +
-        `[Download the replay](https://discord.com/channels/${card.guild_id}/${card.channel_id}/${card.source_message_id})`,
+        (card.description ? escapeMarkdown(card.description) + '\n' : '') +
+        `[Download the replay](https://discord.com/channels/${card.guild_id}/${card.channel_id}/${card.card_message_id ?? card.source_message_id})`,
     )
     .addFields(
       {
@@ -42,6 +46,21 @@ export function replayRatingEmbed(card: ReplayRatingCard): EmbedBuilder {
     .setFooter({
       text: `Replay #${card.id} - ${both ? 'One active vote per member; your latest vote counts.' : 'One upvote per member.'} No self-votes. XP is capped.`,
     });
+}
+
+export function replayRatingControls(card: ReplayRatingCard) {
+  return [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`replay_manage:edit:${card.id}:${card.revision ?? 0}`)
+        .setLabel('Edit Replay')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`replay_manage:remove:${card.id}:${card.revision ?? 0}`)
+        .setLabel('Remove Replay')
+        .setStyle(ButtonStyle.Danger),
+    ),
+  ];
 }
 
 export class ReplayRatingService {
@@ -129,7 +148,12 @@ export class ReplayRatingService {
     );
   }
 
-  async post(message: Message, attachment: Attachment, fingerprint: string): Promise<boolean> {
+  async post(
+    message: Message,
+    attachment: Attachment,
+    fingerprint: string,
+    verified?: { bytes: Buffer; fingerprint: string },
+  ): Promise<boolean> {
     if (!message.guild || !this.enabled(message.guild.id, message.channelId)) return false;
     const creditedOwner = activityRankRepository.getReplayOwner(message.guild.id, fingerprint);
     if (creditedOwner && creditedOwner !== message.author.id) return false;
@@ -147,7 +171,6 @@ export class ReplayRatingService {
         filename: attachment.name ?? 'Replay.RA3Replay',
       });
       if (
-        card.card_message_id ||
         card.closed ||
         card.user_id !== message.author.id ||
         !(message.channel instanceof TextChannel)
@@ -159,6 +182,7 @@ export class ReplayRatingService {
         !permissions?.has([
           PermissionFlagsBits.ViewChannel,
           PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.AttachFiles,
           PermissionFlagsBits.EmbedLinks,
           PermissionFlagsBits.AddReactions,
           PermissionFlagsBits.ReadMessageHistory,
@@ -170,20 +194,55 @@ export class ReplayRatingService {
         });
         return false;
       }
+      let existing = card.card_message_id
+        ? await message.channel.messages.fetch(card.card_message_id).catch(() => null)
+        : null;
+      if (card.card_message_id && !existing) return false;
+      if (existing && existing.author.id !== message.client.user?.id) return false;
+      if (existing?.attachments.has(card.archive_attachment_id ?? '')) {
+        await this.hideSource(message);
+        return false;
+      }
+      const file =
+        verified?.fingerprint === fingerprint
+          ? verified
+          : await activityRankService.downloadReplayFile(attachment);
+      if (!file || file.fingerprint !== fingerprint) return false;
       // Recover a send that succeeded just before a crash, without posting the same card again.
       const recent = await message.channel.messages.fetch({ limit: 50 });
-      const existing = recent.find(
-        (m) =>
-          m.author.id === message.client.user?.id &&
-          m.embeds.some((e) => e.footer?.text?.startsWith(`Replay #${card.id} - `)),
-      );
+      existing ??=
+        recent.find(
+          (m) =>
+            m.author.id === message.client.user?.id &&
+            m.embeds.some((e) => e.footer?.text?.startsWith(`Replay #${card.id} - `)),
+        ) ?? null;
       const sent =
         existing ??
         (await message.channel.send({
           embeds: [replayRatingEmbed(card)],
+          files: [{ attachment: file.bytes, name: card.filename }],
+          components: replayRatingControls(card),
           allowedMentions: { parse: [], repliedUser: false },
         }));
       replayRatingRepository.attachMessage(card.id, sent.id);
+      if (!sent.attachments.size) {
+        const archived = await sent.edit({
+          files: [{ attachment: file.bytes, name: card.filename }],
+        });
+        const copy = archived.attachments.first();
+        if (!copy) return false;
+        replayRatingRepository.archive(card.id, copy.id, message.content ?? '');
+      } else {
+        const copy = sent.attachments.find((a) => a.name === card.filename);
+        if (!copy) return false;
+        replayRatingRepository.archive(card.id, copy.id, message.content ?? '');
+      }
+      const updated = replayRatingRepository.get(card.id)!;
+      await sent.edit({
+        embeds: [replayRatingEmbed(updated)],
+        components: replayRatingControls(updated),
+        allowedMentions: { parse: [] },
+      });
       await sent.react('👍').catch(() => null);
       if (activityRankRepository.getSettings(card.guild_id).ratingMode === 'both')
         await sent.react('👎').catch(() => null);
@@ -194,12 +253,56 @@ export class ReplayRatingService {
           cardId: card.id,
           messageId: sent.id,
         });
+      await this.hideSource(message);
       return !existing;
     } catch (error) {
       logger.warn('Replay rating card could not be posted:', error);
       return false;
     } finally {
       this.posting.delete(key);
+    }
+  }
+
+  async hideSource(message: Message): Promise<boolean> {
+    if (
+      !message.guild ||
+      !this.enabled(message.guild.id, message.channelId) ||
+      !(message.channel instanceof TextChannel) ||
+      !activityRankRepository.getSettings(message.guild.id).replayAutoScan ||
+      !message.attachments?.size ||
+      (message.content?.length ?? 0) > 1500 ||
+      !message.guild.members.me ||
+      !message.channel
+        .permissionsFor(message.guild.members.me)
+        ?.has(PermissionFlagsBits.ManageMessages)
+    )
+      return false;
+    const cards = replayRatingRepository.bySource(message.guild.id, message.id);
+    for (const attachment of message.attachments.values()) {
+      if (!isReplayAttachment(attachment, message.channelId)) return false;
+      const card = cards.find(
+        (c) =>
+          c.attachment_id === attachment.id &&
+          c.user_id === message.author.id &&
+          !c.closed &&
+          c.archive_attachment_id &&
+          c.card_message_id,
+      );
+      if (!card) return false;
+      const copy = await message.channel.messages.fetch(card.card_message_id!).catch(() => null);
+      if (
+        !copy ||
+        copy.author.id !== message.client.user?.id ||
+        !copy.attachments.has(card.archive_attachment_id!)
+      )
+        return false;
+    }
+    try {
+      await message.delete();
+      audit('replay_source_archived', { guildId: message.guild.id, messageId: message.id });
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -275,7 +378,11 @@ export class ReplayRatingService {
       void message
         .fetch()
         .then(async (full) => {
-          await full.edit({ embeds: [replayRatingEmbed(card)], allowedMentions: { parse: [] } });
+          await full.edit({
+            embeds: [replayRatingEmbed(card)],
+            components: replayRatingControls(card),
+            allowedMentions: { parse: [] },
+          });
           await full.react('👍').catch(() => undefined);
           const down = full.reactions.cache.get('👎');
           if (activityRankRepository.getSettings(card.guild_id).ratingMode === 'both')
@@ -354,12 +461,7 @@ export class ReplayRatingService {
           (!options.automatic || activityRankRepository.getSettings(guild.id).replayAutoScan)
         ) {
           const prior = replayRatingRepository.findFingerprint(guild.id, fingerprint);
-          if (
-            !prior?.card_message_id &&
-            !prior?.closed &&
-            (await this.post(message, attachment, fingerprint))
-          )
-            cards++;
+          if (!prior?.closed && (await this.post(message, attachment, fingerprint))) cards++;
         }
       }
     }

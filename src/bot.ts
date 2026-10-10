@@ -12,6 +12,8 @@ import { matchReminderService } from './services/match-reminder.service';
 import { tournamentScanner } from './services/tournament-scanner.service';
 import { WebhookServer } from './webhook/server';
 import { Command, ComponentRegistries, createRegistry } from './types';
+import { serviceCredentials } from './services/service-credentials.service';
+import { twitchService } from './services/twitch.service';
 
 export class RA3Bot {
   public readonly client: Client;
@@ -23,6 +25,7 @@ export class RA3Bot {
   };
   private webhookServer: WebhookServer | null = null;
   private shuttingDown = false;
+  private refreshingServices: Promise<void> | null = null;
   private probation = process.env.RA3_UPDATE_PROBATION === '1' && !!process.send;
 
   constructor() {
@@ -49,6 +52,11 @@ export class RA3Bot {
 
   async start(): Promise<void> {
     await connectDatabase();
+    serviceCredentials.load();
+    if (serviceCredentials.locked)
+      logger.warn(
+        'Stored service credentials are locked; host environment settings remain available.',
+      );
     // Load local definitions before login so a broken file fails fast at boot.
     await loadCommands(this);
     await registerComponents(this);
@@ -84,6 +92,43 @@ export class RA3Bot {
     }
 
     logger.info('Bot started successfully');
+  }
+
+  refreshServiceConfiguration(): Promise<void> {
+    if (this.refreshingServices) return this.refreshingServices;
+    this.refreshingServices = (async () => {
+      twitchNotifier.stop();
+      twitchService.resetCredentials();
+      if (
+        env.TWITCH_CLIENT_ID &&
+        env.TWITCH_CLIENT_SECRET &&
+        serviceCredentials.status('twitch') !== 'invalid'
+      ) {
+        await twitchNotifier
+          .start(this.client)
+          .catch(() =>
+            logger.warn('Twitch remains unavailable; other services are still running.'),
+          );
+      }
+      youTubeNotifier.stop();
+      youTubeNotifier.setClient(this.client);
+      const callback = env.PUBLIC_CALLBACK_URL ?? env.YOUTUBE_CALLBACK_BASE;
+      if (callback) youTubeNotifier.setCallbackUrl(callback);
+      if (callback && env.YOUTUBE_API_KEY && !this.webhookServer) {
+        this.webhookServer = new WebhookServer(env.WEBHOOK_PORT);
+        this.webhookServer.start();
+      }
+      await youTubeNotifier
+        .start()
+        .catch(() =>
+          logger.warn(
+            'YouTube notifications remain unavailable; other services are still running.',
+          ),
+        );
+    })().finally(() => {
+      this.refreshingServices = null;
+    });
+    return this.refreshingServices;
   }
 
   /** Idempotent — safe to call from multiple signal handlers. */

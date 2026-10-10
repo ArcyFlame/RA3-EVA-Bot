@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RA3Bot } from '../../src/bot';
+vi.mock('../../src/services/service-credentials.service', () => ({
+  serviceCredentials: { load: vi.fn(), locked: false },
+}));
 
 const calls = vi.hoisted(() => ({
   login: vi.fn(),

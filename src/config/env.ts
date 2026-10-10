@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
+import { configuredCredential } from './runtime-credentials';
 
-dotenv.config();
+if (process.env.NODE_ENV !== 'test') dotenv.config();
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -80,23 +81,41 @@ export const env = {
   OWNER_ID: snowflake('OWNER_ID'),
 
   // ── Challonge (optional — tournament commands degrade gracefully) ─────
-  CHALLONGE_API_KEY: optional('CHALLONGE_API_KEY'),
-  CHALLONGE_SUBDOMAIN: optional('CHALLONGE_SUBDOMAIN'),
+  get CHALLONGE_API_KEY() {
+    return configuredCredential('CHALLONGE_API_KEY');
+  },
+  get CHALLONGE_SUBDOMAIN() {
+    return configuredCredential('CHALLONGE_SUBDOMAIN');
+  },
 
   // ── Twitch (optional — notifier disabled when absent) ─────────────────
-  TWITCH_CLIENT_ID: optional('TWITCH_CLIENT_ID'),
-  TWITCH_CLIENT_SECRET: optional('TWITCH_CLIENT_SECRET'),
-  TWITCH_REFRESH_TOKEN: optional('TWITCH_REFRESH_TOKEN'),
+  get TWITCH_CLIENT_ID() {
+    return configuredCredential('TWITCH_CLIENT_ID');
+  },
+  get TWITCH_CLIENT_SECRET() {
+    return configuredCredential('TWITCH_CLIENT_SECRET');
+  },
+  get TWITCH_REFRESH_TOKEN() {
+    return configuredCredential('TWITCH_REFRESH_TOKEN');
+  },
 
   // ── YouTube (optional) ────────────────────────────────────────────────
-  YOUTUBE_API_KEY: optional('YOUTUBE_API_KEY'),
+  get YOUTUBE_API_KEY() {
+    return configuredCredential('YOUTUBE_API_KEY');
+  },
   YOUTUBE_CALLBACK_BASE: httpUrl('YOUTUBE_CALLBACK_BASE'),
-  YOUTUBE_VERIFY_TOKEN: optional('YOUTUBE_VERIFY_TOKEN'),
+  get YOUTUBE_VERIFY_TOKEN() {
+    return configuredCredential('YOUTUBE_VERIFY_TOKEN');
+  },
   /** Shared secret for X-Hub-Signature HMAC verification of PubSubHubbub pushes. */
-  YOUTUBE_CALLBACK_SECRET: optional('YOUTUBE_CALLBACK_SECRET'),
+  get YOUTUBE_CALLBACK_SECRET() {
+    return configuredCredential('YOUTUBE_CALLBACK_SECRET');
+  },
 
   // ── Misc ──────────────────────────────────────────────────────────────
-  STEAM_API_KEY: optional('STEAM_API_KEY'),
+  get STEAM_API_KEY() {
+    return configuredCredential('STEAM_API_KEY');
+  },
   PUBLIC_CALLBACK_URL: httpUrl('PUBLIC_CALLBACK_URL'),
   WEBHOOK_PORT: port('WEBHOOK_PORT', 8081),
 

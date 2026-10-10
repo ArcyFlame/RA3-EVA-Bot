@@ -89,6 +89,7 @@ describe('server-specific bot profiles', () => {
     );
     const service = new GuildBrandingService();
     const first = service.apply(guild, 'genevo');
+    await vi.waitFor(() => expect(finish).toBeDefined());
     guildRepository.setGame(guild.id, 'ra3');
     const second = service.apply(guild, 'ra3');
     finish({ data: png() } as never);

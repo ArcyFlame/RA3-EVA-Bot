@@ -17,13 +17,8 @@ export interface YouTubeVideo {
 }
 
 export class YouTubeService {
-  private readonly apiKey: string | undefined;
-
-  constructor() {
-    // Do NOT throw here: youtube.service is imported at boot even when YouTube
-    // is unconfigured (env.YOUTUBE_API_KEY is optional). Methods below degrade
-    // gracefully when the key is absent.
-    this.apiKey = env.YOUTUBE_API_KEY;
+  private get apiKey(): string | undefined {
+    return env.YOUTUBE_API_KEY;
   }
 
   async getChannelIdFromHandle(handle: string): Promise<string | null> {

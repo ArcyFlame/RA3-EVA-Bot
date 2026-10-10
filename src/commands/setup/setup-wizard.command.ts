@@ -12,6 +12,11 @@ import { RA3Bot } from '../../bot';
 import { requireAdminInteraction } from '../../utils/admin-interaction';
 import { guildRepository } from '../../repositories/guild.repository';
 import { GAME_CONFIGS, GameId } from '../../config/games';
+import {
+  serviceCredentials,
+  SERVICE_FIELDS,
+  ServiceId,
+} from '../../services/service-credentials.service';
 
 export const data = new SlashCommandBuilder()
   .setName('bot_setup')
@@ -64,6 +69,22 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
         value: 'Turn on/off clans, tournaments, profiles, notifiers, menu mode.',
         inline: false,
       },
+      {
+        name: '4. Service Connections',
+        value:
+          'Use Service Connections or /api to check optional APIs. Only the bot owner can update shared keys. Missing keys do not prevent the rest of the bot from working.',
+      },
+      {
+        name: '5. Bot Server Profile',
+        value:
+          'Choose this server’s bot nickname, avatar, banner and description. Upload an image from your computer or provide a direct image URL.',
+      },
+      {
+        name: 'Optional Services',
+        value: (Object.keys(SERVICE_FIELDS) as ServiceId[])
+          .map((service) => `${service}: ${serviceCredentials.status(service)}`)
+          .join('\n'),
+      },
       { name: '🎮 Current game', value: gameLabel, inline: false },
     );
 
@@ -103,7 +124,20 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
 
   await interaction.reply({
     embeds: [embed],
-    components: [gameSelect, row],
+    components: [
+      gameSelect,
+      row,
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId('setup_api')
+          .setLabel('Service Connections')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId('setup_profile')
+          .setLabel('Bot Server Profile')
+          .setStyle(ButtonStyle.Secondary),
+      ),
+    ],
     ephemeral: true,
   });
 }

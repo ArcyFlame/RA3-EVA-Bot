@@ -34,6 +34,7 @@ import { up as up032, down as down032 } from './migrations/032_configurable_acti
 import { up as up033, down as down033 } from './migrations/033_match_reminder_delivery';
 import { up as up034, down as down034 } from './migrations/034_replay_ratings';
 import { up as up035, down as down035 } from './migrations/035_profile_and_activity_controls';
+import { up as up036, down as down036 } from './migrations/036_replay_archive';
 import { logger } from '../utils/logger';
 
 interface Migration {
@@ -80,6 +81,7 @@ const migrations: Migration[] = [
   { version: 33, name: '033_match_reminder_delivery', up: up033, down: down033 },
   { version: 34, name: '034_replay_ratings', up: up034, down: down034 },
   { version: 35, name: '035_profile_and_activity_controls', up: up035, down: down035 },
+  { version: 36, name: '036_replay_archive', up: up036, down: down036 },
 ];
 
 function ensureMigrationsTable(): void {
