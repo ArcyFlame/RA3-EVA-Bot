@@ -4,6 +4,7 @@ import { tournamentRepository } from '../repositories/tournament.repository';
 import { userRepository } from '../repositories/user.repository';
 import { logger } from '../utils/logger';
 import { resolveTournamentStatus } from '../utils/tournament-status';
+import { tournamentAccessRepository } from '../repositories/tournament-access.repository';
 
 export type CheckinActivity =
   | 'registered'
@@ -55,12 +56,32 @@ export class CheckinNotificationService {
     });
     if (status === 'ended') return 0;
 
+    const organizer = tournamentAccessRepository.organizer(eventId);
+    const config = organizer ? guildRepository.findByDiscordId(organizer) : undefined;
+    if (
+      !config ||
+      config.tournamentsEnabled === 0 ||
+      !config.refereeRoleId ||
+      config.game !== detail.game
+    )
+      return 0;
+    const guild = this.client.guilds.cache.get(config.discordId);
+    if (!guild) return 0;
+    let accepted: string[];
+    try {
+      accepted = tournamentAccessRepository.claimCheckinAlerts(eventId, names);
+    } catch (error) {
+      logger.warn('Check-in notification budget unavailable:', error);
+      return 0;
+    }
+    if (!accepted.length) return 0;
+
     const copy = ACTIVITY_LABELS[activity];
     const embed = new EmbedBuilder()
       .setTitle(copy.title)
       .setColor(copy.color)
       .setDescription(
-        `${copy.description}\n${names.map((name, index) => `${index + 1}. **${escapeMarkdown(name)}**`).join('\n')}`.slice(
+        `${copy.description}\n${accepted.map((name, index) => `${index + 1}. **${escapeMarkdown(name)}**`).join('\n')}`.slice(
           0,
           4000,
         ),
@@ -70,23 +91,32 @@ export class CheckinNotificationService {
       .setTimestamp();
 
     let sent = 0;
-    for (const config of guildRepository.getAllGuilds()) {
-      if (config.tournamentsEnabled === 0 || !config.refereeRoleId || detail.game !== config.game) {
+    let attempted = 0;
+    if (!(await guild.members.fetch().catch(() => null))) return 0;
+    const role = guild.roles.cache.get(config.refereeRoleId);
+    if (!role) return 0;
+    for (const referee of role.members.values()) {
+      const freshConfig = guildRepository.findByDiscordId(config.discordId);
+      if (
+        tournamentAccessRepository.organizer(eventId) !== organizer ||
+        freshConfig?.tournamentsEnabled === 0 ||
+        freshConfig?.refereeRoleId !== config.refereeRoleId ||
+        freshConfig?.game !== detail.game
+      )
+        break;
+      if (attempted >= 10) break;
+      if (
+        referee.user.bot ||
+        !referee.roles.cache.has(config.refereeRoleId) ||
+        !userRepository.isRefereeCheckinDmEnabled(referee.id)
+      )
         continue;
-      }
-      const guild = this.client.guilds.cache.get(config.discordId);
-      if (!guild) continue;
-      await guild.members.fetch().catch(() => null);
-      const role = guild.roles.cache.get(config.refereeRoleId);
-      if (!role) continue;
-      for (const referee of role.members.values()) {
-        if (referee.user.bot || !userRepository.isRefereeCheckinDmEnabled(referee.id)) continue;
-        try {
-          await referee.send({ embeds: [embed] });
-          sent++;
-        } catch (error) {
-          logger.debug(`Check-in DM could not be sent to ${referee.id}:`, error);
-        }
+      attempted++;
+      try {
+        await referee.send({ embeds: [embed] });
+        sent++;
+      } catch (error) {
+        logger.debug(`Check-in DM could not be sent to ${referee.id}:`, error);
       }
     }
     return sent;

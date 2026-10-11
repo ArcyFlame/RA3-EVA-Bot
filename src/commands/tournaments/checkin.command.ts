@@ -14,7 +14,7 @@ import {
   listTournamentContexts,
 } from '../../services/tournament-context.service';
 import { resolveMember } from '../../utils/members';
-import { isAdminOrReferee } from '../../utils/permissions';
+import { canManageTournament } from '../../utils/tournament-access';
 import { buildCheckinBoard } from './checkin.utils';
 import { GameId, GAME_CONFIGS } from '../../config/games';
 
@@ -76,7 +76,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   }
 
   const member = await resolveMember(interaction);
-  const staff = !!member && isAdminOrReferee(member);
+  const staff = canManageTournament(member, event.id);
   await interaction.reply({
     ...buildCheckinBoard(event.id, interaction.guild.id, staff),
     content: staff

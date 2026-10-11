@@ -3,7 +3,7 @@ import { RA3Bot } from '../../bot';
 import { openBotProfile } from './bot-profile.view';
 export const data = new SlashCommandBuilder()
   .setName('bot_profile')
-  .setDescription('Change the bot nickname, images and description for this server')
+  .setDescription('Edit this server bot profile')
   .setDefaultMemberPermissions(null);
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   await openBotProfile(interaction);

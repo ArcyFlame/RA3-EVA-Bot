@@ -27,7 +27,9 @@ describe('UserRepository - DM toggles', () => {
     expect(repo.findByDiscordId('user1')?.tournamentMatchDmEnabled).toBe(0);
   });
 
-  it('defaults referee check-in alerts to on and lets the referee disable them', () => {
+  it('requires opt-in for referee check-in alerts and lets the referee disable them', () => {
+    expect(repo.isRefereeCheckinDmEnabled('new-referee')).toBe(false);
+    repo.setRefereeCheckinDmEnabled('new-referee', true);
     expect(repo.isRefereeCheckinDmEnabled('new-referee')).toBe(true);
     repo.setRefereeCheckinDmEnabled('new-referee', false);
     expect(repo.isRefereeCheckinDmEnabled('new-referee')).toBe(false);

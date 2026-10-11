@@ -5,7 +5,7 @@ import { parseIntSafe } from '../../utils/parse';
 import { logger } from '../../utils/logger';
 import { guildRepository } from '../../repositories/guild.repository';
 import { resolveMember } from '../../utils/members';
-import { isTournamentStaff } from '../../utils/permissions';
+import { canManageTournament } from '../../utils/tournament-access';
 
 /**
  * /results navigation: `resultspg_{prev|next}_{entryId}`. Wrap-around in both
@@ -38,7 +38,8 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     const member = await resolveMember(interaction);
     const rendered = await renderResultsPage(
       list.entries[nextIndex],
-      !!member && isTournamentStaff(member),
+      !!list.entries[nextIndex].eventId &&
+        canManageTournament(member, list.entries[nextIndex].eventId!),
     );
     if (rendered) await interaction.editReply(rendered);
   } catch (error) {

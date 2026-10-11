@@ -113,7 +113,9 @@ function renderEventEmbed(
       inline: false,
     },
   );
-  embed.setFooter({ text: `${config.shortLabel} Esports • ${index + 1}/${announcements.length}` });
+  embed.setFooter({
+    text: `${config.shortLabel} Esports • ${index + 1}/${announcements.length} • Event #${eventId}`,
+  });
   return { embed, index, actionUrl, actionKind };
 }
 

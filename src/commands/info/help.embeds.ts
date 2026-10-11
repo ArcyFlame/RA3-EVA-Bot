@@ -125,8 +125,8 @@ export function buildCommunityEmbed(game: GameId = 'ra3'): EmbedBuilder {
         inline: false,
       },
       {
-        name: '💡 Tips & Trivia',
-        value: `\`/tips\` - Random ${config.shortLabel} gameplay tip.`,
+        name: '💡 Gameplay Tips',
+        value: `\`/tips [visibility]\` - ${config.shortLabel} tips with source links. Private or public, as allowed by this server.`,
         inline: false,
       },
       {
@@ -207,7 +207,7 @@ export function buildInfoEmbed(game: GameId = 'ra3'): EmbedBuilder {
     )
     .addFields(
       { name: '🛠️ Created by', value: '<@270293736871690240> (Arcy)', inline: true },
-      { name: '📅 Version', value: '5.2.0', inline: true },
+      { name: '📅 Version', value: '5.4.0', inline: true },
     );
 }
 
@@ -221,7 +221,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: '⚙️ Server Configuration',
         value:
-          '`/bot setup` - Server setup wizard (roles, channels, services, profile and features)\n`/bot profile` - This server’s bot nickname, avatar, banner and description\n`/api` - Service status; shared credentials can be changed only by the bot owner\n`/set admin role <role>` - Set the bot admin role\n`/toggle` - Choose a feature, then enable or disable it\n`/notifications` - Notification channels & streamers (admin view)',
+          '`/bot setup` - Configure this server\n`/bot profile` - Edit this server bot profile\n`/api` - Service status (keys: bot owner only)\n`/set admin role <role>` - Choose the admin role\n`/toggle` - Enable or disable features\n`/notifications` - Posting channels and streamers',
         inline: false,
       },
       {
@@ -256,13 +256,13 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: '👤 Player Profiles',
         value:
-          '`/admin profile view <user>` - Inspect a member profile\n`/admin profile unlink <user> <platform>` - Remove one link\n`/admin profile clear <user> <confirm>` - Clear linked identities',
+          '`/admin profile view <user>` - Inspect a member profile\n`/admin profile unlink` or `clear` - Shared identity removal: profile owner or bot owner',
         inline: false,
       },
       {
         name: '🎖️ Activity Ranks',
         value:
-          '`/activity admin` - Configure ping/replay XP, automatic replay scanning, optional chat XP, levels, ranks and roles. Chat XP is off by default.\n`/notifications` → Replay Uploads - Choose the replay channel.\n`/toggle` → Stats charts or Masters - Enable/disable charts and the Hall of Fame.',
+          '`/activity admin` - Configure XP, ranks and replay ratings\n`/notifications` - Choose posting channels\n`/toggle` - Enable or disable server features\n`/admin tips` - Add, edit or remove tips (admins and moderators)',
         inline: false,
       },
       ...(game === 'genevo'
@@ -270,7 +270,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
             {
               name: '🎬 Replay Ratings',
               value:
-                '`/activity admin` → Replay Ratings - Enable ratings, set bonus XP limits or scan recent uploads. Each accepted file gets its own downloadable 👍 card. Replay-only original messages are removed after copying. The uploader can edit or remove the card.',
+                '`/activity admin` → Replay Ratings - Voting, XP limits and replay scanning\nFiles remain downloadable. Replay-only originals are removed after copying. Uploaders can edit or remove their cards.',
               inline: false,
             },
           ]
@@ -278,7 +278,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: '✅ Tournament Check-ins',
         value:
-          '`/checkin [event]` - Open the current tournament management board (referee)\nIncludes clear numbered lists and personal referee DM alert controls.',
+          '`/checkin [event]` - Registration and readiness lists\n`/tournament participant <event> <user> <player>` - Verify a player association (organizer staff)\n`/tournament organizer <event> [server]` - Assign or revoke organizer authority (bot owner)',
         inline: false,
       },
       {

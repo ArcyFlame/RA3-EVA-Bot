@@ -20,7 +20,7 @@ import { logger } from '../../utils/logger';
 import { guildRepository } from '../../repositories/guild.repository';
 import { GameId } from '../../config/games';
 import { resolveMember } from '../../utils/members';
-import { isTournamentStaff } from '../../utils/permissions';
+import { canManageTournament, requireTournamentAccess } from '../../utils/tournament-access';
 
 /**
  * Stateless event-browser actions: `eventpg_{prev|next|results|refresh|edit}_{eventId}`.
@@ -78,8 +78,7 @@ function resolveChallongeUrl(eventId: number, title: string, game: GameId): stri
         e.id !== eventId && matchesGuildGame(e.title, game) && tournamentNamesMatch(e.title, title),
     );
   if (sibling) {
-    // Self-heal: remember the bracket on the announcement row itself.
-    tournamentRepository.setEventChallongeUrl(eventId, sibling.challongeUrl);
+    // A related result may be viewed without transferring bracket ownership.
     return sibling.challongeUrl;
   }
   return null;
@@ -111,14 +110,11 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     return;
   }
   const member = await resolveMember(interaction);
-  const tournamentStaff = !!member && isTournamentStaff(member);
+  const tournamentStaff = canManageTournament(member, eventId);
 
   try {
     if (action === 'edit') {
-      if (!tournamentStaff || !interaction.guildId) {
-        await interaction.reply({ content: 'Tournament staff only.', ephemeral: true });
-        return;
-      }
+      if (!(await requireTournamentAccess(interaction, eventId))) return;
       const detail = tournamentRepository.getEventDetail(eventId);
       if (!detail || detail.game !== guildGame) {
         await interaction.reply({ content: 'This event is not available here.', ephemeral: true });
@@ -257,7 +253,11 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     const count = announcements.length;
     const nextIndex = action === 'prev' ? (index - 1 + count) % count : (index + 1) % count;
     const target = announcements[nextIndex];
-    const rendered = renderEventPage(target.id, announcements, tournamentStaff);
+    const rendered = renderEventPage(
+      target.id,
+      announcements,
+      canManageTournament(member, target.id),
+    );
     if (!rendered) {
       await interaction.reply({ content: 'Could not render this event.', ephemeral: true });
       return;

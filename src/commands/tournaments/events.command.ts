@@ -4,7 +4,7 @@ import { guildRepository } from '../../repositories/guild.repository';
 import { getSortedAnnouncements, renderEventPage } from './events.utils';
 import { getGameContext } from '../../utils/game-context';
 import { resolveMember } from '../../utils/members';
-import { isTournamentStaff } from '../../utils/permissions';
+import { canManageTournament } from '../../utils/tournament-access';
 
 export const data = new SlashCommandBuilder()
   .setName('events')
@@ -38,7 +38,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   const rendered = renderEventPage(
     announcements[0].id,
     announcements,
-    !!member && isTournamentStaff(member),
+    canManageTournament(member, announcements[0].id),
   );
   if (!rendered) {
     await interaction.editReply({ content: 'No tournament announcements found.' });

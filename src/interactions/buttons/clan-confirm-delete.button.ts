@@ -18,7 +18,8 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     await interaction.reply({ content: 'Invalid clan.', ephemeral: true });
     return;
   }
-  const clan = clanRepository.findById(clanId);
+  const clan =
+    clanRepository.findById(clanId, guild.id) ?? clanRepository.findUnassignedById(clanId);
   if (!clan || clan.ownerId !== interaction.user.id) {
     await interaction.reply({ content: 'Not authorized.', ephemeral: true });
     return;

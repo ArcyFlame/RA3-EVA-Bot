@@ -1,6 +1,7 @@
 import { tournamentRepository } from '../repositories/tournament.repository';
 import { parsePortalDate, resolveTournamentStatus } from '../utils/tournament-status';
 import { GameId } from '../config/games';
+import { tournamentAccessRepository } from '../repositories/tournament-access.repository';
 
 export function normalizeTournamentName(title: string): string {
   return title
@@ -59,9 +60,18 @@ export function listTournamentContexts(game: GameId = 'ra3'): TournamentContext[
     .map(toContext);
 }
 
-export function getCurrentTournament(game: GameId = 'ra3'): TournamentContext | null {
+export function getCurrentTournament(
+  game: GameId = 'ra3',
+  organizerGuildId?: string,
+): TournamentContext | null {
   const events = listTournamentContexts(game);
-  return events.find((event) => event.status !== 'ended') ?? null;
+  return (
+    events.find(
+      (event) =>
+        event.status !== 'ended' &&
+        (!organizerGuildId || tournamentAccessRepository.organizer(event.id) === organizerGuildId),
+    ) ?? null
+  );
 }
 
 export function findTournament(query: string, game: GameId = 'ra3'): TournamentContext | null {

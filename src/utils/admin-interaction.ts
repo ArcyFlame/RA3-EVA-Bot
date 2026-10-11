@@ -1,5 +1,24 @@
 import { RepliableInteraction } from 'discord.js';
-import { denyUnlessAdmin } from './permissions';
+import { denyUnlessAdmin, isModerator } from './permissions';
+
+export async function requireModeratorInteraction(
+  interaction: RepliableInteraction,
+): Promise<boolean> {
+  const member = interaction.guild
+    ? await interaction.guild.members
+        .fetch({ user: interaction.user.id, force: true })
+        .catch(() => null)
+    : null;
+  if (member && isModerator(member)) return true;
+  const response = {
+    content: 'Only server admins and moderators can manage tips.',
+    ephemeral: true,
+    allowedMentions: { parse: [] as [] },
+  };
+  if (interaction.deferred || interaction.replied) await interaction.followUp(response);
+  else await interaction.reply(response);
+  return false;
+}
 
 /** Revalidate privileges for each click, including menus opened before a role change. */
 export async function requireAdminInteraction(interaction: RepliableInteraction): Promise<boolean> {

@@ -2,8 +2,7 @@ import { ModalSubmitInteraction } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { tournamentRepository } from '../../repositories/tournament.repository';
 import { renderEventPage } from '../../commands/tournaments/events.utils';
-import { resolveMember } from '../../utils/members';
-import { isTournamentStaff } from '../../utils/permissions';
+import { requireTournamentAccess } from '../../utils/tournament-access';
 import { parseIntSafe } from '../../utils/parse';
 import { parsePortalDate, TournamentStatus } from '../../utils/tournament-status';
 import { guildRepository } from '../../repositories/guild.repository';
@@ -31,11 +30,11 @@ function optionalField(interaction: ModalSubmitInteraction, id: string): string 
 
 export async function execute(_bot: RA3Bot, interaction: ModalSubmitInteraction) {
   const eventId = parseIntSafe(interaction.customId.slice(customIdPrefix.length));
-  const member = await resolveMember(interaction);
-  if (!eventId || !interaction.guildId || !member || !isTournamentStaff(member)) {
+  if (!eventId || !interaction.guildId) {
     await interaction.reply({ content: 'Tournament staff only.', ephemeral: true });
     return;
   }
+  if (!(await requireTournamentAccess(interaction, eventId))) return;
 
   const detail = tournamentRepository.getEventDetail(eventId);
   const guildGame = guildRepository.findByDiscordId(interaction.guildId)?.game ?? 'ra3';

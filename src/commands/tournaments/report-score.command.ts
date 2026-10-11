@@ -15,10 +15,11 @@ import {
   tournamentRepository,
   TournamentParticipant,
 } from '../../repositories/tournament.repository';
-import { userRepository } from '../../repositories/user.repository';
+import { tournamentAccessRepository } from '../../repositories/tournament-access.repository';
 import { challongeService } from '../../services/challonge.service';
 import { getCurrentTournament } from '../../services/tournament-context.service';
 import { GameId, GAME_CONFIGS } from '../../config/games';
+import { tournamentPlayerKey } from '../../utils/tournament-player-name';
 
 const FACTION_MATCHUPS = ['SvS', 'SvA', 'SvE', 'AvS', 'AvA', 'AvE', 'EvS', 'EvA', 'EvE'];
 const GENEVO_FACTION_MATCHUPS = ['UvU', 'UvC', 'UvG', 'CvU', 'CvC', 'CvG', 'GvU', 'GvC', 'GvG'];
@@ -99,7 +100,7 @@ export async function autocomplete(_bot: RA3Bot, interaction: AutocompleteIntera
     await interaction.respond([]);
     return;
   }
-  const event = getCurrentTournament(gameFor(interaction.guildId));
+  const event = getCurrentTournament(gameFor(interaction.guildId), interaction.guildId);
   const choices = event
     ? checkedOpponents(event.id, interaction.user.id)
         .filter((participant) => participant.name.toLowerCase().includes(query))
@@ -116,25 +117,7 @@ function resolveReporter(
   eventId: number,
   interaction: ChatInputCommandInteraction<'cached'>,
 ): TournamentParticipant | undefined {
-  const linked = tournamentRepository.findParticipantByDiscord(eventId, interaction.user.id);
-  if (linked) return linked;
-  const account = userRepository.findByDiscordId(interaction.user.id);
-  const names = [
-    interaction.member.displayName,
-    interaction.user.username,
-    account?.shatabrickUsername,
-    account?.ra3bUsername,
-  ]
-    .filter((name): name is string => !!name)
-    .map((name) => name.toLowerCase());
-  const participant = tournamentRepository
-    .getParticipants(eventId)
-    .find((entry) => entry.checkedIn === 1 && names.includes(entry.name.toLowerCase()));
-  if (participant && !participant.discordId) {
-    tournamentRepository.linkParticipantDiscord(eventId, participant.id, interaction.user.id);
-    return { ...participant, discordId: interaction.user.id };
-  }
-  return participant?.discordId === interaction.user.id ? participant : undefined;
+  return tournamentRepository.findParticipantByDiscord(eventId, interaction.user.id);
 }
 
 export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteraction) {
@@ -154,7 +137,7 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
     return;
   }
 
-  const event = getCurrentTournament(guildData?.game ?? 'ra3');
+  const event = getCurrentTournament(guildData?.game ?? 'ra3', interaction.guild.id);
   if (!event) {
     await interaction.reply({
       content: 'I could not identify a current tournament.',
@@ -171,19 +154,30 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
     return;
   }
 
+  if (tournamentAccessRepository.organizer(event.id) !== interaction.guild.id) {
+    await interaction.reply({
+      content:
+        'Report scores in the authorized organizer server or through the tournament results post.',
+      ephemeral: true,
+    });
+    return;
+  }
   const reporter = resolveReporter(event.id, interaction);
   if (!reporter || reporter.checkedIn !== 1) {
     await interaction.reply({
-      content: 'Check in for the current tournament before reporting a score.',
+      content:
+        'Ask an organizer referee to verify your participant association, then check in before reporting a score.',
       ephemeral: true,
     });
     return;
   }
 
   const opponentInput = interaction.options.getString('opponent', true).trim();
-  const opponent = checkedOpponents(event.id, interaction.user.id).find(
-    (participant) => participant.name.toLowerCase() === opponentInput.toLowerCase(),
+  const opponentKey = tournamentPlayerKey(opponentInput);
+  const opponents = checkedOpponents(event.id, interaction.user.id).filter(
+    (participant) => opponentKey && tournamentPlayerKey(participant.name) === opponentKey,
   );
+  const opponent = opponents.length === 1 ? opponents[0] : undefined;
   if (!opponent || opponent.id === reporter.id) {
     await interaction.reply({
       content: 'Select a different checked-in player from the opponent suggestions.',
@@ -216,27 +210,39 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
   }
 
   await interaction.deferReply({ ephemeral: true });
-  const challongeRef = event.challongeUrl
+  const displayRef = event.challongeUrl
     ? challongeService.parseTournamentRef(event.challongeUrl)
     : null;
+  const challongeRef = displayRef
+    ? tournamentAccessRepository.writableBracket(event.id, displayRef)
+    : undefined;
   let challongeMatchId = `local-${event.id}-${reporter.id}-${opponent.id}`;
   let player1Id = String(reporter.id);
   let player2Id = String(opponent.id);
-  if (challongeRef) {
+  if (
+    challongeRef &&
+    reporter.externalTournamentId === challongeRef &&
+    opponent.externalTournamentId === challongeRef
+  ) {
     const [participants, matches] = await Promise.all([
       challongeService.getParticipants(challongeRef).catch(() => []),
       challongeService.getMatches(challongeRef).catch(() => []),
     ]);
     const p1 = participants.find(
-      (entry) => entry.name.toLowerCase() === reporter.name.toLowerCase(),
+      (entry) =>
+        String(entry.tournamentId) === challongeRef &&
+        String(entry.id) === reporter.externalParticipantId,
     );
     const p2 = participants.find(
-      (entry) => entry.name.toLowerCase() === opponent.name.toLowerCase(),
+      (entry) =>
+        String(entry.tournamentId) === challongeRef &&
+        String(entry.id) === opponent.externalParticipantId,
     );
     const openMatch =
       p1 && p2
         ? matches.find(
             (match) =>
+              String(match.tournamentId) === challongeRef &&
               match.state === 'open' &&
               ((match.player1Id === p1.id && match.player2Id === p2.id) ||
                 (match.player1Id === p2.id && match.player2Id === p1.id)),
@@ -253,6 +259,7 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
 
   const winnerId = player1Score > player2Score ? player1Id : player2Id;
   const reportId = tournamentRepository.insertMatch({
+    guildId: interaction.guild.id,
     tournamentId: challongeRef ?? `event:${event.id}`,
     challongeMatchId,
     player1Id,
@@ -272,7 +279,7 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
     .setTitle('⚔️ Tournament score awaiting review')
     .setColor(0xfaa61a)
     .setDescription(
-      `**${escapeMarkdown(reporter.name)} ${player1Score}–${player2Score} ${escapeMarkdown(opponent.name)}**`,
+      `**${escapeMarkdown(reporter.name)} ${player1Score}-${player2Score} ${escapeMarkdown(opponent.name)}**`,
     )
     .addFields(
       { name: 'Tournament', value: event.title.slice(0, 1024), inline: false },

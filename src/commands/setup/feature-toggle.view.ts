@@ -9,6 +9,7 @@ import {
 import { appSettingsRepository } from '../../repositories/app-settings.repository';
 import { Guild, guildRepository } from '../../repositories/guild.repository';
 import { GameId } from '../../config/games';
+import { tipSettingsRepository } from '../../repositories/tip-settings.repository';
 
 export type FeatureKey =
   | 'clans'
@@ -28,7 +29,10 @@ export type FeatureKey =
   | 'charts'
   | 'masters'
   | 'menusMode'
-  | 'dmPublicCommands';
+  | 'dmPublicCommands'
+  | 'tips'
+  | 'tipsPrivate'
+  | 'tipsPublic';
 
 interface FeatureDefinition {
   key: FeatureKey;
@@ -41,17 +45,38 @@ interface FeatureDefinition {
 
 export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
   {
+    key: 'tips',
+    label: 'Gameplay tips',
+    emoji: '💡',
+    description: 'Enable gameplay tips',
+    enabled: (g) => tipSettingsRepository.get(g.discordId).enabled,
+  },
+  {
+    key: 'tipsPrivate',
+    label: 'Private tips',
+    emoji: '🔒',
+    description: 'Tips visible only to the requester',
+    enabled: (g) => tipSettingsRepository.get(g.discordId).private,
+  },
+  {
+    key: 'tipsPublic',
+    label: 'Public tips',
+    emoji: '📢',
+    description: 'Tips visible to the channel',
+    enabled: (g) => tipSettingsRepository.get(g.discordId).public,
+  },
+  {
     key: 'charts',
     label: 'Stats charts',
     emoji: '📈',
-    description: 'Charts in stats commands and scheduled panels',
+    description: 'Player activity charts',
     enabled: (g) => g.chartsEnabled === 1,
   },
   {
     key: 'masters',
     label: 'Masters Hall of Fame',
     emoji: '🏅',
-    description: 'Game-specific masters lists and staff management',
+    description: 'Masters Hall of Fame',
     enabled: (g) => g.mastersEnabled === 1,
   },
   {
@@ -65,7 +90,7 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     key: 'tournaments',
     label: 'Tournament & referee tools',
     emoji: '🏆',
-    description: 'Tournament browsing, check-ins, map picks and score reports',
+    description: 'Tournament and referee tools',
     enabled: (g) => g.tournamentsEnabled === 1,
   },
   {
@@ -192,6 +217,14 @@ export function isFeatureKey(value: string): value is FeatureKey {
 }
 
 export function setFeatureState(guildId: string, key: FeatureKey, enabled: boolean): void {
+  if (key === 'tips' || key === 'tipsPrivate' || key === 'tipsPublic') {
+    tipSettingsRepository.set(
+      guildId,
+      key === 'tips' ? 'enabled' : key === 'tipsPrivate' ? 'private' : 'public',
+      enabled,
+    );
+    return;
+  }
   if (key === 'menusMode') {
     guildRepository.setMenusEnabled(guildId, enabled);
     return;

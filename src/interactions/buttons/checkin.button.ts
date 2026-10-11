@@ -10,6 +10,8 @@ import { isAdminOrReferee } from '../../utils/permissions';
 import { resolveTournamentStatus } from '../../utils/tournament-status';
 import { userRepository } from '../../repositories/user.repository';
 import { checkinNotificationService } from '../../services/checkin-notification.service';
+import { tournamentAccessRepository } from '../../repositories/tournament-access.repository';
+import { requireTournamentAccess } from '../../utils/tournament-access';
 
 /**
  * Check-in board buttons:
@@ -33,6 +35,14 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
 
   // ── Player actions ─────────────────────────────────────────────────────
   if (action === 'yes' || action === 'no') {
+    if (tournamentAccessRepository.organizer(eventId) !== interaction.guild.id) {
+      await interaction.reply({
+        content:
+          'Check in through the authorized organizer server or the tournament registration post.',
+        ephemeral: true,
+      });
+      return;
+    }
     const detail = tournamentRepository.getEventDetail(eventId);
     if (!detail) {
       await interaction.reply({ content: 'This event no longer exists.', ephemeral: true });
@@ -46,19 +56,17 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
         checkinsUrl: detail.checkinsUrl,
       }) === 'ended'
     ) {
-      await interaction.reply({ content: 'Check-in is closed for this tournament.', ephemeral: true });
+      await interaction.reply({
+        content: 'Check-in is closed for this tournament.',
+        ephemeral: true,
+      });
       return;
     }
     // Register the Discord user (by display name) if not already on the list,
     // then flip their check-in flag.
     const member = interaction.member as { displayName?: string } | null;
     const displayName = member?.displayName || interaction.user.username;
-    const participants = tournamentRepository.getParticipants(eventId);
-    const known = participants.find(
-      (p) =>
-        p.discordId === interaction.user.id ||
-        p.name.toLowerCase() === displayName.toLowerCase(),
-    );
+    const known = tournamentRepository.findParticipantByDiscord(eventId, interaction.user.id);
     if (!known && action === 'no') {
       await interaction.reply({
         content: 'You are not on this tournament registration list yet.',
@@ -67,28 +75,23 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
       return;
     }
     if (!known) {
-      tournamentRepository.addParticipant(eventId, displayName, 'discord', interaction.user.id);
-    } else if (!known.discordId) {
-      tournamentRepository.linkParticipantDiscord(eventId, known.id, interaction.user.id);
-    } else if (known.discordId !== interaction.user.id) {
-      await interaction.reply({
-        content: 'That tournament name is already linked to another Discord account. Ask a referee for help.',
-        ephemeral: true,
-      });
-      return;
+      if (
+        !tournamentRepository.addParticipant(eventId, displayName, 'discord', interaction.user.id)
+      ) {
+        await interaction.reply({
+          content:
+            'That tournament name already exists. Ask an organizer referee to verify your Discord association with /tournament participant.',
+          ephemeral: true,
+        });
+        return;
+      }
     }
-    const linked = tournamentRepository.findParticipantByDiscord(eventId, interaction.user.id);
-    const ok = linked
-      ? tournamentRepository.setCheckedInByDiscord(eventId, interaction.user.id, action === 'yes')
-      : tournamentRepository.setCheckedIn(eventId, known?.name ?? displayName, action === 'yes');
-    if (!ok) {
-      await interaction.reply({
-        content: 'Could not update your check-in. Ask a referee to add you manually.',
-        ephemeral: true,
-      });
-      return;
-    }
-    audit('checkin_toggle', { eventId, userId: interaction.user.id, action });
+    const ok = tournamentRepository.setCheckedInByDiscord(
+      eventId,
+      interaction.user.id,
+      action === 'yes',
+    );
+    if (ok) audit('checkin_toggle', { eventId, userId: interaction.user.id, action });
     const includeStaffControls = parts[3] !== 'player';
     await interaction.update(
       buildCheckinBoard(eventId, interaction.guild.id, includeStaffControls),
@@ -98,17 +101,26 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
       : action === 'yes'
         ? 'checked_in'
         : 'cancelled';
-    void checkinNotificationService.notify(eventId, activity, [displayName]);
+    if (ok) {
+      const participant = tournamentRepository.findParticipantByDiscord(
+        eventId,
+        interaction.user.id,
+      );
+      void checkinNotificationService.notify(eventId, activity, [participant?.name ?? displayName]);
+    }
     return;
   }
 
   // ── Staff actions ──────────────────────────────────────────────────────
-  const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+  const member = await interaction.guild.members
+    .fetch({ user: interaction.user.id, force: true })
+    .catch(() => null);
   const staff = member && isAdminOrReferee(member);
   if (!staff) {
     await interaction.reply({ content: 'Referees and admins only.', ephemeral: true });
     return;
   }
+  if (action !== 'alerts' && !(await requireTournamentAccess(interaction, eventId))) return;
 
   if (action === 'post') {
     await interaction.deferReply({ ephemeral: true });
@@ -156,5 +168,8 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     `✅ Checked in (${checked.length}):\n${checked.map((p, i) => `${i + 1}. ${p.name}`).join('\n') || 'none'}`,
     `⏳ Missing (${missing.length}):\n${missing.map((p, i) => `${i + 1}. ${p.name}`).join('\n') || 'none'}`,
   ].join('\n');
-  await interaction.followUp({ content: summary.slice(0, 1900), allowedMentions: { roles: guildData?.refereeRoleId ? [guildData.refereeRoleId] : [] } });
+  await interaction.followUp({
+    content: summary.slice(0, 1900),
+    allowedMentions: { roles: guildData?.refereeRoleId ? [guildData.refereeRoleId] : [] },
+  });
 }

@@ -1,8 +1,7 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { masterRepository } from '../../repositories/master.repository';
-import { denyUnlessAdmin } from '../../utils/permissions';
-import { resolveMember } from '../../utils/members';
+import { denyUnlessOwner } from '../../utils/permissions';
 import { sanitizeInput } from '../../utils/sanitize';
 import { getGameContext } from '../../utils/game-context';
 
@@ -15,8 +14,7 @@ export const data = new SlashCommandBuilder()
   );
 
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
-  const member = await resolveMember(interaction);
-  const denial = denyUnlessAdmin(member);
+  const denial = denyUnlessOwner(interaction.user.id);
   if (denial) {
     await interaction.reply({ content: denial, ephemeral: true });
     return;

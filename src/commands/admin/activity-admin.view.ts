@@ -134,48 +134,41 @@ export function buildActivityAdminView(
       settings.progressionMode === 'per_rank'
         ? ranks.length * settings.daysPerRank
         : settings.maxRankDays;
-    embed
-      .setDescription(
-        'Choose what earns XP, configure progression, and manage the roles for each rank.',
-      )
-      .addFields(
-        {
-          name: 'System',
-          value: guildData?.activityRanksEnabled === 1 ? '🟢 Enabled' : '🔴 Disabled',
-          inline: true,
-        },
-        {
-          name: 'Progression',
-          value:
-            settings.progressionMode === 'per_rank'
-              ? settings.daysPerRank + ' ping days per rank\n' + maxDays + ' days to the top rank'
-              : maxDays + ' ping days to the top rank',
-          inline: true,
-        },
-        {
-          name: 'Ranks & Levels',
-          value: ranks.length + ' ranks · ' + settings.xpPerLevel + ' XP per level',
-          inline: true,
-        },
-        {
-          name: 'XP Sources',
-          value:
-            '📣 Daily ping: ' +
-            (settings.pingEnabled ? settings.pingPoints + ' XP' : 'Off') +
-            '\n📁 Replay uploads: ' +
-            (settings.replayEnabled
-              ? settings.replayPoints +
-                ' XP per file, up to ' +
-                settings.replayDailyCap +
-                ' per day'
-              : 'Off'),
-        },
-        {
-          name: 'Counting Rules',
-          value:
-            'Pings count once per member per UTC day. Replay files in the selected channel are checked for the RA3 replay header. Reposts earn no extra credit. Chat XP is optional and off by default. Rank roles must not grant server permissions, staff privileges or channel access.',
-        },
-      );
+    embed.setDescription('Set XP sources, progression and rank roles.').addFields(
+      {
+        name: 'System',
+        value: guildData?.activityRanksEnabled === 1 ? '🟢 Enabled' : '🔴 Disabled',
+        inline: true,
+      },
+      {
+        name: 'Progression',
+        value:
+          settings.progressionMode === 'per_rank'
+            ? settings.daysPerRank + ' ping days per rank\n' + maxDays + ' days to the top rank'
+            : maxDays + ' ping days to the top rank',
+        inline: true,
+      },
+      {
+        name: 'Ranks & Levels',
+        value: ranks.length + ' ranks · ' + settings.xpPerLevel + ' XP per level',
+        inline: true,
+      },
+      {
+        name: 'XP Sources',
+        value:
+          '📣 Daily ping: ' +
+          (settings.pingEnabled ? settings.pingPoints + ' XP' : 'Off') +
+          '\n📁 Replay uploads: ' +
+          (settings.replayEnabled
+            ? settings.replayPoints + ' XP per file, up to ' + settings.replayDailyCap + ' per day'
+            : 'Off'),
+      },
+      {
+        name: 'Counting Rules',
+        value:
+          'Pings count once per member per UTC day. Replay files in the selected channel are checked for the RA3 replay header. Reposts earn no extra credit. Chat XP is optional and off by default. Rank roles must not grant server permissions, staff privileges or channel access.',
+      },
+    );
     row(
       button(
         guildData?.activityRanksEnabled === 1 ? 'disable' : 'enable',
@@ -401,7 +394,7 @@ export function buildActivityAdminView(
       row(button('ranks', 'Back to Ranks', Math.floor((rank.rank - 1) / 25)));
     }
   } else if (screen === 'ping') {
-    embed.setDescription('Choose the C&C role whose ping earns credit once per UTC day.');
+    embed.setDescription('Choose the role whose ping earns XP once per UTC day.');
     components.push(
       new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(
         new RoleSelectMenuBuilder()

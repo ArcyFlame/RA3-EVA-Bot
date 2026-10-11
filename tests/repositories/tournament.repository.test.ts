@@ -11,6 +11,8 @@ import { up as up026 } from '../../src/database/migrations/026_tournament_manual
 import { up as up029 } from '../../src/database/migrations/029_tournament_artwork';
 import { up as up030 } from '../../src/database/migrations/030_results_and_news_media';
 import { up as up033 } from '../../src/database/migrations/033_match_reminder_delivery';
+import { up as up037 } from '../../src/database/migrations/037_security_boundaries';
+import { up as up038 } from '../../src/database/migrations/038_tournament_authority';
 import { TournamentRepository } from '../../src/repositories/tournament.repository';
 import { ClanRepository } from '../../src/repositories/clan.repository';
 import { renderEventPage } from '../../src/commands/tournaments/events.utils';
@@ -32,6 +34,8 @@ beforeAll(() => {
   up029();
   up030();
   up033();
+  up037();
+  up038();
 });
 
 describe('TournamentRepository', () => {

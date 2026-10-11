@@ -35,6 +35,8 @@ import { up as up033, down as down033 } from './migrations/033_match_reminder_de
 import { up as up034, down as down034 } from './migrations/034_replay_ratings';
 import { up as up035, down as down035 } from './migrations/035_profile_and_activity_controls';
 import { up as up036, down as down036 } from './migrations/036_replay_archive';
+import { up as up037, down as down037 } from './migrations/037_security_boundaries';
+import { up as up038, down as down038 } from './migrations/038_tournament_authority';
 import { logger } from '../utils/logger';
 
 interface Migration {
@@ -82,6 +84,8 @@ const migrations: Migration[] = [
   { version: 34, name: '034_replay_ratings', up: up034, down: down034 },
   { version: 35, name: '035_profile_and_activity_controls', up: up035, down: down035 },
   { version: 36, name: '036_replay_archive', up: up036, down: down036 },
+  { version: 37, name: '037_security_boundaries', up: up037, down: down037 },
+  { version: 38, name: '038_tournament_authority', up: up038, down: down038 },
 ];
 
 function ensureMigrationsTable(): void {

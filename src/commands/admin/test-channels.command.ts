@@ -6,11 +6,14 @@ import { resolveMember } from '../../utils/members';
 
 export const data = new SlashCommandBuilder()
   .setName('test_channels')
-  .setDescription('Check whether the bot can post in every configured channel');
+  .setDescription('Test configured posting channels');
 
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   if (!interaction.guild) {
-    await interaction.reply({ content: 'This command can only be used inside a server.', ephemeral: true });
+    await interaction.reply({
+      content: 'This command can only be used inside a server.',
+      ephemeral: true,
+    });
     return;
   }
   const denial = denyUnlessAdmin(await resolveMember(interaction));

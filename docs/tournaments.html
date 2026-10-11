@@ -95,8 +95,16 @@
 
       <h2>Check-ins &amp; referees</h2>
       <p>
+        Shared events have one trusted organizer server. The bot owner assigns it with
+        <code>/tournament organizer &lt;event&gt; &lt;server&gt;</code>; omitting the server revokes
+        access. Other servers can still browse announcements and results, but cannot edit shared
+        facts or review scores. Event IDs appear in the event footer.
+      </p>
+      <p>
         Run <code>/checkin [event]</code> to open the current tournament board. Referees can turn
-        personal DM alerts on or off for new registrations and check-ins. Players see numbered
+        personal DM alerts on or off for new registrations and check-ins. Alerts are opt-in, go only
+        to the organizer server's referees, and are rate-limited. After upgrading from the old
+        default-on setting, enable them once with the Referee DM Alerts button. Players see numbered
         registered, checked-in and missing lists. Referees get the management menu for opening the
         board, refreshing registrations and posting it to the tournament channel. The referee role
         is configured in <code>/bot setup</code>.
@@ -104,9 +112,21 @@
 
       <h2>Score reports</h2>
       <p>
+        Imported forum nicknames are not proof of identity. Organizer staff verify a player's
+        Discord association using
+        <code>/tournament participant &lt;event&gt; &lt;user&gt; &lt;player&gt;</code>. Old
+        name-only associations must be verified again. Fresh Discord registrations keep their own
+        account ID. Older pending reports without a server origin must be submitted again.
+      </p>
+      <p>
         <code>/report score &lt;opponent&gt; &lt;factions&gt; &lt;score&gt;</code> uses the
         checked-in player list for opponent suggestions. Reports go to a referee for approval and
-        can update the current Challonge match when it is an exact match for the two players.
+        can update the current Challonge match when it is an exact match for the two players. Remote
+        sync requires the bot owner to confirm the bracket with <code>/tournament link</code>, then
+        organizer staff to verify each player with <code>/tournament participant</code>. Links found
+        by scanners are for viewing only; a matching nickname does not grant permission to submit
+        remote scores. If a bracket or player cannot be verified, approved reports stay in the bot's
+        local score list.
       </p>
 
       <h2>Winners &amp; Hall of Fame</h2>

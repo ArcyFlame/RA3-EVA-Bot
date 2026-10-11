@@ -27,6 +27,7 @@ export interface ClanJoinRequest {
   status: 'pending' | 'accepted' | 'rejected';
   createdAt: string;
 }
+export class ClanSubmissionError extends Error {}
 
 interface ClanRow {
   id: number;
@@ -89,9 +90,8 @@ function mapJoinRequest(row: ClanJoinRequestRow): ClanJoinRequest {
 }
 
 /**
- * Guild-scoping clause. Legacy rows (guild_id NULL, from before the migration)
- * remain visible everywhere so no data is orphaned; every clan created since is
- * scoped to exactly one guild.
+ * Read-only lists retain legacy visibility. Mutating controls use exact scoped
+ * findById lookups; the approval queue excludes unassigned records.
  */
 function guildClause(column: string): string {
   return `(${column}.guild_id = ? OR ${column}.guild_id IS NULL)`;
@@ -100,10 +100,10 @@ function guildClause(column: string): string {
 export class ClanRepository extends BaseRepository {
   findById(id: number, guildId?: string): Clan | undefined {
     if (guildId) {
-      const row = this.query<ClanRow>(
-        `SELECT * FROM clans WHERE id = ? AND (guild_id = ? OR guild_id IS NULL)`,
-        [id, guildId],
-      );
+      const row = this.query<ClanRow>(`SELECT * FROM clans WHERE id = ? AND guild_id = ?`, [
+        id,
+        guildId,
+      ]);
       return row ? mapClan(row) : undefined;
     }
     const row = this.query<ClanRow>('SELECT * FROM clans WHERE id = ?', [id]);
@@ -128,9 +128,14 @@ export class ClanRepository extends BaseRepository {
 
   findPending(guildId: string): Clan[] {
     return this.queryAll<ClanRow>(
-      `SELECT * FROM clans WHERE approved = 0 AND ${guildClause('clans')} ORDER BY created_at ASC`,
+      `SELECT * FROM clans WHERE approved = 0 AND guild_id = ? ORDER BY created_at ASC`,
       [guildId],
     ).map(mapClan);
+  }
+
+  findUnassignedById(id: number): Clan | undefined {
+    const row = this.query<ClanRow>('SELECT * FROM clans WHERE id = ? AND guild_id IS NULL', [id]);
+    return row ? mapClan(row) : undefined;
   }
 
   findApproved(guildId: string): Clan[] {
@@ -186,6 +191,80 @@ export class ClanRepository extends BaseRepository {
     this.run(
       `UPDATE clans SET approved = 1, role_id = ?, text_channel_id = ?, voice_channel_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       [roleId, textChannelId, voiceChannelId, id],
+    );
+  }
+
+  submit(data: Omit<Clan, 'id' | 'createdAt' | 'updatedAt'>, now = Date.now()): number {
+    if (!data.guildId || data.approved !== 0) throw new Error('Invalid clan submission.');
+    return this.db.transaction(() => {
+      const pending = this.query<{ id: number }>(
+        'SELECT id FROM clans WHERE guild_id = ? AND owner_id = ? AND approved = 0',
+        [data.guildId, data.ownerId],
+      );
+      if (pending)
+        throw new ClanSubmissionError(
+          'You already have a pending clan request. Ask an admin to review it.',
+        );
+      if (
+        this.findByOwner(data.ownerId, data.guildId!) ||
+        this.findClanOfUser(data.ownerId, data.guildId!)
+      )
+        throw new ClanSubmissionError('You are already in a clan.');
+      if (this.findPending(data.guildId!).length >= 100)
+        throw new ClanSubmissionError(
+          'The clan approval queue is full. Ask an admin to review it.',
+        );
+      const key = `clan-submit:${data.guildId}:${data.ownerId}`;
+      const row = this.query<{ value: string }>('SELECT value FROM app_settings WHERE key = ?', [
+        key,
+      ]);
+      let history: number[] = [];
+      if (row) {
+        const value: unknown = JSON.parse(row.value);
+        if (
+          !Array.isArray(value) ||
+          value.length > 3 ||
+          value.some((v) => !Number.isSafeInteger(v))
+        )
+          throw new Error('Clan submission limits could not be verified.');
+        history = value.filter((timestamp) => timestamp > now - 86400000);
+      }
+      if (history.length >= 3)
+        throw new ClanSubmissionError(
+          'You can submit at most three clan requests per day. Try again later.',
+        );
+      const id = this.create(data);
+      this.addMember(id, data.ownerId);
+      this.run(
+        `INSERT INTO app_settings(key,value,updated_at) VALUES(?,?,CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP`,
+        [key, JSON.stringify([...history, now])],
+      );
+      return id;
+    })();
+  }
+
+  claimApprovalNotification(guildId: string, now = Date.now()): boolean {
+    return this.db.transaction(() => {
+      const key = `clan-notice:${guildId}`;
+      const last = this.query<{ value: string }>('SELECT value FROM app_settings WHERE key = ?', [
+        key,
+      ]);
+      if (last && (!Number.isSafeInteger(Number(last.value)) || Number(last.value) > now - 600000))
+        return false;
+      this.run(
+        `INSERT INTO app_settings(key,value,updated_at) VALUES(?,?,CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP`,
+        [key, String(now)],
+      );
+      return true;
+    })();
+  }
+
+  updateDetails(id: number, description?: string, maxMembers?: number): void {
+    this.run(
+      `UPDATE clans SET description = COALESCE(?,description), max_members = COALESCE(?,max_members), updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [description ?? null, maxMembers ?? null, id],
     );
   }
 

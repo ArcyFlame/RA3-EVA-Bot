@@ -10,6 +10,11 @@ export const YOUTUBE = '<:youtube:1494358613248970913>';
 export const TWITCH = '<:twitch:1494358558672687214>';
 export const GAME_REPLAYS = '<:game_replays:1494413015414472725>';
 export const MODDB = '<:moddb:1495444459633246418>';
+export const RA3_LOGO = '<:ra3logo:1558460619194368070>';
+export const GENEVO_LOGO = '<:GenEvoLogo:1558460709472305264>';
+export const FACTION_USA = '<:USALogo:1542304495990476880>';
+export const FACTION_CHINA = '<:ChinaLogo:1542304501250265178>';
+export const FACTION_GLA = '<:GLALogo:1542304503439695903>';
 
 // Faction icons
 export const FACTION_ALLIED = '<:faction_allied:1494360096451334264>';

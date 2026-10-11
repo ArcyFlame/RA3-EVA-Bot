@@ -1,8 +1,14 @@
-import { ButtonInteraction, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } from 'discord.js';
+import {
+  ButtonInteraction,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+} from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { clanRepository } from '../../repositories/clan.repository';
-import { isAdmin } from '../../utils/permissions';
-import { resolveMember } from '../../utils/members';
+import { isOwner } from '../../utils/permissions';
+import { requireAdminInteraction } from '../../utils/admin-interaction';
 import { parseCustomIdInt } from '../../utils/parse';
 
 /**
@@ -14,25 +20,30 @@ export const customIdPrefix = 'clanmgr_edit_';
 export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
   if (!interaction.guild) return;
 
-  const member = await resolveMember(interaction);
-  if (!member || !isAdmin(member)) {
-    await interaction.reply({ content: 'Admins only.', ephemeral: true });
-    return;
-  }
+  if (!(await requireAdminInteraction(interaction))) return;
 
   const clanId = parseCustomIdInt(interaction.customId, 2);
   if (clanId === null) {
     await interaction.reply({ content: 'Invalid clan.', ephemeral: true });
     return;
   }
-  const clan = clanRepository.findById(clanId, interaction.guild.id);
+  const clan =
+    clanRepository.findById(clanId, interaction.guild.id) ??
+    (isOwner(interaction.user.id) ? clanRepository.findUnassignedById(clanId) : undefined);
   if (!clan) {
     await interaction.reply({ content: 'Clan no longer exists.', ephemeral: true });
     return;
   }
 
+  if (clan.guildId !== interaction.guild.id && !isOwner(interaction.user.id)) {
+    await interaction.reply({
+      content: 'Only the bot owner can edit an unassigned legacy clan.',
+      ephemeral: true,
+    });
+    return;
+  }
   const modal = new ModalBuilder()
-    .setCustomId(`clanmgr_edit_modal_${clan.id}`)
+    .setCustomId(`clanmgr_edit_modal_${clan.id}_${interaction.guild.id}_${interaction.user.id}`)
     .setTitle(`Edit ${clan.tag}`.slice(0, 45));
 
   modal.addComponents(

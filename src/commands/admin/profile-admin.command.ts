@@ -2,7 +2,7 @@ import { ChatInputCommandInteraction, PermissionFlagsBits, SlashCommandBuilder }
 import { RA3Bot } from '../../bot';
 import { userRepository } from '../../repositories/user.repository';
 import { buildDiscordProfileEmbed } from '../profile/profile.command';
-import { denyUnlessAdmin } from '../../utils/permissions';
+import { denyUnlessAdmin, isOwner } from '../../utils/permissions';
 import { resolveMember } from '../../utils/members';
 import { getGameContext } from '../../utils/game-context';
 
@@ -61,6 +61,14 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
 
   const action = interaction.options.getSubcommand();
   const target = interaction.options.getUser('user', true);
+  if (action !== 'view' && target.id !== interaction.user.id && !isOwner(interaction.user.id)) {
+    await interaction.reply({
+      content:
+        'Only the profile owner or bot owner can remove shared linked identities. Server admins can still view profiles.',
+      ephemeral: true,
+    });
+    return;
+  }
   if (action === 'view') {
     await interaction.deferReply({ ephemeral: true });
     const embed = await buildDiscordProfileEmbed(

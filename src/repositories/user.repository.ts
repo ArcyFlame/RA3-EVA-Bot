@@ -81,7 +81,7 @@ export class UserRepository extends BaseRepository {
       );
     } else {
       this.run(
-        `INSERT INTO users (discord_id, username, global_name, avatar) VALUES (?, ?, ?, ?)`,
+        `INSERT INTO users (discord_id, username, global_name, avatar, referee_checkin_dm_enabled) VALUES (?, ?, ?, ?, 0)`,
         [discordId, username, globalName, avatar],
       );
     }
@@ -91,10 +91,10 @@ export class UserRepository extends BaseRepository {
 
   /** Ensures a row exists so a flag toggle always persists (never a silent no-op). */
   private ensureUser(discordId: string): void {
-    this.run('INSERT OR IGNORE INTO users (discord_id, username) VALUES (?, ?)', [
-      discordId,
-      'Unknown',
-    ]);
+    this.run(
+      'INSERT OR IGNORE INTO users (discord_id, username, referee_checkin_dm_enabled) VALUES (?, ?, 0)',
+      [discordId, 'Unknown'],
+    );
   }
 
   setClanInviteDmEnabled(discordId: string, enabled: boolean): void {
@@ -182,7 +182,7 @@ export class UserRepository extends BaseRepository {
   }
 
   isRefereeCheckinDmEnabled(discordId: string): boolean {
-    return (this.findByDiscordId(discordId)?.refereeCheckinDmEnabled ?? 1) !== 0;
+    return this.findByDiscordId(discordId)?.refereeCheckinDmEnabled === 1;
   }
 
   /** Resolves a user's language, defaulting to English for unknown users. */
