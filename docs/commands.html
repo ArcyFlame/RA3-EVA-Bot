@@ -74,13 +74,30 @@
           <td>Attach a Challonge bracket by URL <span class="badge red">admin</span></td>
         </tr>
         <tr>
+          <td><code>/masters</code></td>
+          <td>
+            View this server's Hall of Fame. Admins and moderators get Add Master, Edit Master and
+            Remove Master controls for name, year and optional patch.
+          </td>
+        </tr>
+        <tr>
           <td>
             <code>/master add</code> / <code>/master remove</code> / <code>/master list</code>
           </td>
-          <td>Shared Hall of Fame edits require the bot owner; admins can list entries</td>
+          <td>
+            Legacy add/remove update shared defaults (bot owner only). List opens this server's
+            masters menu.
+          </td>
         </tr>
       </table>
 
+      <p>
+        <code>/bot refresh</code> opens the admin refresh menu. Lobby, stats and match panel
+        intervals are server-specific. The bot owner can also change shared news, tournament, forum,
+        Twitch, YouTube polling and ModDB scanner intervals. All values are in minutes, have safe
+        minimums, and can be reset individually. Changes apply without restarting; they do not
+        enable disabled features or bypass upstream caches and posting limits.
+      </p>
       <h2>Stats</h2>
       <table>
         <tr>
@@ -222,14 +239,19 @@
           <td>Where to get custom maps + the install path</td>
         </tr>
         <tr>
-          <td><code>/tips [visibility]</code></td>
+          <td><code>/tips</code></td>
           <td>
-            A sourced gameplay tip with a real quote. Private or public, as allowed by the server
+            A sourced gameplay tip. Public by default; staff can make replies private for this
+            server
           </td>
         </tr>
         <tr>
-          <td><code>/admin tips</code></td>
-          <td>Add, edit, remove or restore server tips <span class="badge red">admin/mod</span></td>
+          <td><code>/bot tips</code></td>
+          <td>
+            Manage tips, footers, factions, enable/disable them, and choose Public or Private
+            replies
+            <span class="badge red">admin/mod</span>
+          </td>
         </tr>
         <tr>
           <td><code>/setup</code></td>
@@ -303,6 +325,12 @@
         <tr>
           <td><code>/info</code> <code>/ping</code> <code>/uptime</code></td>
           <td>Bot info, latency, uptime</td>
+        </tr>
+        <tr>
+          <td><code>/bot update</code></td>
+          <td>
+            Check for a stable release and choose Yes or No <span class="badge red">owner</span>
+          </td>
         </tr>
         <tr>
           <td><code>/restart</code> <code>/kill</code></td>

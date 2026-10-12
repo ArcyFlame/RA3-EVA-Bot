@@ -19,6 +19,15 @@ function interaction(root: string, group?: string, sub?: string) {
   } as unknown as ChatInputCommandInteraction;
 }
 describe('public command paths', () => {
+  it('groups tips, refresh and updates under /bot without the old admin leaves', () => {
+    const bot = publicCommands.find((command) => command.name === 'bot')!;
+    expect((bot.options as any[]).map((option) => option.name)).toEqual(
+      expect.arrayContaining(['setup', 'profile', 'tips', 'refresh', 'update']),
+    );
+    const admin = publicCommands.find((command) => command.name === 'admin')!;
+    for (const removed of ['tips', 'refresh'])
+      expect((admin.options as any[]).map((option) => option.name)).not.toContain(removed);
+  });
   it('publishes every handler exactly once without underscores or illegal nesting', () => {
     const routed: string[] = [];
     for (const root of publicCommands) {

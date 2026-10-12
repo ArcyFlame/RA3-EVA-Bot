@@ -2,7 +2,7 @@ import { EmbedBuilder } from 'discord.js';
 import { CNC_ONLINE, RA3_BATTLE_NET, TWITCH, YOUTUBE, MODDB } from '../../utils/emojis';
 import { GameId, GAME_CONFIGS } from '../../config/games';
 
-export function buildMainEmbed(game: GameId = 'ra3'): EmbedBuilder {
+export function buildMainEmbed(game: GameId = 'ra3', staff = false): EmbedBuilder {
   const config = GAME_CONFIGS[game];
   return new EmbedBuilder()
     .setTitle('EVA Bot Command Center')
@@ -29,12 +29,21 @@ export function buildMainEmbed(game: GameId = 'ra3'): EmbedBuilder {
         inline: false,
       },
       { name: 'ℹ️ Information', value: 'About this bot, features and news.', inline: false },
-      {
-        name: '🛠️ Admin Tools *(admin/mod)*',
-        value: `Server setup, panels, tournaments${game === 'ra3' ? ', masters' : ''} and bot control.`,
-        inline: false,
-      },
-      { name: '🔨 Moderation *(admin/mod)*', value: 'Kick, ban, purge, warnings.', inline: false },
+      ...(staff
+        ? [
+            {
+              name: '🛠️ Admin Tools *(admin/mod)*',
+              value:
+                'Server setup, tip management and visibility, panels, tournaments and activity settings.',
+              inline: false,
+            },
+            {
+              name: '🔨 Moderation *(admin/mod)*',
+              value: 'Kick, ban, purge, warnings and activity XP.',
+              inline: false,
+            },
+          ]
+        : []),
     )
     .setFooter({ text: 'Use /help anytime to see this menu.' });
 }
@@ -63,7 +72,7 @@ export function buildTournamentsEmbed(game: GameId = 'ra3'): EmbedBuilder {
         : [
             {
               name: '🏅 Hall of Fame',
-              value: '`/masters` - GenEvo masters, if enabled by an admin. Off by default.',
+              value: '`/masters` - GenEvo masters, if enabled by an admin.',
               inline: false,
             },
           ]),
@@ -126,7 +135,7 @@ export function buildCommunityEmbed(game: GameId = 'ra3'): EmbedBuilder {
       },
       {
         name: '💡 Gameplay Tips',
-        value: `\`/tips [visibility]\` - ${config.shortLabel} tips with source links. Private or public, as allowed by this server.`,
+        value: `\`/tips\` - ${config.shortLabel} tips with source links. Public by default; server staff can make replies private.`,
         inline: false,
       },
       {
@@ -182,7 +191,7 @@ export function buildProfileEmbed(game: GameId = 'ra3'): EmbedBuilder {
     });
 }
 
-export function buildInfoEmbed(game: GameId = 'ra3'): EmbedBuilder {
+export function buildInfoEmbed(game: GameId = 'ra3', staff = false): EmbedBuilder {
   const config = GAME_CONFIGS[game];
   return new EmbedBuilder()
     .setTitle('ℹ️ Information')
@@ -202,7 +211,7 @@ export function buildInfoEmbed(game: GameId = 'ra3'): EmbedBuilder {
           : '• GenEvo player profiles and server activity ranks\n') +
         `• Twitch, YouTube, ModDB and ${config.shortLabel} news\n` +
         '• Custom maps hub & esports map picker\n' +
-        '• Moderation tools (kick, ban, warnings)\n\n' +
+        (staff ? '• Moderation tools (kick, ban, warnings)\n\n' : '\n') +
         '*"From the community, for the community."*',
     )
     .addFields(
@@ -225,6 +234,24 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
         inline: false,
       },
       {
+        name: '💡 Gameplay Tips (admin/mod)',
+        value:
+          '`/bot tips` - Manage server tips\n**Add Tip / Edit Tip** - Step 1: title, faction/subfaction, text and footer. Step 2: separate quote, speaker and source fields. Submit Step 2 to save.\n**Make Tips Public / Private** - Set visibility for all `/tips` replies (public by default)\n**Enable Tips / Disable Tips** - Switch tips on or off\n**Find Tip** - Search by number or title when there are more than 25 tips. Private replies are not DMs.',
+        inline: false,
+      },
+      {
+        name: '⏱️ Refresh Timing (admin)',
+        value:
+          '`/bot refresh` - Set lobby, stats and match panel intervals for this server. Shared scanner intervals are bot-owner only.',
+        inline: false,
+      },
+      {
+        name: '🏅 Masters (admin/mod)',
+        value:
+          '`/masters` - Add Master, Edit Master or Remove Master. Set name, year and optional patch. Changes affect this server only.',
+        inline: false,
+      },
+      {
         name: '🧪 Test Posts (admin)',
         value:
           '`/test channels` or `/notifications` → Test Posts - verify every configured channel.',
@@ -241,7 +268,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
             {
               name: '🏆 Masters & Tournaments',
               value:
-                '`/master add <name> <year> [patch]` - Add a master\n`/master remove <name>` - Remove a master\n`/master list` - List all masters\n`/tournament link` - Link a Challonge bracket (paste URL)\n`/tournament scan` - Scan the portal + forum for tournaments, brackets and sign-ups\n`/events` - Edit missing tournament details from the private event browser',
+                '`/tournament link` - Link a Challonge bracket (paste URL)\n`/tournament scan` - Scan the portal + forum for tournaments, brackets and sign-ups\n`/events` - Edit missing tournament details from the private event browser',
               inline: false,
             },
           ]
@@ -249,7 +276,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
             {
               name: '🏆 Tournaments',
               value:
-                '`/tournament link` - Link or create a tournament from a Challonge bracket\n`/checkin [event]` - Open the referee check-in board\n`/events` - Edit missing tournament details from the private event browser\n`/master add`, `/master remove`, `/master list` - GenEvo masters (enable Masters in `/toggle` first)',
+                '`/tournament link` - Link or create a tournament from a Challonge bracket\n`/checkin [event]` - Open the referee check-in board\n`/events` - Edit missing tournament details from the private event browser',
               inline: false,
             },
           ]),
@@ -262,7 +289,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: '🎖️ Activity Ranks',
         value:
-          '`/activity admin` - Configure XP, ranks and replay ratings\n`/notifications` - Choose posting channels\n`/toggle` - Enable or disable server features\n`/admin tips` - Add, edit or remove tips (admins and moderators)',
+          '`/activity admin` - Configure XP, ranks and replay ratings\n`/activity xp` - Add or remove member XP\n`/activity role` - Manage configured activity rank roles',
         inline: false,
       },
       ...(game === 'genevo'
@@ -294,8 +321,8 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
         inline: false,
       },
       {
-        name: '🔄 Bot Control',
-        value: '`/restart` - Restart the bot\n`/kill` - Shut down the bot',
+        name: '🔄 Bot Control (bot owner)',
+        value: '`/bot update` - Check for a stable release and confirm Yes or No\n`/restart` - Restart the bot\n`/kill` - Shut down the bot',
         inline: false,
       },
     );

@@ -15,6 +15,7 @@ import {
   buildModerationEmbed,
 } from './help.embeds';
 import { GameId } from '../../config/games';
+import { isModerator } from '../../utils/permissions';
 
 export class HelpView {
   private embed: EmbedBuilder;
@@ -32,7 +33,7 @@ export class HelpView {
   ) {
     this.isAdmin = isAdmin;
     this.game = game;
-    this.mainEmbed = mainEmbed ?? buildMainEmbed(game);
+    this.mainEmbed = mainEmbed ?? buildMainEmbed(game, isAdmin);
     this.embed = this.mainEmbed;
     this.hidden = new Set(hidden);
     this.components = this.buildComponents();
@@ -93,6 +94,33 @@ export class HelpView {
   }
 
   async handleSelect(interaction: StringSelectMenuInteraction, value: string) {
+    if (this.isAdmin) {
+      const member =
+        this.isAdmin && interaction.guild
+          ? await interaction.guild.members
+              .fetch({ user: interaction.user.id, force: true })
+              .catch(() => null)
+          : null;
+      if (!member || !isModerator(member)) {
+        this.isAdmin = false;
+        this.mainEmbed = buildMainEmbed(this.game, false);
+        this.components = this.buildComponents();
+      }
+    }
+    if ((value === 'admin' || value === 'moderation') && !this.isAdmin) {
+      await interaction.reply({
+        content: 'This help section is for admins and moderators.',
+        ephemeral: true,
+      });
+      return;
+    }
+    if (this.hidden.has(value)) {
+      await interaction.reply({
+        content: 'This help category is hidden in this server.',
+        ephemeral: true,
+      });
+      return;
+    }
     let newEmbed: EmbedBuilder;
     switch (value) {
       case 'main':
@@ -108,7 +136,7 @@ export class HelpView {
         newEmbed = buildProfileEmbed(this.game);
         break;
       case 'info':
-        newEmbed = buildInfoEmbed(this.game).setThumbnail(
+        newEmbed = buildInfoEmbed(this.game, this.isAdmin).setThumbnail(
           interaction.guild?.members.me?.displayAvatarURL() ??
             interaction.client?.user?.displayAvatarURL() ??
             null,

@@ -61,7 +61,11 @@ export class TipRepository {
       ...edits.filter((e) => e.id >= 1000).map((e) => e.tip),
     ]
       .filter((tip): tip is Tip => !!tip)
+      .sort((left, right) => left.id - right.id)
       .map((tip) => structuredClone(tip));
+  }
+  displayNumber(guildId: string | null | undefined, game: GameId, id: number): number {
+    return this.list(guildId, game, true).findIndex((tip) => tip.id === id) + 1;
   }
   isDisabled(guildId: string, game: GameId, id: number): boolean {
     return this.read(guildId, game).edits.some((e) => e.id === id && e.tip === null);
@@ -77,7 +81,7 @@ export class TipRepository {
     return this.database.transaction(() => {
       const state = this.read(guildId, game);
       if (state.revision !== expected)
-        throw new Error('This menu is outdated. Open /admin tips again.');
+        throw new Error('This menu is outdated. Open /bot tips again.');
       if (state.revision >= 999999999) throw new Error('Tip revision limit reached.');
       if (id === 0 && action === 'save') {
         if (state.edits.length >= 250 || state.nextId >= 999999999)

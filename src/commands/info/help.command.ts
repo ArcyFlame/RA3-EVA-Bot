@@ -1,12 +1,6 @@
-import {
-  SlashCommandBuilder,
-  ChatInputCommandInteraction,
-  ComponentType,
-  PermissionFlagsBits,
-} from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, ComponentType } from 'discord.js';
 import { RA3Bot } from '../../bot';
-import { isAdmin } from '../../utils/permissions';
-import { resolveMember } from '../../utils/members';
+import { isModerator } from '../../utils/permissions';
 import { guildRepository } from '../../repositories/guild.repository';
 import { HelpView } from './help.view';
 import { getGameContext } from '../../utils/game-context';
@@ -18,18 +12,13 @@ export const data = new SlashCommandBuilder()
 export const guildOnly = false;
 
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
-  const member = interaction.guild ? await resolveMember(interaction) : null;
+  const member = interaction.guild
+    ? await interaction.guild.members
+        .fetch({ user: interaction.user.id, force: true })
+        .catch(() => null)
+    : null;
   // Admin Tools + Moderation tabs are visible to admins AND moderators.
-  const staff =
-    member !== null &&
-    (isAdmin(member) ||
-      member.permissions.any([
-        PermissionFlagsBits.KickMembers,
-        PermissionFlagsBits.BanMembers,
-        PermissionFlagsBits.ModerateMembers,
-        PermissionFlagsBits.ManageMessages,
-        PermissionFlagsBits.ManageGuild,
-      ]));
+  const staff = member !== null && isModerator(member);
   const hidden = interaction.guild
     ? guildRepository.getHiddenHelpCategories(interaction.guild.id)
     : [];

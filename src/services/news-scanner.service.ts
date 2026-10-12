@@ -18,7 +18,7 @@ const GAME_NEWS_FEEDS: Partial<Record<GameId, { url: string; filter?: RegExp }>>
   },
 };
 
-const SCAN_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+import { startScannerTimer } from '../utils/refresh-scheduler';
 
 export interface ParsedNews {
   title: string;
@@ -105,9 +105,7 @@ export class NewsScannerService {
 
   start(): void {
     if (this.interval) return;
-    this.interval = setInterval(() => {
-      this.scan().catch((error) => logger.error('News scan tick failed:', error));
-    }, SCAN_INTERVAL_MS);
+    this.interval = startScannerTimer('news', () => this.scan());
     this.interval.unref();
     logger.info('News scanner started');
   }

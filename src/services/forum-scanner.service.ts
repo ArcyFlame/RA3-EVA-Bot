@@ -23,7 +23,7 @@ export { truncateSentences };
  */
 
 const FORUM_URL = 'https://www.gamereplays.org/community/index.php?showforum=2364';
-const SCAN_INTERVAL_MS = 3 * 60 * 60 * 1000; // 3 hours
+import { startScannerTimer } from '../utils/refresh-scheduler';
 const FORUM_PAGE_SIZE = 25;
 const RECENT_FORUM_PAGES = 3;
 /** Sign-up threads paginate 20 posts per page; three pages cover any thread. */
@@ -463,9 +463,7 @@ export class ForumScannerService {
 
   start(): void {
     if (this.interval) return;
-    this.interval = setInterval(() => {
-      this.scan().catch((error) => logger.error('Forum scan tick failed:', error));
-    }, SCAN_INTERVAL_MS);
+    this.interval = startScannerTimer('forum', () => this.scan());
     this.interval.unref();
     logger.info('Forum scanner started');
   }

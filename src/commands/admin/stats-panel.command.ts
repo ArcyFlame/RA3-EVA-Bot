@@ -6,6 +6,7 @@ import {
   ChannelType,
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
+import { refreshSettings } from '../../repositories/refresh-settings.repository';
 import { statsPanelRepository } from '../../repositories/stats-panel.repository';
 import { denyUnlessAdmin } from '../../utils/permissions';
 import { resolveMember } from '../../utils/members';
@@ -74,7 +75,7 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
     statsPanelRepository.setPanel(interaction.guild.id, channel.id, msg.id);
 
     await interaction.editReply({
-      content: `✅ Stats panel set in ${channel}. It will update every 10 minutes.`,
+      content: `✅ Stats panel set in ${channel}. It will update every ${refreshSettings.minutes(interaction.guild.id, 'stats')} minutes.`,
     });
   } else if (sub === 'disable') {
     const config = statsPanelRepository.get(interaction.guild.id);

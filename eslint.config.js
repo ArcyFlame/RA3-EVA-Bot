@@ -31,6 +31,7 @@ module.exports = [
       'scripts/host-bot.js',
       'scripts/host-worker.js',
       'scripts/lib/updater.js',
+      'scripts/lib/update-controls.js',
       'scripts/stop-host.js',
       'scripts/check-update.js',
       'scripts/validate-update.js',

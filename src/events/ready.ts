@@ -23,12 +23,13 @@ import { checkinNotificationService } from '../services/checkin-notification.ser
 import { getGameContext } from '../utils/game-context';
 import { replayRatingService } from '../services/replay-rating.service';
 import { guildBrandingService } from '../services/guild-branding.service';
+import { panelRefreshSchedule, REFRESH_CHECK_MS } from '../utils/refresh-scheduler';
+import { refreshSettings } from '../repositories/refresh-settings.repository';
 
 export const name = Events.ClientReady;
 export const once = true;
 
 const PRESENCE_INTERVAL_MS = 2 * 60 * 1000;
-const STATS_PANEL_INTERVAL_MS = 10 * 60 * 1000;
 
 /** Handles kept for diagnostics and to guarantee no double-registration. */
 const intervalHandles: NodeJS.Timeout[] = [];
@@ -188,7 +189,7 @@ export async function execute(bot: RA3Bot): Promise<void> {
 
   // ── Persistent stats panels ───────────────────────────────────────────
   await updateStatsPanels(bot);
-  managedInterval(() => updateStatsPanels(bot), STATS_PANEL_INTERVAL_MS, 'stats panel updater');
+  managedInterval(() => updateStatsPanels(bot), REFRESH_CHECK_MS, 'stats panel updater');
 
   startLobbyPanelUpdater(bot);
   startMatchPanelUpdater(bot);
@@ -202,7 +203,10 @@ async function updateStatsPanels(bot: RA3Bot): Promise<void> {
 
   for (const cfg of configs) {
     try {
-      await updateSinglePanel(bot, cfg);
+      if (
+        !(await panelRefreshSchedule.run(cfg.guildId, 'stats', () => updateSinglePanel(bot, cfg)))
+      )
+        continue;
       // Small stagger to stay well inside channel rate limits.
       await new Promise((resolve) => setTimeout(resolve, 500));
     } catch (error) {
@@ -229,7 +233,11 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
   const view = new StatsView(stats, context.game, context.sources, context.mastersEnabled);
   const [online24Palette, newPlayersPalette, online30Palette] = statsChartPalettes(context.game);
   view.setPage(0);
-  const embedPayload: any = { embeds: [view.getEmbed()], components: view.getComponents() };
+  const panelEmbed = view.getEmbed();
+  panelEmbed.setFooter({
+    text: `Updates every ${refreshSettings.minutes(cfg.guildId, 'stats')} min - Last refresh: ${new Date().toISOString()}`,
+  });
+  const embedPayload: any = { embeds: [panelEmbed], components: view.getComponents() };
 
   // Charts live in SEPARATE messages below the embed — grouped attachments
   // render as a cropped gallery, one chart per message looks right.

@@ -30,9 +30,7 @@ export type FeatureKey =
   | 'masters'
   | 'menusMode'
   | 'dmPublicCommands'
-  | 'tips'
-  | 'tipsPrivate'
-  | 'tipsPublic';
+  | 'tips';
 
 interface FeatureDefinition {
   key: FeatureKey;
@@ -48,22 +46,8 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     key: 'tips',
     label: 'Gameplay tips',
     emoji: '💡',
-    description: 'Enable gameplay tips',
+    description: 'Enable tips. Visibility: /bot tips',
     enabled: (g) => tipSettingsRepository.get(g.discordId).enabled,
-  },
-  {
-    key: 'tipsPrivate',
-    label: 'Private tips',
-    emoji: '🔒',
-    description: 'Tips visible only to the requester',
-    enabled: (g) => tipSettingsRepository.get(g.discordId).private,
-  },
-  {
-    key: 'tipsPublic',
-    label: 'Public tips',
-    emoji: '📢',
-    description: 'Tips visible to the channel',
-    enabled: (g) => tipSettingsRepository.get(g.discordId).public,
   },
   {
     key: 'charts',
@@ -217,12 +201,8 @@ export function isFeatureKey(value: string): value is FeatureKey {
 }
 
 export function setFeatureState(guildId: string, key: FeatureKey, enabled: boolean): void {
-  if (key === 'tips' || key === 'tipsPrivate' || key === 'tipsPublic') {
-    tipSettingsRepository.set(
-      guildId,
-      key === 'tips' ? 'enabled' : key === 'tipsPrivate' ? 'private' : 'public',
-      enabled,
-    );
+  if (key === 'tips') {
+    tipSettingsRepository.setEnabled(guildId, enabled);
     return;
   }
   if (key === 'menusMode') {

@@ -34,7 +34,7 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
     .setColor(context.config.color)
     .addFields(
       { name: '🛠️ Created by', value: '<@270293736871690240> (Arcy)', inline: true },
-      { name: '📅 Version', value: '5.4.0', inline: true },
+      { name: '📅 Version', value: '5.5.0', inline: true },
     )
     .setThumbnail(
       interaction.guild?.members.me?.displayAvatarURL() ??

@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
 import { RA3Bot } from '../../bot';
-import { masterRepository } from '../../repositories/master.repository';
-import { buildMastersEmbed } from './masters.view';
+import { mastersView } from './masters-manager.view';
+import { isModerator } from '../../utils/permissions';
 import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
@@ -17,11 +17,17 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     await interaction.editReply('Masters are disabled on this server.');
     return;
   }
-  const masters = masterRepository.getAll(context.game);
-  if (masters.length === 0) {
-    await interaction.editReply({ content: 'No masters in Hall of Fame yet.' });
-    return;
-  }
-
-  await interaction.editReply({ embeds: [buildMastersEmbed(masters, context.game)] });
+  const member = interaction.guild
+    ? await interaction.guild.members
+        .fetch({ user: interaction.user.id, force: true })
+        .catch(() => null)
+    : null;
+  await interaction.editReply(
+    mastersView(
+      interaction.guildId,
+      interaction.user.id,
+      context.game,
+      !!member && isModerator(member),
+    ),
+  );
 }

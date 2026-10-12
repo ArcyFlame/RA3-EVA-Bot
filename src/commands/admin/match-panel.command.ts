@@ -13,6 +13,9 @@ import { denyUnlessAdmin } from '../../utils/permissions';
 import { resolveMember } from '../../utils/members';
 import { challongeService } from '../../services/challonge.service';
 import { logger } from '../../utils/logger';
+import { panelRefreshSchedule, REFRESH_CHECK_MS } from '../../utils/refresh-scheduler';
+import { refreshSettings } from '../../repositories/refresh-settings.repository';
+import { guildRepository } from '../../repositories/guild.repository';
 
 export const data = new SlashCommandBuilder()
   .setName('match_panel')
@@ -62,7 +65,7 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
     const msg = await channel.send({ embeds: [embed] });
     matchPanelRepository.set(interaction.guild.id, channel.id, msg.id);
     await interaction.editReply({
-      content: `✅ Match panel set in ${channel}. It will update every 2 minutes.`,
+      content: `✅ Match panel set in ${channel}. It will update every ${refreshSettings.minutes(interaction.guild.id, 'matches')} minutes.`,
     });
     await updateMatchPanel(bot, interaction.guild.id);
   } else if (sub === 'disable') {
@@ -82,6 +85,7 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
 }
 
 async function updateMatchPanel(bot: RA3Bot, guildId: string) {
+  if (guildRepository.findByDiscordId(guildId)?.tournamentsEnabled === 0) return;
   const panel = matchPanelRepository.get(guildId);
   if (!panel) return;
   const guild = bot.client.guilds.cache.get(guildId);
@@ -121,7 +125,7 @@ async function updateMatchPanel(bot: RA3Bot, guildId: string) {
       .setTitle('🏆 Live Tournament Matches')
       .setColor(0x5865f2)
       .setTimestamp()
-      .setFooter({ text: 'Updates every 2 minutes' });
+      .setFooter({ text: `Updates every ${refreshSettings.minutes(guildId, 'matches')} minutes` });
     if (openMatches.length === 0) {
       embed.setDescription('No ongoing or upcoming matches.');
     } else {
@@ -143,11 +147,22 @@ async function updateMatchPanel(bot: RA3Bot, guildId: string) {
 }
 
 export function startMatchPanelUpdater(bot: RA3Bot) {
+  let running = false;
   const interval = setInterval(async () => {
-    const panels = matchPanelRepository.getAll();
-    for (const panel of panels) {
-      await updateMatchPanel(bot, panel.guildId);
+    if (running) return;
+    running = true;
+    try {
+      const panels = matchPanelRepository.getAll();
+      for (const panel of panels) {
+        await panelRefreshSchedule.run(panel.guildId, 'matches', () =>
+          updateMatchPanel(bot, panel.guildId),
+        );
+      }
+    } catch (error) {
+      logger.error('Match panel tick failed:', error);
+    } finally {
+      running = false;
     }
-  }, 120000); // every 2 minutes
+  }, REFRESH_CHECK_MS);
   interval.unref();
 }

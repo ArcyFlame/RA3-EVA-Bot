@@ -240,7 +240,7 @@ export class StatsView {
       );
     }
     embed.setFooter({
-      text: `Updates every 10 min • Last refresh: ${new Date().toLocaleTimeString()} UTC`,
+      text: `Last refresh: ${new Date().toISOString()}`,
     });
     embed.setThumbnail(config.artworkUrl);
     return embed;
@@ -269,8 +269,8 @@ export class StatsView {
       }
       const patchStr = r.patch
         ? r.patch.toLowerCase().startsWith('patch')
-          ? ` (${r.patch})`
-          : ` (Patch ${r.patch})`
+          ? ` | ${r.patch}`
+          : ` | Patch ${r.patch}`
         : '';
       text += `• ${sanitizeInput(r.name, 50)}${patchStr}\n`;
     }

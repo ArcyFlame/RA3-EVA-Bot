@@ -17,7 +17,7 @@ import {
   FACTION_GLA,
 } from '../../utils/emojis';
 
-export function tipCard(tip: Tip) {
+export function tipCard(tip: Tip, displayNumber = tip.id) {
   const base = tip.faction.split('_')[0];
   const icon =
     (
@@ -46,19 +46,29 @@ export function tipCard(tip: Tip) {
   const embed = new EmbedBuilder()
     .setColor(color)
     .setDescription(
-      `### ${tip.game === 'ra3' ? RA3_LOGO : GENEVO_LOGO} Tip #${tip.id}\n\n` +
+      `### ${tip.game === 'ra3' ? RA3_LOGO : GENEVO_LOGO} Tip #${displayNumber}\n\n` +
         `${icon ? icon + ' ' : ''}**${faction} - ${escapeMarkdown(tip.title)}**\n${escapeMarkdown(tip.text)}` +
-        (quote
-          ? `\n\n> ${escapeMarkdown(quote.text)}\n- ${escapeMarkdown(quote.speaker)} (${quote.game})`
+        (quote?.text
+          ? `\n\n> ${escapeMarkdown(quote.text)}` +
+            (quote.speaker ? `\n- ${escapeMarkdown(quote.speaker)} (${quote.game})` : '')
           : ''),
     )
-    .setFooter({ text: tip.origin === 'curated' ? tip.ruleset : 'Server tip - supplied by staff' });
-  const links = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Tip Source').setURL(tip.source),
-  );
-  if (quote)
+    .setFooter({
+      text:
+        tip.footer ?? (tip.origin === 'curated' ? tip.ruleset : 'Server tip - supplied by staff'),
+    });
+  const links = new ActionRowBuilder<ButtonBuilder>();
+  if (tip.source)
+    links.addComponents(
+      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Tip Source').setURL(tip.source),
+    );
+  if (quote?.source)
     links.addComponents(
       new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Quote Source').setURL(quote.source),
     );
-  return { embeds: [embed], components: [links], allowedMentions: { parse: [] as [] } };
+  return {
+    embeds: [embed],
+    components: links.components.length ? [links] : [],
+    allowedMentions: { parse: [] as [] },
+  };
 }

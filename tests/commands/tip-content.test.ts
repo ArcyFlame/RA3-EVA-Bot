@@ -10,6 +10,37 @@ import {
 } from '../../src/utils/emojis';
 
 describe('sourced tips', () => {
+  it('renders a quote with no attribution or source without empty buttons or lines', () => {
+    const tip = {
+      ...CURATED_TIPS.ra3[0],
+      origin: 'server' as const,
+      source: '',
+      quote: { ...CURATED_TIPS.ra3[0].quote!, text: 'A quote', speaker: '', source: '' },
+    };
+    expect(() => validateTip(tip)).not.toThrow();
+    const card = tipCard(tip);
+    expect(card.embeds[0].data.description).toContain('> A quote');
+    expect(card.embeds[0].data.description).not.toContain('\n- ');
+    expect(card.components).toEqual([]);
+    expect(() => validateTip({ ...tip, origin: 'curated' })).toThrow();
+  });
+  it('does not render an empty quote when only optional metadata is supplied', () => {
+    const tip = {
+      ...CURATED_TIPS.ra3[0],
+      origin: 'server' as const,
+      source: '',
+      quote: {
+        ...CURATED_TIPS.ra3[0].quote!,
+        text: '',
+        speaker: 'Unit',
+        source: 'https://example.com/quote',
+      },
+    };
+    expect(() => validateTip(tip)).not.toThrow();
+    const card = tipCard(tip);
+    expect(card.embeds[0].data.description).not.toContain('\n>');
+    expect(card.components[0].components[0].toJSON().label).toBe('Quote Source');
+  });
   for (const game of ['ra3', 'genevo'] as const) {
     it(`${game} has stable IDs and a speaker/source for every built-in quote`, () => {
       const tips = CURATED_TIPS[game];
@@ -63,8 +94,28 @@ describe('sourced tips', () => {
       { text: 'x'.repeat(1201) },
       { faction: '__proto__' },
       { title: 'Bad—title' },
+      { footer: 'x'.repeat(201) },
+      { footer: 'Bad—footer' },
+      { footer: 'two\nlines' },
+      { footer: '' },
       { quote: { ...CURATED_TIPS.ra3[0].quote!, game: 'Generals / Zero Hour' as const } },
     ])
       expect(() => validateTip({ ...CURATED_TIPS.ra3[0], ...change })).toThrow();
+  });
+  it('renders an optional custom footer while keeping safe mention settings', () => {
+    const tip = { ...CURATED_TIPS.ra3[0], footer: 'Allied field guide - @everyone' };
+    expect(validateTip(tip)).toBe(tip);
+    const card = tipCard(tip);
+    expect(card.embeds[0].data.footer?.text).toBe(tip.footer);
+    expect(card.allowedMentions.parse).toEqual([]);
+  });
+  it('omits the source button and empty rows when a staff tip has no source', () => {
+    const tip = { ...CURATED_TIPS.ra3[0], origin: 'server' as const, source: '', quote: undefined };
+    expect(validateTip(tip)).toBe(tip);
+    expect(tipCard(tip).components).toEqual([]);
+    const withQuote = tipCard({ ...tip, quote: CURATED_TIPS.ra3[0].quote });
+    expect(withQuote.components[0].toJSON().components).toHaveLength(1);
+    expect(withQuote.components[0].components[0].toJSON().label).toBe('Quote Source');
+    expect(() => validateTip({ ...tip, origin: 'curated' })).toThrow();
   });
 });

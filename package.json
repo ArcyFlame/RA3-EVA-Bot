@@ -1,6 +1,6 @@
 {
   "name": "ra3-community-bot",
-  "version": "5.4.0",
+  "version": "5.5.0",
   "description": "Community bot for Red Alert 3 and Generals Evolution",
   "license": "GPL-3.0-or-later",
   "botUpdater": {
@@ -19,7 +19,7 @@
     "stop": "node scripts/stop-host.js",
     "update:check": "node scripts/check-update.js",
     "dev": "node --watch -r ts-node/register/transpile-only src/index.ts",
-    "lint": "eslint src scripts/host-bot.js scripts/host-worker.js scripts/lib/updater.js scripts/stop-host.js scripts/check-update.js scripts/validate-update.js",
+    "lint": "eslint src scripts/host-bot.js scripts/host-worker.js scripts/lib/updater.js scripts/lib/update-controls.js scripts/stop-host.js scripts/check-update.js scripts/validate-update.js",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Server data scopes</title>
+  </head>
+  <body>
+    <h1>Server data scopes</h1>
+    <p>
+      Review date: 12 October 2026. This review traces repository keys, command permissions and
+      delivery paths in the local source. It is not a guarantee that every live-server interaction
+      has been tested.
+    </p>
+    <h2>Server-specific data and controls</h2>
+    <ul>
+      <li>
+        Server setup, notification channels, feature toggles, staff-role configuration and
+        help-category visibility use the guild ID.
+      </li>
+      <li>
+        Activity XP, rank roles, replay rating settings and daily award limits are guild-scoped.
+        Replay cards retain their originating guild.
+      </li>
+      <li>
+        Warnings are keyed by guild and member. Tracked streamers and custom messages are stored per
+        guild.
+      </li>
+      <li>
+        Custom tips are scoped by guild and game. Tip visibility and enabled state are per guild.
+      </li>
+      <li>
+        Bot nickname, avatar, banner and description changes use the server member profile, not the
+        shared bot account profile.
+      </li>
+      <li>Lobby, stats and match panel configuration and refresh intervals are per guild.</li>
+      <li>
+        The new masters menu creates a separate roster per guild and game on the first edit,
+        starting from the shared defaults. Later edits in that menu cannot change another server's
+        roster.
+      </li>
+    </ul>
+    <h2>Intentionally shared data</h2>
+    <ul>
+      <li>
+        External service credentials and API quotas are shared by the installation. Only the bot
+        owner can change credentials.
+      </li>
+      <li>
+        News, tournament records/results, maps, game player observations and external statistics are
+        shared source data, generally separated by game. Tournament edits require the authorized
+        organizer server's staff or the bot owner.
+      </li>
+      <li>
+        Linked game accounts, language and personal DM preferences follow the Discord user across
+        servers. Shared identity removal is limited to the profile owner or bot owner.
+      </li>
+      <li>
+        Shared scanner intervals in /bot refresh affect all servers and are bot-owner only.
+        Polling frequency does not override provider caches, quotas or notification posting limits.
+      </li>
+      <li>
+        The global switch for public commands in DMs, installation updates and process controls
+        remain bot-owner controls.
+      </li>
+      <li>
+        Command cooldowns follow user and command across servers as an installation-wide anti-spam
+        measure.
+      </li>
+      <li>
+        Legacy /master add and /master remove change shared default entries and remain bot-owner
+        only. Customized server rosters no longer follow subsequent changes to those defaults.
+      </li>
+    </ul>
+    <h2>Remaining cross-server behavior to address</h2>
+    <ol>
+      <li>
+        <strong>Notification retry suppression.</strong> Twitch records a broadcaster as notified
+        before the per-server send loop and skips it for six hours. YouTube records a video before
+        attempting its target deliveries. ModDB marks candidates seen after attempting delivery,
+        even if a target send failed. YouTube and ModDB also have per-server successful-delivery
+        records, but the earlier global seen checks can prevent a later automatic retry for a failed
+        or newly eligible server. This is a delivery/reliability issue; this review does not
+        demonstrate cross-server private-data disclosure. Recommended fix: separate source discovery
+        from a durable, per-server/channel delivery-and-retry queue. These paths have not been
+        changed in this update.
+      </li>
+      <li>
+        <strong>Clan names and tags still use global uniqueness.</strong> The initial schema has
+        UNIQUE constraints on clan name and tag; the guild migration adds a scope column without
+        replacing those constraints. Two servers therefore cannot independently create the same name
+        or tag. Legacy clans without a guild are also deliberately visible in read-only lists across
+        servers. Mutating controls use exact guild lookups. Recommended fix: migrate name/tag
+        uniqueness to guild scope and explicitly assign or retire unassigned legacy records after
+        reviewing their ownership. No clan data was migrated by this update.
+      </li>
+    </ol>
+    <h2>Source references</h2>
+    <p>
+      See src/repositories (guild, activity-rank, replay-rating, warning, tracked-streamer, tip,
+      user, master-roster, refresh-settings and content-delivery); src/services (bot-profile,
+      service-credentials, Twitch/YouTube/ModDB notifiers); src/utils/tournament-access.ts and
+      cooldown.ts; src/database/migrations/001_initial_schema.ts and 004_clans_guild_id.ts.
+      Permission regression tests live under tests/security and tests/commands.
+    </p>
+  </body>
+</html>

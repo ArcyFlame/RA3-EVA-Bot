@@ -7,7 +7,7 @@ import { guildRepository } from '../repositories/guild.repository';
 import { db } from '../database/sqlite';
 import { classifyGameContent, GameId, GAME_CONFIGS } from '../config/games';
 
-const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+import { startScannerTimer } from '../utils/refresh-scheduler';
 const RE_NOTIFY_AFTER_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 export class TwitchNotifierService {
@@ -45,9 +45,8 @@ export class TwitchNotifierService {
     }
 
     await this.poll(client);
-    this.pollInterval = setInterval(() => {
-      this.poll(client).catch((error) => logger.error('Twitch poll tick failed:', error));
-    }, POLL_INTERVAL_MS);
+    if (this.pollInterval) clearInterval(this.pollInterval);
+    this.pollInterval = startScannerTimer('twitch', () => this.poll(client));
     this.pollInterval.unref();
   }
 

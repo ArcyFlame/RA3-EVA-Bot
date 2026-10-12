@@ -28,12 +28,20 @@
       <h1>Setup</h1>
       <h2>Gameplay tips</h2>
       <p>
-        In <code>/toggle</code>, Gameplay tips enables or disables tips overall. Private tips and
-        Public tips independently allow replies visible only to the requester or to everyone in the
-        channel. <code>/tips</code> prefers a private reply; use its visibility option to request a
-        public one. Private replies are not direct messages. Admins and moderators edit this
-        server's tips with <code>/admin tips</code>. Staff-added tips are labelled as server
-        content; they do not change other servers' tips.
+        <code>/tips</code> posts publicly by default. Admins and moderators use
+        <code>/bot tips</code> and its Make Tips Public / Private button to choose Public
+        (everyone in the channel) or Private (only the person using the command), enable or disable
+        tips, and add, edit or remove tips. Private replies stay in the server; they are not direct
+        messages. Ordinary members cannot override the server's visibility setting. The Gameplay
+        tips switch in <code>/toggle</code>
+        also enables or disables tips without changing visibility. Add Tip and Edit Tip include two
+        steps. Step 1 has title, a typed faction/subfaction, description and optional footer.
+        Continue to Step 2 for separate Quote, Speaker, Quote source and Tip source fields. Nothing
+        is saved until Step 2 is submitted. Drafts expire after 15 minutes or a bot restart. Quote,
+        speaker, quote source and tip source are independently optional. Any supplied source must be
+        a valid public HTTPS link. Blank footer uses the default. Tips have sequential display
+        numbers. With more than 25 tips, Find Tip searches by number or title without paging
+        buttons. Changes apply only to this server's tips.
       </p>
       <p>
         Getting E.V.A running in your server takes about two minutes. Everything is configured

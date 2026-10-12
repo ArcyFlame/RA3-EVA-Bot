@@ -16,6 +16,8 @@ import { CNC_ONLINE, RA3_BATTLE_NET } from '../../utils/emojis';
 import { logger } from '../../utils/logger';
 import { getGameContext } from '../../utils/game-context';
 import { formatMatchPlayers } from '../../utils/match-format';
+import { panelRefreshSchedule, REFRESH_CHECK_MS } from '../../utils/refresh-scheduler';
+import { refreshSettings } from '../../repositories/refresh-settings.repository';
 
 export const data = new SlashCommandBuilder()
   .setName('lobby_panel')
@@ -66,7 +68,7 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
     const msg = await channel.send({ embeds: [embed] });
     lobbyPanelRepository.set(interaction.guild.id, channel.id, msg.id);
     await interaction.editReply({
-      content: `✅ Lobby panel set in ${channel}. It will update every 3 minutes.`,
+      content: `✅ Lobby panel set in ${channel}. It will update every ${refreshSettings.minutes(interaction.guild.id, 'lobby')} minutes.`,
     });
     await updateLobbyPanel(bot, interaction.guild.id);
   } else if (sub === 'disable') {
@@ -86,6 +88,7 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
 }
 
 async function updateLobbyPanel(bot: RA3Bot, guildId: string) {
+  if (guildRepository.findByDiscordId(guildId)?.lobbyEnabled === 0) return;
   const panel = lobbyPanelRepository.get(guildId);
   if (!panel) return;
   const guild = bot.client.guilds.cache.get(guildId);
@@ -104,7 +107,7 @@ async function updateLobbyPanel(bot: RA3Bot, guildId: string) {
       .setColor(context.config.color)
       .setThumbnail(context.config.artworkUrl)
       .setTimestamp()
-      .setFooter({ text: 'Updates every 3 minutes' });
+      .setFooter({ text: `Updates every ${refreshSettings.minutes(guildId, 'lobby')} minutes` });
     if (lobbies.length === 0) {
       embed.setDescription('No active lobbies found right now. Start a game and invite friends!');
     } else {
@@ -165,13 +168,26 @@ export function startLobbyPanelUpdater(bot: RA3Bot) {
     }
     const panels = lobbyPanelRepository.getAll();
     for (const panel of panels) {
-      await updateLobbyPanel(bot, panel.guildId);
+      await panelRefreshSchedule.run(panel.guildId, 'lobby', () =>
+        updateLobbyPanel(bot, panel.guildId),
+      );
     }
   };
-  // First tick right away (boot), then every 3 minutes.
-  tick().catch((err) => logger.error('Lobby panel tick failed:', err));
+  let running = false;
+  const run = async () => {
+    if (running) return;
+    running = true;
+    try {
+      await tick();
+    } catch (err) {
+      logger.error('Lobby panel tick failed:', err);
+    } finally {
+      running = false;
+    }
+  };
+  void run();
   const interval = setInterval(() => {
-    tick().catch((err) => logger.error('Lobby panel tick failed:', err));
-  }, 180000);
+    void run();
+  }, REFRESH_CHECK_MS);
   interval.unref();
 }

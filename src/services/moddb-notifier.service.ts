@@ -7,6 +7,7 @@ import { db } from '../database/sqlite';
 import { contentDeliveryRepository } from '../repositories/content-delivery.repository';
 import { safeGetText } from '../utils/safe-fetch';
 import { GameId, GAME_CONFIGS } from '../config/games';
+import { startScannerTimer } from '../utils/refresh-scheduler';
 
 export interface RSSItem {
   title: string;
@@ -84,7 +85,6 @@ export class ModDBNotifierService {
       url: 'https://rss.moddb.com/mods/command-and-conquer-generals-evolution/downloads/feed/rss.xml',
     },
   ];
-  private readonly pollIntervalMinutes = 15;
   /** At most one channel post per 6 hours — ModDB bursts must not spam. */
   private readonly minPostIntervalMs = 6 * 60 * 60 * 1000;
   private lastPostedAt = new Map<GameId, number>();
@@ -96,12 +96,8 @@ export class ModDBNotifierService {
 
   async start(): Promise<void> {
     logger.info(`ModDB RSS notifier starting with ${this.rssFeeds.length} feeds...`);
-    this.pollInterval = setInterval(
-      () => {
-        this.poll().catch((error) => logger.error('ModDB poll tick failed:', error));
-      },
-      this.pollIntervalMinutes * 60 * 1000,
-    );
+    if (this.pollInterval) clearInterval(this.pollInterval);
+    this.pollInterval = startScannerTimer('moddb', () => this.poll());
     this.pollInterval.unref();
     await this.poll();
   }

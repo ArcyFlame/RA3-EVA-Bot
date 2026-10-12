@@ -5,17 +5,17 @@ export const TIP_FACTIONS = {
   genevo: {
     general: 'General',
     usa: 'USA',
-    usa_air: 'USA - Air Force',
-    usa_laser: 'USA - Laser',
-    usa_superweapon: 'USA - Superweapon',
+    usa_air: 'USA | Air Force General',
+    usa_laser: 'USA | Laser General',
+    usa_superweapon: 'USA | Superweapon General',
     china: 'China',
-    china_nuke: 'China - Nuke',
-    china_tank: 'China - Tank',
-    china_infantry: 'China - Infantry',
+    china_nuke: 'China | Nuclear General',
+    china_tank: 'China | Tank General',
+    china_infantry: 'China | Infantry General',
     gla: 'GLA',
-    gla_toxin: 'GLA - Toxin',
-    gla_demolition: 'GLA - Demolition',
-    gla_stealth: 'GLA - Stealth',
+    gla_toxin: 'GLA | Toxin General',
+    gla_demolition: 'GLA | Demolition General',
+    gla_stealth: 'GLA | Stealth General',
   },
 } as const;
 export interface TipQuote {
@@ -33,6 +33,7 @@ export interface Tip {
   source: string;
   ruleset: string;
   origin: 'curated' | 'server';
+  footer?: string;
   quote?: TipQuote;
 }
 const wiki = (page: string) => `https://cnc.fandom.com/wiki/${page}`;
@@ -258,6 +259,8 @@ function unsupportedText(value: string, multiline = false): boolean {
     })
   );
 }
+export class TipValidationError extends Error {}
+
 export function validateTip(input: Tip): Tip {
   if (
     !input ||
@@ -267,7 +270,7 @@ export function validateTip(input: Tip): Tip {
     input.id > 999999999 ||
     !Object.hasOwn(TIP_FACTIONS[input.game], input.faction)
   )
-    throw new Error('Choose a valid game and faction.');
+    throw new TipValidationError('Choose a valid game and faction.');
   for (const [value, max] of [
     [input.title, 80],
     [input.text, 1200],
@@ -279,36 +282,54 @@ export function validateTip(input: Tip): Tip {
       value.length > max ||
       unsupportedText(value, true)
     )
-      throw new Error('Use plain text within the field limits and hyphens instead of long dashes.');
+      throw new TipValidationError(
+        'Use plain text within the field limits and hyphens instead of long dashes.',
+      );
   }
-  validateSource(input.source);
+  if (input.source !== '' || input.origin === 'curated') validateSource(input.source);
+  if (
+    input.footer !== undefined &&
+    (typeof input.footer !== 'string' ||
+      !input.footer.trim() ||
+      input.footer.length > 200 ||
+      unsupportedText(input.footer))
+  )
+    throw new TipValidationError(
+      'Use a single-line footer of up to 200 characters, or leave it blank.',
+    );
   if (input.quote) {
     const q = input.quote;
     if (
       typeof q.text !== 'string' ||
-      !q.text.trim() ||
+      (input.origin === 'curated' && !q.text.trim()) ||
       q.text.length > 180 ||
       typeof q.speaker !== 'string' ||
-      !q.speaker.trim() ||
+      (input.origin === 'curated' && !q.speaker.trim()) ||
       q.speaker.length > 80 ||
       unsupportedText(q.text + q.speaker) ||
       q.game !== (input.game === 'ra3' ? 'Red Alert 3' : 'Generals / Zero Hour')
     )
-      throw new Error('Use a short quote with its speaker and correct original game.');
-    validateSource(q.source);
+      throw new TipValidationError(
+        'Use a quote up to 180 characters, a speaker up to 80 characters and the correct original game.',
+      );
+    if (q.source !== '' || input.origin === 'curated') validateSource(q.source);
   }
   if (input.origin !== 'curated' && input.origin !== 'server')
-    throw new Error('Invalid tip origin.');
+    throw new TipValidationError('Invalid tip origin.');
   return input;
 }
 export function validateSource(value: string): void {
   if (typeof value !== 'string' || value.length > 500 || /\s/.test(value))
-    throw new Error('Add a valid HTTPS source link.');
+    throw new TipValidationError(
+      'The source must be a valid HTTPS link. You can leave the source blank.',
+    );
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new Error('Add a valid HTTPS source link.');
+    throw new TipValidationError(
+      'The source must be a valid HTTPS link. You can leave the source blank.',
+    );
   }
   if (
     url.protocol !== 'https:' ||
@@ -321,5 +342,5 @@ export function validateSource(value: string): void {
     !/^[a-z0-9.-]+$/i.test(url.hostname) ||
     /^[\d.]+$/.test(url.hostname)
   )
-    throw new Error('Use a public HTTPS source link without login details.');
+    throw new TipValidationError('Use a public HTTPS source link without login details.');
 }

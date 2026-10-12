@@ -10,6 +10,7 @@ import xml2js from 'xml2js';
 import { contentDeliveryRepository } from '../repositories/content-delivery.repository';
 import { safeGetText } from '../utils/safe-fetch';
 import { classifyGameContent, GameId, GAME_CONFIGS } from '../config/games';
+import { startScannerTimer } from '../utils/refresh-scheduler';
 
 export class YouTubeNotifierService {
   private callbackUrl: string | null = null;
@@ -18,7 +19,6 @@ export class YouTubeNotifierService {
   private client: Client | null = null;
   private renewing = false;
   /** Polling mode kicks in when no reachable public callback URL is set. */
-  private readonly POLL_INTERVAL_MS = 15 * 60 * 1000;
   private readonly POLL_MAX_AGE_MS = 24 * 60 * 60 * 1000;
   /**
    * Community channels tracked for EVERY guild, by channel id. Sybert's
@@ -45,9 +45,8 @@ export class YouTubeNotifierService {
     if (!this.hasReachableCallback()) {
       logger.info('YouTube: no public callback URL - using polling mode for tracked channels');
       await this.pollAll();
-      this.pollInterval = setInterval(() => {
-        this.pollAll().catch((error) => logger.error('YouTube poll tick failed:', error));
-      }, this.POLL_INTERVAL_MS);
+      if (this.pollInterval) clearInterval(this.pollInterval);
+      this.pollInterval = startScannerTimer('youtube', () => this.pollAll());
       this.pollInterval.unref();
       return;
     }

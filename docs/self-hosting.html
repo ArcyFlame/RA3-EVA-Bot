@@ -111,6 +111,14 @@ AUTO_UPDATE_INTERVAL_MINUTES=360</code></pre>
         token is needed. Run <code>npm run update:check</code> for a read-only check. Version,
         active commit and the latest update error are saved in <code>.updates/state.json</code>.
       </p>
+      <p>
+        The bot owner can also run <code>/bot update</code> in Discord. If a newer release is
+        available, the private reply offers Yes and No buttons with a five-minute confirmation. Yes
+        requests the checked release using the same validation, backup and rollback process, even
+        when automatic updates are disabled. No cancels that manual request; it does not change the
+        automatic update setting. Only the bot owner can confirm an installation, which restarts the
+        bot for every server. Start with <code>npm start</code> to use this menu.
+      </p>
       <ol>
         <li>
           The release tag's commit is resolved through GitHub, then checked against the downloaded

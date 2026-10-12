@@ -7,26 +7,13 @@ import { tipSettingsRepository } from '../../repositories/tip-settings.repositor
 
 export const data = new SlashCommandBuilder()
   .setName('tips')
-  .setDescription('Show a gameplay tip and its sources')
-  .addStringOption((option) =>
-    option
-      .setName('visibility')
-      .setDescription('Who can see this tip')
-      .addChoices({ name: 'Private', value: 'private' }, { name: 'Public', value: 'public' }),
-  );
+  .setDescription('Show a gameplay tip and its sources');
 export const guildOnly = false;
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
   const settings = tipSettingsRepository.get(interaction.guildId);
-  const requested = interaction.options.getString('visibility');
-  const visibility = requested ?? (settings.private ? 'private' : 'public');
-  if (
-    !settings.enabled ||
-    !['private', 'public'].includes(visibility) ||
-    !settings[visibility as 'private' | 'public'] ||
-    (!interaction.guildId && visibility === 'public')
-  ) {
+  if (!settings.enabled) {
     await interaction.reply({
-      content: 'Tips are disabled for this visibility. Ask an admin to check /toggle.',
+      content: 'Tips are disabled in this server.',
       ephemeral: true,
       allowedMentions: { parse: [] },
     });
@@ -37,9 +24,12 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   const tip = tips[Math.floor(Math.random() * tips.length)];
   await interaction.reply(
     tip
-      ? { ...tipCard(tip), ephemeral: visibility === 'private' }
+      ? {
+          ...tipCard(tip, tipRepository.displayNumber(interaction.guildId, game, tip.id)),
+          ephemeral: !interaction.guildId || settings.visibility === 'private',
+        }
       : {
-          content: 'No tips are enabled for this game. Staff can manage them with /admin tips.',
+          content: 'No tips are enabled for this game.',
           allowedMentions: { parse: [] },
           ephemeral: true,
         },

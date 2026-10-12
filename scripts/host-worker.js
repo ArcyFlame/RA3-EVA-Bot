@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { fork } = require('node:child_process');
 const updater = require('./lib/updater');
+const { createUpdateControls } = require('./lib/update-controls');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const log = (message) => console.log(`[host] ${message}`);
@@ -81,10 +82,16 @@ async function runHost(options = {}) {
   let stopping = false;
   let bot = null;
   let updateAbort = null;
+  let preparing = false;
   const Database = options.Database || require('better-sqlite3');
   const launch = options.startBot || startBot;
   const pause = options.sleep || sleep;
   const healthLog = options.log || log;
+  const controls = createUpdateControls({
+    getState: () => state,
+    findUpdate: (version, failed) => updater.findUpdate(version, failed),
+    isBusy: () => stopping || preparing || !!state.pending,
+  });
   const stop = () => {
     stopping = true;
     updateAbort?.abort();
@@ -143,6 +150,18 @@ async function runHost(options = {}) {
       if (state.pending && state.pending.database !== updater.databasePath(root))
         throw new Error('DATABASE_PATH changed during an update; refusing candidate startup');
       bot = launch(directory, root);
+      const currentBot = bot;
+      const handleUpdateRequest = async (message) => {
+        const response = await controls.handle(message);
+        if (response && currentBot === bot && currentBot.child?.connected) {
+          currentBot.child.send(response, () => {});
+        }
+      };
+      currentBot.child?.on('message', handleUpdateRequest);
+      currentBot.exited.finally(() => {
+        currentBot.child?.removeListener('message', handleUpdateRequest);
+        controls.clear();
+      });
       if (bot.child?.pid) {
         updater.atomicJson(location.botLock, {
           pid: bot.child.pid,
@@ -173,6 +192,7 @@ async function runHost(options = {}) {
         state.active = state.pending.sha;
         state.version = state.pending.version;
         state.pending = null;
+        delete state.lastError;
         state.updatedAt = new Date().toISOString();
         updater.atomicJson(location.state, state);
         healthLog(`Activated stable release v${state.version}`);
@@ -187,16 +207,28 @@ async function runHost(options = {}) {
         updateAbort?.abort();
       });
       while (!stopping && !exited) {
-        if (enabled && Date.now() >= nextCheck) {
+        const manualRelease = controls.takeRequested();
+        if (manualRelease || (enabled && Date.now() >= nextCheck)) {
           nextCheck = Date.now() + minutes * 60_000;
           let release;
+          preparing = true;
           updateAbort = new AbortController();
           const execute = (file, args, cwd, timeout) =>
             updater.run(file, args, cwd, timeout, updater.buildEnvironment(), updateAbort.signal);
           try {
-            release = await updater.findUpdate(state.version, state.failed, (endpoint) =>
+            const latest = await updater.findUpdate(state.version, state.failed, (endpoint) =>
               updater.githubJson(endpoint, updateAbort.signal),
             );
+            if (
+              manualRelease &&
+              (!latest ||
+                latest.sha !== manualRelease.sha ||
+                latest.version !== manualRelease.version)
+            )
+              throw new Error(
+                'The confirmed release changed or is no longer available; run /bot update again',
+              );
+            release = latest;
             state.checkedAt = new Date().toISOString();
             updater.atomicJson(location.state, state);
             if (!release) healthLog('No newer stable release available');
@@ -234,6 +266,7 @@ async function runHost(options = {}) {
             healthLog(`Update skipped: ${error.message}`);
           } finally {
             updateAbort = null;
+            preparing = false;
           }
         }
         await pause(1000);

@@ -22,7 +22,7 @@ const GENEVO_EVENTS_FEED =
 export const RESULTS_FORUM_URL = 'https://www.gamereplays.org/community/index.php?showforum=2364';
 /** Only hosts the scanner may fetch from (SSRF guard for outbound requests). */
 export const ALLOWED_HOSTS = new Set(['www.gamereplays.org', 'gamereplays.org']);
-const SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+import { startScannerTimer } from '../utils/refresh-scheduler';
 const RECENT_WINDOW_DAYS = 730; // ingest up to ~2 years of portal history
 export interface ParsedTournament {
   title: string;
@@ -439,9 +439,7 @@ export class TournamentScannerService {
 
   start(): void {
     if (this.interval) return;
-    this.interval = setInterval(() => {
-      this.scan().catch((error) => logger.error('Tournament scan tick failed:', error));
-    }, SCAN_INTERVAL_MS);
+    this.interval = startScannerTimer('tournaments', () => this.scan());
     this.interval.unref();
     logger.info('Tournament scanner started');
   }
