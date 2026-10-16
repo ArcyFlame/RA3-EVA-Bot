@@ -230,13 +230,16 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
 
   const context = getGameContext(cfg.guildId);
   const stats = await ra3StatsService.fetch(context.game, context.sources);
-  const view = new StatsView(stats, context.game, context.sources, context.mastersEnabled);
+  const view = new StatsView(
+    stats,
+    context.game,
+    context.sources,
+    context.mastersEnabled,
+    refreshSettings.minutes(cfg.guildId, 'stats'),
+  );
   const [online24Palette, newPlayersPalette, online30Palette] = statsChartPalettes(context.game);
   view.setPage(0);
   const panelEmbed = view.getEmbed();
-  panelEmbed.setFooter({
-    text: `Updates every ${refreshSettings.minutes(cfg.guildId, 'stats')} min`,
-  });
   const embedPayload: any = { embeds: [panelEmbed], components: view.getComponents() };
 
   // Charts live in SEPARATE messages below the embed — grouped attachments

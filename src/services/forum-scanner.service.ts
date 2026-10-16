@@ -13,6 +13,7 @@ import { extractPrizeValue, truncateSentences } from '../utils/text';
 import { statusFromChallonge } from '../utils/tournament-status';
 import { checkinNotificationService } from './checkin-notification.service';
 import { GameId } from '../config/games';
+import { isForumPlayerName, isForumRegistrationMetadata } from '../utils/tournament-player-name';
 
 export { truncateSentences };
 
@@ -364,29 +365,38 @@ export function parseRegistrationRoster(html: string): string[] {
   const comment = (
     liveBody.length > 0 ? liveBody : firstPostElement.find('.comment').first()
   ).clone();
-  comment.find('script, style').remove();
+  comment.find('script, style, blockquote, .signature, .postsignature').remove();
   comment.find('br').replaceWith('\n');
+  comment.find('li, p, div, ol, ul, h1, h2, h3, h4').each((_, element) => {
+    $(element).prepend('\n').append('\n');
+  });
   const firstPostText = comment.text() || '';
   if (!/registered(?:\s+for)?[^:\n]{0,30}:/i.test(firstPostText)) return [];
-  const teamRows = comment
-    .find('li')
-    .map((_, element) => $(element).text().replace(/\s+/g, ' ').trim())
-    .get()
-    .filter((line) => {
-      const players = line.match(/\(([^)]*)\)/)?.[1];
-      return Boolean(players && /\s(?:and|&|vs)\s|\+/i.test(players));
-    });
-  // Current GenEvo topics use an ordered list for the maintained team roster.
-  // Prefer those rows so unrelated prize and footer text in the first post can
-  // never be interpreted as registrations. Older topics remain line-based.
-  const rosterLines = teamRows.length > 0 ? teamRows : firstPostText.split(/\n+/);
+  const rosterLines = firstPostText.split(/\n+/);
   const names: string[] = [];
+  let inRoster = false;
   for (const rawLine of rosterLines) {
-    const clean = rawLine
+    let clean = rawLine
       .replace(/\s+/g, ' ')
       .replace(/^\d{1,3}\.\s*/, '')
       .trim();
     if (!clean) continue;
+    const heading = /^registered(?:\s+for)?[^:\n]{0,30}:\s*/i.exec(clean);
+    if (heading) {
+      inRoster = true;
+      clean = clean.slice(heading[0].length).trim();
+      if (!clean) continue;
+    }
+    if (!inRoster) continue;
+    if (
+      isForumRegistrationMetadata(clean) ||
+      /^(?:important|note|edit|all replays|like all tournaments|if you|you (?:will|must|need)|make sure|registration|rules|map pool|format|prizes?|streaming|fair play)\b/i.test(
+        clean,
+      )
+    ) {
+      inRoster = false;
+      continue;
+    }
     // GenEvo team lists put the player pair inside parentheses, while older
     // XMAS lists put the team name there. Select the side that contains the
     // actual partner separator.
@@ -402,7 +412,7 @@ export function parseRegistrationRoster(html: string): string[] {
     }
     for (const token of rosterPart.split(/\s+(?:and|&|vs)\s+|\s*\+\s*|\s*[,;]\s*/i)) {
       const name = token.trim();
-      if (!name || name.length < 2 || name.length > 25) continue;
+      if (!name || name.length < 2 || name.length > 50 || !isForumPlayerName(name)) continue;
       if (/^(?:in|the|team|name|closed|opens?|register)$/i.test(name)) continue;
       names.push(name);
     }

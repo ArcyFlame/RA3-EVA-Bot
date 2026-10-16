@@ -56,6 +56,7 @@ export class StatsView {
     game: GameId = 'ra3',
     sources: StatsSourceOptions = {},
     showMasters = game === 'ra3',
+    private refreshMinutes = 10,
   ) {
     this._stats = stats;
     this.game = game;
@@ -72,7 +73,8 @@ export class StatsView {
     const config = GAME_CONFIGS[this.game];
     const embed = new EmbedBuilder()
       .setColor(config.color)
-      .setFooter({ text: `${config.shortLabel} Community Stats` });
+      .setFooter({ text: `Updates every ${this.refreshMinutes} min` })
+      .setTimestamp();
 
     if (this.page === 0) {
       embed.setTitle(`${config.shortLabel} Community Live Stats`);

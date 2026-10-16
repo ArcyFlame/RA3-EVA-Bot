@@ -251,6 +251,23 @@ describe('parseRegistrationRoster', () => {
   const firstPost = (body: string) =>
     `<html><div class="comment_wrapper"><div class="comment_header"><span class="member_name"><a>CWEdvin</a></span></div><div class="comment">${body}</div></div></html>`;
 
+  it('imports only the roster, not announcement headings, prizes or footer text', () => {
+    const html = firstPost(
+      '<p>FTW 92 Announcement</p><p>Discord used for events</p>' +
+        '<p>PRIZES</p><p>1st Place: 100$</p><p>2nd Place: 50$</p>' +
+        '<p><b>Registered:</b></p><ol><li>Arcy</li><li>Pika</li></ol>' +
+        '<p>Registration closes tomorrow.</p><p>Other page text</p>' +
+        '<div class="signature">Registered: NotAPlayer</div>',
+    );
+    expect(parseRegistrationRoster(html)).toEqual(['Arcy', 'Pika']);
+  });
+
+  it('does not treat a sentence mentioning registered players as a roster heading', () => {
+    expect(
+      parseRegistrationRoster(firstPost('Only registered players can play:<br>PRIZES<br>Bob')),
+    ).toEqual([]);
+  });
+
   it('parses XMAS-style 2v2 teams and 1v1 lists from the first post', () => {
     const html = firstPost(
       `Registered for 2vs2:\n` +

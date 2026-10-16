@@ -91,7 +91,13 @@ export async function applyStatsPanel(
 
     const context = getGameContext(interaction.guild.id);
     const stats = await ra3StatsService.fetch(context.game, context.sources);
-    const view = new StatsView(stats, context.game, context.sources);
+    const view = new StatsView(
+      stats,
+      context.game,
+      context.sources,
+      context.mastersEnabled,
+      refreshSettings.minutes(interaction.guild.id, 'stats'),
+    );
     const msg = await channel.send({ embeds: [view.getEmbed()], components: view.getComponents() });
     statsPanelRepository.setPanel(interaction.guild.id, channel.id, msg.id);
 

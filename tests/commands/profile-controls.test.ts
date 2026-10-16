@@ -33,7 +33,7 @@ beforeEach(() => {
 });
 let sequence = 0;
 function fixture(game: 'ra3' | 'genevo' = 'ra3') {
-  const id = 'profile-controls-' + ++sequence;
+  const id = String(820000000000000000n + BigInt(++sequence));
   guildRepository.upsert(id, { game, activityRanksEnabled: 1 });
   const target: any = {
     id: 'profile-user-' + sequence,

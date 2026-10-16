@@ -4,3 +4,22 @@ export function tournamentPlayerKey(name: string): string | undefined {
   if (!clean || clean.length > 50 || /[\p{Cc}\p{Cf}]/u.test(clean)) return undefined;
   return clean.toLowerCase();
 }
+
+/** Reject recognizable article metadata from unverified forum imports, not player identities. */
+export function isForumPlayerName(name: string): boolean {
+  return !!tournamentPlayerKey(name) && !isForumRegistrationMetadata(name);
+}
+
+export function isForumRegistrationMetadata(name: string): boolean {
+  return (
+    /https?:\/\/|\bdiscord\b.*\b(?:events?|server|invite)\b/i.test(name) ||
+    /\b(?:announcement|registration closes|registration closed)\b/i.test(name) ||
+    /^(?:prizes?|prize pool|format|details|fair play|streaming|registered|registration|sign up|gl\s*hf)\s*[:!*]*$/i.test(
+      name,
+    ) ||
+    /^(?:\d+(?:st|nd|rd|th)|first|second|third)\s*(?:&\s*\d+(?:st|nd|rd|th)\s*)?place\b/i.test(
+      name,
+    ) ||
+    /\d\s*[$€£]|[$€£]\s*\d/.test(name)
+  );
+}

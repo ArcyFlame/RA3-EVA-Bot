@@ -98,6 +98,25 @@ function players(session: Session) {
     );
 }
 
+function organizerServers(bot: RA3Bot, session: Session) {
+  const game = guildRepository.findByDiscordId(session.guildId)?.game ?? 'ra3';
+  const current = session.value.eventId
+    ? tournamentAccessRepository.organizer(session.value.eventId)
+    : undefined;
+  return [...bot.client.guilds.cache.values()]
+    .filter((guild) => {
+      const settings = guildRepository.findByDiscordId(guild.id);
+      return (
+        settings?.game === game &&
+        settings.tournamentsEnabled === 1 &&
+        (guild.id === session.guildId ||
+          guild.id === current ||
+          !!settings.tournamentEventsChannelId)
+      );
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function view(bot: RA3Bot, session: Session, member: GuildMember) {
   const state = session.value;
   const id = (action: string) => `guide_tournament:${action}:${session.id}`;
@@ -109,7 +128,7 @@ function view(bot: RA3Bot, session: Session, member: GuildMember) {
   const select = (
     action: string,
     placeholder: string,
-    entries: Array<{ label: string; value: string }>,
+    entries: Array<{ label: string; value: string; description?: string }>,
     selected?: string,
   ) => {
     const maxPage = Math.max(0, Math.ceil(entries.length / 25) - 1);
@@ -121,13 +140,11 @@ function view(bot: RA3Bot, session: Session, member: GuildMember) {
             .setCustomId(id(action))
             .setPlaceholder(placeholder)
             .addOptions(
-              entries
-                .slice(state.page * 25, state.page * 25 + 25)
-                .map((entry) => ({
-                  ...entry,
-                  label: entry.label.slice(0, 100),
-                  default: entry.value === selected,
-                })),
+              entries.slice(state.page * 25, state.page * 25 + 25).map((entry) => ({
+                ...entry,
+                label: entry.label.slice(0, 100),
+                default: entry.value === selected,
+              })),
             ),
         ),
       );
@@ -185,12 +202,18 @@ function view(bot: RA3Bot, session: Session, member: GuildMember) {
         select(
           'server',
           'Choose organizer server',
-          [...bot.client.guilds.cache.values()].map((guild) => ({
+          organizerServers(bot, session).map((guild) => ({
             label: guild.name || guild.id,
             value: guild.id,
+            description: `${guild.id}${guild.id === session.guildId ? ' - This server' : ''}`,
           })),
           state.serverId,
         );
+        embed.addFields({
+          name: 'Eligible servers',
+          value:
+            'This server and configured tournament servers for this game. Enable tournaments and select a Tournament News channel in /bot setup to include another server.',
+        });
         if (state.serverId)
           embed.addFields({
             name: 'Selected server',
@@ -346,8 +369,8 @@ export async function handleTournamentMenu(bot: RA3Bot, interaction: MenuInterac
         state.mode === 'organizer' &&
         interaction.isStringSelectMenu()
       ) {
-        if (!bot.client.guilds.cache.has(interaction.values[0]))
-          throw new Error('The bot is no longer in that server.');
+        if (!organizerServers(bot, session).some((guild) => guild.id === interaction.values[0]))
+          throw new Error('Choose a configured tournament server for this game.');
         state.serverId = interaction.values[0];
       } else if (
         action === 'factions' &&
@@ -435,6 +458,11 @@ export async function handleTournamentMenu(bot: RA3Bot, interaction: MenuInterac
             );
           if (action === 'assign' && !state.serverId)
             throw new Error('Choose an organizer server first.');
+          if (
+            action === 'assign' &&
+            !organizerServers(bot, session).some((guild) => guild.id === state.serverId)
+          )
+            throw new Error('That server is no longer available for this tournament.');
           sessions.consume(session);
           await assignOrganizer(
             bot,

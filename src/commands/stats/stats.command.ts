@@ -5,6 +5,7 @@ import { generateBarChart, statsChartPalettes } from '../../utils/charts';
 import { StatsView } from './stats.view';
 import { logger } from '../../utils/logger';
 import { getGameContext } from '../../utils/game-context';
+import { refreshSettings } from '../../repositories/refresh-settings.repository';
 
 export const data = new SlashCommandBuilder()
   .setName('stats')
@@ -26,7 +27,13 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   await interaction.deferReply({ ephemeral: true });
   const context = getGameContext(interaction.guildId);
   const stats = await ra3StatsService.fetch(context.game, context.sources);
-  const view = new StatsView(stats, context.game, context.sources, context.mastersEnabled);
+  const view = new StatsView(
+    stats,
+    context.game,
+    context.sources,
+    context.mastersEnabled,
+    interaction.guildId ? refreshSettings.minutes(interaction.guildId, 'stats') : 10,
+  );
   const [online24Palette, newPlayersPalette, online30Palette] = statsChartPalettes(context.game);
   const matchCount = interaction.options.getInteger('matches');
   if (matchCount) view.setRecentMatchCount(matchCount);

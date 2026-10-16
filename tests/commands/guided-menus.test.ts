@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Collection, MessageFlags, ChannelType } from 'discord.js';
 import { connectDatabase } from '../../src/database/connection';
+import { db } from '../../src/database/sqlite';
 import { guildRepository } from '../../src/repositories/guild.repository';
 import { userRepository } from '../../src/repositories/user.repository';
 import { tournamentRepository as tournaments } from '../../src/repositories/tournament.repository';
@@ -196,6 +197,87 @@ describe('profile menu', () => {
 });
 
 describe('tournament menus', () => {
+  it('hides legacy forum article text from player choices and counts without deleting it', async () => {
+    const f = fixture();
+    const eventId = event(f);
+    const junk = [
+      'FTW 92 Announcement',
+      'Discord used for events',
+      'PRIZES',
+      '1st Place: 100$',
+      '2nd Place: 50$',
+    ];
+    for (const name of junk) {
+      expect(tournaments.addParticipant(eventId, name, 'forum')).toBe(false);
+      db.prepare('INSERT INTO tournament_participants (event_id,source,name) VALUES (?,?,?)').run(
+        eventId,
+        'forum',
+        name,
+      );
+    }
+    tournaments.addParticipant(eventId, 'Arcy', 'forum');
+    tournaments.addParticipant(eventId, 'Details', 'discord', target);
+    expect(tournaments.getParticipantCount(eventId)).toBe(2);
+    expect(tournaments.getForumParticipantCount(eventId)).toBe(2);
+    await openTournamentMenu(f.bot, f.i, 'participant', eventId);
+    const options = f.i.reply.mock.calls[0][0].components
+      .flatMap((r: any) => r.toJSON().components)
+      .find((c: any) => c.custom_id.includes(':player:')).options;
+    expect(options.map((o: any) => o.label)).toEqual(['Arcy', 'Details']);
+    expect(
+      db.prepare('SELECT COUNT(*) AS n FROM tournament_participants WHERE event_id=?').get(eventId),
+    ).toEqual({ n: 7 });
+  });
+
+  it('offers only relevant organizer servers and rechecks eligibility before assignment', async () => {
+    const f = fixture(owner);
+    const eventId = event(f);
+    const eligible = '891000000000000001';
+    const emoji = '891000000000000002';
+    const wrongGame = '891000000000000003';
+    const disabled = '891000000000000004';
+    for (const [id, name] of [
+      [eligible, 'GenEvo Events'],
+      [emoji, 'Soviet Emoticons'],
+      [wrongGame, 'RA3 Events'],
+      [disabled, 'Disabled Events'],
+    ]) {
+      f.bot.client.guilds.cache.set(id, { id, name });
+    }
+    guildRepository.upsert(eligible, {
+      game: 'genevo',
+      tournamentsEnabled: 1,
+      tournamentEventsChannelId: f.channelId,
+    });
+    guildRepository.upsert(wrongGame, {
+      game: 'ra3',
+      tournamentsEnabled: 1,
+      tournamentEventsChannelId: f.channelId,
+    });
+    guildRepository.upsert(disabled, {
+      game: 'genevo',
+      tournamentsEnabled: 0,
+      tournamentEventsChannelId: f.channelId,
+    });
+    await openTournamentMenu(f.bot, f.i, 'organizer', eventId);
+    const payload = f.i.reply.mock.calls[0][0];
+    const options = payload.components
+      .flatMap((r: any) => r.toJSON().components)
+      .find((c: any) => c.custom_id.includes(':server:')).options;
+    expect(options.map((o: any) => o.value).sort()).toEqual([eligible, f.guildId].sort());
+    expect(options.find((o: any) => o.value === eligible).description).toBe(eligible);
+    step(f, id(payload, 'server'), 'string', [emoji]);
+    await handleTournamentMenu(f.bot, f.i);
+    expect(f.i.update).not.toHaveBeenCalled();
+    step(f, id(payload, 'server'), 'string', [eligible]);
+    await handleTournamentMenu(f.bot, f.i);
+    const assign = id(f.i.update.mock.calls[0][0], 'assign');
+    guildRepository.upsert(eligible, { tournamentsEnabled: 0 });
+    step(f, assign);
+    await handleTournamentMenu(f.bot, f.i);
+    expect(access.organizer(eventId)).toBe(f.guildId);
+    expect(f.i.reply.mock.calls[0][0].content).toContain('no longer available');
+  });
   it('selects an event before opening a private check-in board', async () => {
     const f = fixture(actor, false);
     const eventId = event(f);

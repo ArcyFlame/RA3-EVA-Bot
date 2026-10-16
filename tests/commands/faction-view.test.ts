@@ -51,11 +51,15 @@ describe('source-specific faction page', () => {
     setFeatureState('one', 'separateFactionCharts', false);
     expect(appSettingsRepository.hasSeparateFactionCharts('one')).toBe(false);
   });
-  it('does not show raw refresh timestamps in stats', () => {
+  it('uses the native Discord timestamp with the refresh interval instead of raw text', () => {
     const view = new StatsView(stats());
     view.setPage(1);
     expect(JSON.stringify(view.getEmbed().toJSON())).not.toContain('Last refresh');
-    expect(view.getEmbed().toJSON().timestamp).toBeUndefined();
+    expect(view.getEmbed().toJSON().footer?.text).toBe('Updates every 10 min');
+    expect(Date.parse(view.getEmbed().toJSON().timestamp!)).not.toBeNaN();
+    const custom = new StatsView(stats(), 'ra3', {}, true, 30);
+    custom.setPage(1);
+    expect(custom.getEmbed().toJSON().footer?.text).toBe('Updates every 30 min');
   });
   it('keeps Shatabrick monthly and RA3BattleNet ranked samples separate', () => {
     const view = new StatsView(stats());
@@ -85,7 +89,7 @@ describe('source-specific faction page', () => {
     [true, true],
     [false, true],
   ])('renders enabled sources (C&C Online: %s, split: %s)', async (useCnc, separate) => {
-    const id = `faction-nav-${useCnc}-${separate}`;
+    const id = `8100000000000000${Number(useCnc)}${Number(separate)}`;
     appSettingsRepository.setSeparateFactionCharts(id, separate);
     guildRepository.upsert(id, {
       game: 'ra3',

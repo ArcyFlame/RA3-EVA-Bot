@@ -6,6 +6,7 @@ import { statsPanelRepository } from '../../repositories/stats-panel.repository'
 import { generateGenevoFactionChartBuffer, generatePieChartBuffer } from '../../utils/charts';
 import { logger } from '../../utils/logger';
 import { getGameContext } from '../../utils/game-context';
+import { refreshSettings } from '../../repositories/refresh-settings.repository';
 import { appSettingsRepository } from '../../repositories/app-settings.repository';
 import { ra3FactionCharts } from '../../utils/faction-chart-data';
 
@@ -58,7 +59,13 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     else await interaction.deferUpdate();
     const context = getGameContext(interaction.guildId);
     const stats = await ra3StatsService.fetch(context.game, context.sources);
-    const view = new StatsView(stats, context.game, context.sources, context.mastersEnabled);
+    const view = new StatsView(
+      stats,
+      context.game,
+      context.sources,
+      context.mastersEnabled,
+      interaction.guildId ? refreshSettings.minutes(interaction.guildId, 'stats') : 10,
+    );
     view.setPage(nextPage);
     view.setMode(mode);
     const payload: any = { embeds: [view.getEmbed()], components: view.getComponents() };

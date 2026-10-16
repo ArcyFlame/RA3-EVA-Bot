@@ -2,7 +2,7 @@ import { BaseRepository } from './base.repository';
 import { normalizeTournamentWinnerNames } from '../utils/winner-names';
 import { GameId } from '../config/games';
 import { TournamentStatus } from '../utils/tournament-status';
-import { tournamentPlayerKey } from '../utils/tournament-player-name';
+import { tournamentPlayerKey, isForumPlayerName } from '../utils/tournament-player-name';
 
 export interface MatchReminder {
   id: number;
@@ -642,6 +642,7 @@ export class TournamentRepository extends BaseRepository {
    */
   addParticipant(eventId: number, name: string, source: string, discordId?: string): boolean {
     const clean = name.trim();
+    if (source === 'forum' && !isForumPlayerName(clean)) return false;
     const key = tournamentPlayerKey(clean);
     if (!key || this.getParticipants(eventId).some((p) => tournamentPlayerKey(p.name) === key))
       return false;
@@ -667,25 +668,30 @@ export class TournamentRepository extends BaseRepository {
     }>(
       'SELECT id, event_id, source, name, discord_id, checked_in, discord_binding_verified, external_tournament_id, external_participant_id FROM tournament_participants WHERE event_id = ? ORDER BY id ASC',
       [eventId],
-    ).map((r) => ({
-      id: r.id,
-      eventId: r.event_id,
-      source: r.source,
-      name: r.name,
-      discordId: r.discord_id ?? undefined,
-      checkedIn: r.checked_in,
-      bindingVerified: r.discord_binding_verified === 1,
-      externalTournamentId: r.external_tournament_id ?? undefined,
-      externalParticipantId: r.external_participant_id ?? undefined,
-    }));
+    )
+      .map((r) => ({
+        id: r.id,
+        eventId: r.event_id,
+        source: r.source,
+        name: r.name,
+        discordId: r.discord_id ?? undefined,
+        checkedIn: r.checked_in,
+        bindingVerified: r.discord_binding_verified === 1,
+        externalTournamentId: r.external_tournament_id ?? undefined,
+        externalParticipantId: r.external_participant_id ?? undefined,
+      }))
+      .filter(
+        (player) =>
+          player.source !== 'forum' ||
+          player.bindingVerified ||
+          !!player.discordId ||
+          player.checkedIn === 1 ||
+          isForumPlayerName(player.name),
+      );
   }
 
   getParticipantCount(eventId: number): number {
-    const row = this.query<{ count: number }>(
-      'SELECT COUNT(*) as count FROM tournament_participants WHERE event_id = ?',
-      [eventId],
-    );
-    return row?.count ?? 0;
+    return this.getParticipants(eventId).length;
   }
 
   /**
@@ -694,11 +700,7 @@ export class TournamentRepository extends BaseRepository {
    * and fall back to the Challonge bracket count.
    */
   getForumParticipantCount(eventId: number): number {
-    const row = this.query<{ count: number }>(
-      "SELECT COUNT(*) as count FROM tournament_participants WHERE event_id = ? AND source != 'challonge'",
-      [eventId],
-    );
-    return row?.count ?? 0;
+    return this.getParticipants(eventId).filter((player) => player.source !== 'challonge').length;
   }
 
   /** Marks a participant checked in by normalized name; returns false if unknown. */
