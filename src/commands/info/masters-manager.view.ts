@@ -109,7 +109,7 @@ export function mastersView(
 type Interaction = ButtonInteraction | ModalSubmitInteraction | StringSelectMenuInteraction;
 export async function handleMasters(interaction: Interaction) {
   const match =
-    /^masters:(page|select|add|edit|save|remove|confirm|cancel):(\d{17,20}|dm):(\d{17,20}):(ra3|genevo):(\d{1,9}):([a-f0-9]{12}):(\d{1,3})$/.exec(
+    /^masters:(manage|page|select|add|edit|save|remove|confirm|cancel):(\d{17,20}|dm):(\d{17,20}):(ra3|genevo):(\d{1,9}):([a-f0-9]{12}):(\d{1,3})$/.exec(
       interaction.customId,
     );
   const reply = (content: string) =>
@@ -149,6 +149,10 @@ export async function handleMasters(interaction: Interaction) {
     const snapshot = masterRosterRepository.snapshot(guild, game);
     if (revision !== snapshot.revision) {
       await reply('This menu is outdated. Reopen /masters.');
+      return;
+    }
+    if (action === 'manage' && interaction.isButton()) {
+      await interaction.reply({ ...mastersView(guild, user, game, true), ephemeral: true });
       return;
     }
     if (action === 'page' && interaction.isButton()) {

@@ -22,6 +22,7 @@ import { GameId, GAME_CONFIGS } from '../../config/games';
 import { GENEVO_FACTIONS, genevoFactionTotal } from '../../data/genevo-factions';
 import { formatMatchPlayers } from '../../utils/match-format';
 import { Ra3FactionCounts } from '../../services/shatabrick-factions.service';
+import { mastersListChunks } from '../info/masters.view';
 
 function factionPercentages(f: Ra3FactionCounts | undefined): string {
   if (!f) return 'No faction data available.';
@@ -225,18 +226,14 @@ export class StatsView {
           .slice(0, 10)
           .map(([p, w], i) => `**${i + 1}** ${p} - ${w} wins`)
           .join('\n') || 'No data';
-      embed.addFields(
-        { name: `Tournament Wins (Top 10)`, value: wins, inline: false },
-        ...(this.showMasters
-          ? [
-              {
-                name: '🏅 Hall of Fame',
-                value: this._getMastersText() || 'No masters recorded yet.',
-                inline: false,
-              },
-            ]
-          : []),
-      );
+      embed.addFields({ name: `Tournament Wins (Top 10)`, value: wins, inline: false });
+      if (this.showMasters) {
+        const chunks = mastersListChunks(this._stats.masters);
+        embed.setDescription(
+          `🏆 **Hall of Fame**\n\n${chunks[0]}` +
+            (chunks.length > 1 ? '\n\nUse /masters to see the complete list.' : ''),
+        );
+      }
     }
     embed.setThumbnail(config.artworkUrl);
     return embed;
@@ -248,29 +245,6 @@ export class StatsView {
     if (f.includes('soviet')) return FACTION_SOVIET;
     if (f.includes('empire')) return FACTION_EMPIRE;
     return FACTION_RANDOM;
-  }
-
-  private _getMastersText(): string {
-    const rows = this._stats.masters;
-    if (rows.length === 0) return '';
-    let currentYear = 0;
-    let text = '';
-    let firstYear = true;
-    for (const r of rows) {
-      if (r.year !== currentYear) {
-        if (currentYear !== 0) text += '\n';
-        currentYear = r.year;
-        text += firstYear ? `\u200b\n**${r.year}**\n` : `**${r.year}**\n`;
-        firstYear = false;
-      }
-      const patchStr = r.patch
-        ? r.patch.toLowerCase().startsWith('patch')
-          ? ` | ${r.patch}`
-          : ` | Patch ${r.patch}`
-        : '';
-      text += `• ${sanitizeInput(r.name, 50)}${patchStr}\n`;
-    }
-    return text.slice(0, 1024);
   }
 
   getComponents(): ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>[] {

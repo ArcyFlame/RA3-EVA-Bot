@@ -1,6 +1,13 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
+import {
+  SlashCommandBuilder,
+  ChatInputCommandInteraction,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} from 'discord.js';
 import { RA3Bot } from '../../bot';
-import { mastersView } from './masters-manager.view';
+import { buildMastersList } from './masters.view';
+import { masterRosterRepository } from '../../repositories/master-roster.repository';
 import { isModerator } from '../../utils/permissions';
 import { getGameContext } from '../../utils/game-context';
 
@@ -22,12 +29,27 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
         .fetch({ user: interaction.user.id, force: true })
         .catch(() => null)
     : null;
-  await interaction.editReply(
-    mastersView(
-      interaction.guildId,
-      interaction.user.id,
-      context.game,
-      !!member && isModerator(member),
-    ),
-  );
+  const { entries, revision } = masterRosterRepository.snapshot(interaction.guildId, context.game);
+  const embeds = buildMastersList(entries, context.game);
+  const components =
+    member && isModerator(member) && interaction.guildId
+      ? [
+          new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+              .setCustomId(
+                `masters:manage:${interaction.guildId}:${interaction.user.id}:${context.game}:0:${revision}:0`,
+              )
+              .setLabel('Manage Masters')
+              .setStyle(ButtonStyle.Secondary),
+          ),
+        ]
+      : [];
+  await interaction.editReply({ embeds: [embeds[0]], components, allowedMentions: { parse: [] } });
+  for (const embed of embeds.slice(1)) {
+    await interaction.followUp({
+      embeds: [embed],
+      ephemeral: true,
+      allowedMentions: { parse: [] },
+    });
+  }
 }

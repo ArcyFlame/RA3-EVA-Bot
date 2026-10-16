@@ -7,7 +7,9 @@ import {
 } from '../../src/repositories/master-roster.repository';
 import { handleMasters, mastersView } from '../../src/commands/info/masters-manager.view';
 import { execute } from '../../src/commands/info/masters.command';
-import { buildMastersEmbed } from '../../src/commands/info/masters.view';
+import { buildMastersEmbed, buildMastersList } from '../../src/commands/info/masters.view';
+import { StatsView } from '../../src/commands/stats/stats.view';
+import type { RA3Stats } from '../../src/services/ra3-stats.service';
 import type { ButtonInteraction, ChatInputCommandInteraction } from 'discord.js';
 import type { RA3Bot } from '../../src/bot';
 
@@ -56,6 +58,85 @@ const call = (i: ReturnType<typeof interaction>) =>
   handleMasters(i as unknown as ButtonInteraction);
 
 describe('Hall of Fame formatting', () => {
+  it.each(['ra3', 'genevo'] as const)(
+    'adds a branded header and clear year groups for %s',
+    (game) => {
+      const embed = buildMastersList(
+        [
+          { id: 1, name: 'Alpha', year: 2025 },
+          { id: 2, name: 'Beta', year: 2025 },
+          { id: 3, name: 'Gamma', year: 2009, patch: '1.10' },
+        ],
+        game,
+      )[0].toJSON();
+      expect(embed.title).toBe('🏆 Hall of Fame');
+      expect(embed.author?.name).toBe(game === 'ra3' ? 'Red Alert 3' : 'Generals Evolution');
+      expect(embed.author?.icon_url).toContain(
+        game === 'ra3' ? '1558460619194368070' : '1558460709472305264',
+      );
+      expect(embed.description).toContain(
+        '**3** masters  ·  **2** recorded years  ·  **2009 - 2025**',
+      );
+      expect(embed.description).toContain(
+        '__**2025**__  ·  *2 masters*\n> • **Alpha**\n> • **Beta**',
+      );
+      expect(embed.description).toContain(
+        '__**2009**__  ·  *1 master*\n> • **Gamma** | Patch 1.10',
+      );
+      expect(embed.description).not.toContain('🥇');
+      expect(embed.description).not.toContain('🛠');
+    },
+  );
+  it('keeps an empty Hall of Fame tidy without a bogus year range', () => {
+    const embed = buildMastersList([], 'genevo')[0].toJSON();
+    expect(embed.description).toContain('No masters recorded yet.');
+    expect(embed.description).not.toMatch(/undefined|NaN|0 recorded years/);
+  });
+  it('keeps every entry in a continuous list, newest year first', () => {
+    const entries = Array.from({ length: 250 }, (_, index) => ({
+      id: index + 1,
+      name: `Master${index.toString().padStart(3, '0')}` + '*'.repeat(40),
+      year: 2008 + (index % 18),
+      patch: '*'.repeat(50),
+    }));
+    const embeds = buildMastersList(entries);
+    const text = embeds.map((e) => e.toJSON().description).join('\n');
+    expect(embeds.length).toBeGreaterThan(1);
+    for (const entry of entries) expect(text.split(entry.name.slice(0, 9))).toHaveLength(2);
+    expect(text.indexOf('**2025**')).toBeLessThan(text.indexOf('**2008**'));
+    for (const embed of embeds) {
+      expect(embed.toJSON().description!.length).toBeLessThanOrEqual(4096);
+      expect(embed.length).toBeLessThanOrEqual(6000);
+      expect(embed.toJSON().fields).toBeUndefined();
+    }
+  });
+  it('shows a long stats list instead of cutting it at 1024 characters', () => {
+    const entries = Array.from({ length: 60 }, (_, id) => ({
+      id,
+      name: `Master ${id}`,
+      year: 2024,
+      patch: '1.12.8',
+    }));
+    const view = new StatsView({ masters: entries, tournament_wins: {} } as RA3Stats);
+    view.setPage(3);
+    const embed = view.getEmbed().toJSON();
+    expect(embed.description!.length).toBeGreaterThan(1024);
+    expect(embed.description).toContain('Master 59');
+    expect(embed.description).not.toContain('complete list');
+  });
+  it('points oversized stats rosters to the full list without breaking a line', () => {
+    const entries = Array.from({ length: 250 }, (_, id) => ({
+      id,
+      name: `Master ${id}`.padEnd(50, 'a'),
+      year: 2024,
+      patch: '1.12.8',
+    }));
+    const view = new StatsView({ masters: entries, tournament_wins: {} } as RA3Stats);
+    view.setPage(3);
+    const embed = view.getEmbed().toJSON();
+    expect(embed.description!.length).toBeLessThanOrEqual(4096);
+    expect(embed.description).toContain('Use /masters to see the complete list.');
+  });
   it.each(['ra3', 'genevo'] as const)('uses bullets and patch separators for %s', (game) => {
     const embed = buildMastersEmbed(
       [
@@ -124,10 +205,9 @@ describe('masters controls', () => {
     await execute({} as RA3Bot, i as unknown as ChatInputCommandInteraction);
     expect(i.deferReply).toHaveBeenCalledWith({ ephemeral: true });
     const view = JSON.stringify(i.editReply.mock.calls[0][0]);
-    if (staff)
-      for (const label of ['Add Master', 'Edit Master', 'Remove Master'])
-        expect(view).toContain(label);
-    else expect(view).not.toContain('Master"');
+    if (staff) expect(view).toContain('Manage Masters');
+    else expect(view).not.toContain('Manage Masters');
+    expect(view).not.toContain('Next');
   });
   it('allows adding to an empty enabled GenEvo roster and honors the disabled feature', async () => {
     context.game = 'genevo';
@@ -138,7 +218,7 @@ describe('masters controls', () => {
     expect(i.showModal).not.toHaveBeenCalled();
     expect(i.reply.mock.calls[0][0].content).toContain('disabled');
   });
-  it.each(['select', 'add', 'edit', 'save', 'remove', 'confirm', 'cancel'])(
+  it.each(['manage', 'select', 'add', 'edit', 'save', 'remove', 'confirm', 'cancel'])(
     'rechecks permissions on %s',
     async (action) => {
       const i = interaction(action, 0, action === 'save' ? 'modal' : 'button', false);
@@ -149,6 +229,29 @@ describe('masters controls', () => {
       expect(i.update).not.toHaveBeenCalled();
     },
   );
+  it('opens staff editing privately without replacing the full list', async () => {
+    const i = interaction('manage');
+    await call(i);
+    expect(i.reply.mock.calls[0][0].ephemeral).toBe(true);
+    expect(JSON.stringify(i.reply.mock.calls[0][0])).toContain('Add Master');
+    expect(i.update).not.toHaveBeenCalled();
+  });
+  it('sends long lists as private continuations without next/previous buttons', async () => {
+    for (let index = 0; index < 40; index++)
+      masterRepository.create(`Master${index}` + '*'.repeat(40), 2024, '*'.repeat(50), 'ra3');
+    const i = interaction('add', 0, 'button', false);
+    await execute({} as RA3Bot, i as unknown as ChatInputCommandInteraction);
+    expect(i.followUp).toHaveBeenCalled();
+    const messages = [
+      i.editReply.mock.calls[0][0],
+      ...i.followUp.mock.calls.map((call) => call[0]),
+    ];
+    const text = messages.map((m) => m.embeds[0].toJSON().description).join('\n');
+    expect(text).toContain('Master39');
+    expect(text).toContain('Original');
+    expect(i.editReply.mock.calls[0][0].components).toEqual([]);
+    for (const [message] of i.followUp.mock.calls) expect(message.ephemeral).toBe(true);
+  });
   it.each(['user', 'guild', 'game', 'revision'])('rejects wrong %s binding', async (binding) => {
     const i = interaction();
     if (binding === 'user') i.user.id = other;
