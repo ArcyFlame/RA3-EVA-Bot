@@ -1,10 +1,10 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Collection, TextChannel } from 'discord.js';
+import { Collection, TextChannel, MessageFlags } from 'discord.js';
 import { connectDatabase } from '../../src/database/connection';
 import { guildRepository } from '../../src/repositories/guild.repository';
 import { activityRankRepository as activity } from '../../src/repositories/activity-rank.repository';
 import { replayRatingRepository as repo } from '../../src/repositories/replay-rating.repository';
-import { ReplayRatingService } from '../../src/services/replay-rating.service';
+import { ReplayRatingService, replayArchives } from '../../src/services/replay-rating.service';
 import { activityRankService, replayFingerprint } from '../../src/services/activity-rank.service';
 beforeAll(async () => {
   await connectDatabase();
@@ -20,6 +20,7 @@ function fixture(game: 'genevo' | 'ra3' = 'genevo') {
   guildRepository.upsert(id, { game, activityRanksEnabled: 1 });
   const member = {
     id: 'voter',
+    joinedTimestamp: Date.now() - 86400000 * 30,
     user: { bot: false, createdTimestamp: Date.now() - 86400000 * 365 },
   };
   const guild: any = {
@@ -36,11 +37,34 @@ function fixture(game: 'genevo' | 'ra3' = 'genevo') {
     filename: 'match.RA3Replay',
   });
   repo.attachMessage(card.id, 'rating-' + sequence);
-  const message: any = { id: 'rating-' + sequence, guildId: id, channelId, guild };
-  const reaction: any = { emoji: { name: '👍' }, message };
+  const message: any = {
+    id: 'rating-' + sequence,
+    guildId: id,
+    channelId,
+    guild,
+    author: { id: 'bot' },
+  };
+  const reaction: any = {
+    emoji: { name: '👍' },
+    message,
+    users: { remove: vi.fn().mockResolvedValue(null) },
+  };
   const service = new ReplayRatingService();
   vi.spyOn(service, 'refresh').mockImplementation(() => undefined);
   return { id, card, guild, message, reaction, service, member, channelId };
+}
+function button(f: ReturnType<typeof fixture>, userId = 'voter', direction = 'up'): any {
+  return {
+    customId: `replay_vote:${direction}:${f.card.id}`,
+    guild: f.guild,
+    guildId: f.id,
+    channelId: f.channelId,
+    message: f.message,
+    client: { user: { id: 'bot' } },
+    user: { id: userId, send: vi.fn() },
+    deferReply: vi.fn().mockResolvedValue(null),
+    editReply: vi.fn().mockResolvedValue(null),
+  };
 }
 function archiveFixture() {
   const f = fixture();
@@ -93,18 +117,135 @@ function archiveFixture() {
   return { ...f, bytes, fingerprint, file, attachment, copy, sent, channel, source, fetch };
 }
 describe('replay reaction safety', () => {
+  it('does not reintroduce an in-flight vote after an edit resets the card', async () => {
+    const f = fixture();
+    f.guild.members.fetch.mockImplementation(async () => {
+      repo.editDescription(f.card.id, 'edited during member check', 0);
+      return f.member;
+    });
+    const interaction = button(f);
+    await f.service.handleVote(interaction);
+    expect(repo.totals(f.card.id)).toEqual({ up: 0, down: 0 });
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.stringContaining('replay changed'));
+    expect(activity.getMember(f.id, 'author')).toBeUndefined();
+  });
+  it('archives and removes an original when Discord returns its copy only as a V2 file component', async () => {
+    const f = archiveFixture();
+    f.sent.channelId = f.channelId;
+    f.sent.attachments = new Collection();
+    f.sent.components = [
+      {
+        toJSON: () => ({
+          type: 17,
+          components: [
+            {
+              type: 13,
+              name: f.attachment.name,
+              file: {
+                attachment_id: '600',
+                url: `https://cdn.discordapp.com/attachments/${f.channelId}/600/upload.RA3Replay`,
+              },
+            },
+          ],
+        }),
+      },
+    ];
+    expect(await f.service.post(f.source, f.attachment as any, f.fingerprint, f.file)).toBe(true);
+    const card = repo.findFingerprint(f.id, f.fingerprint)!;
+    expect(card.archive_attachment_id).toBe('600');
+    expect(f.sent.edit.mock.calls[0][0].attachments).toEqual([
+      { id: '600', filename: f.attachment.name },
+    ]);
+    expect(f.source.delete).toHaveBeenCalledOnce();
+    expect(await f.service.post(f.source, f.attachment as any, f.fingerprint, f.file)).toBe(false);
+    expect(f.channel.send).toHaveBeenCalledOnce();
+  });
+  it('does not trust unresolved or foreign V2 file references for archive verification', () => {
+    const f = archiveFixture();
+    f.sent.channelId = f.channelId;
+    f.sent.attachments = new Collection();
+    for (const url of [
+      'attachment://upload.RA3Replay',
+      'https://evil.example/file',
+      'https://cdn.discordapp.com/attachments/other-channel/600/upload.RA3Replay',
+    ]) {
+      f.sent.components = [
+        {
+          toJSON: () => ({
+            type: 13,
+            name: 'upload.RA3Replay',
+            file: { attachment_id: '600', url },
+          }),
+        },
+      ];
+      expect(replayArchives(f.sent)).toEqual([]);
+    }
+  });
+  it.each(['up', 'down'])(
+    'rejects self %s votes using a private server reply, never a DM',
+    async (direction) => {
+      const f = fixture();
+      const interaction = button(f, 'author', direction);
+      await f.service.handleVote(interaction);
+      expect(interaction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+      expect(interaction.editReply).toHaveBeenCalledWith(
+        expect.stringContaining('your own replay'),
+      );
+      expect(interaction.user.send).not.toHaveBeenCalled();
+      expect(f.guild.members.fetch).not.toHaveBeenCalled();
+      expect(repo.totals(f.card.id)).toEqual({ up: 0, down: 0 });
+    },
+  );
+  it('removes arbitrary emojis only from managed replay cards without changing votes', async () => {
+    const f = fixture();
+    repo.vote(f.card.id, 'voter', 1);
+    const reaction = { ...f.reaction, emoji: { name: '🔥' } };
+    await f.service.handleReaction(reaction, { id: 'other' } as any);
+    expect(reaction.users.remove).toHaveBeenCalledWith('other');
+    await f.service.clear(f.message);
+    expect(repo.totals(f.card.id).up).toBe(1);
+    reaction.users.remove.mockClear();
+    await f.service.handleReaction({ ...reaction, message: { ...f.message, id: 'unrelated' } }, {
+      id: 'other',
+    } as any);
+    expect(reaction.users.remove).not.toHaveBeenCalled();
+  });
+  it.each(['guild', 'channel', 'message', 'author', 'closed'])(
+    'rejects votes bound to a different %s',
+    async (kind) => {
+      const f = fixture();
+      const interaction = button(f);
+      if (kind === 'guild') interaction.guildId = 'another-guild';
+      if (kind === 'channel') interaction.channelId = 'another-channel';
+      if (kind === 'message') interaction.message.id = 'another-message';
+      if (kind === 'author') interaction.message.author.id = 'another-bot';
+      if (kind === 'closed') repo.closeMessage(f.message.id);
+      await f.service.handleVote(interaction);
+      expect(f.guild.members.fetch).not.toHaveBeenCalled();
+      expect(repo.totals(f.card.id).up).toBe(0);
+    },
+  );
+  it('allows one qualifying like to earn XP when the admin selects a minimum of one', async () => {
+    const f = fixture();
+    activity.updateSettings(f.id, { ratingMinVotes: 1 }, 0);
+    const interaction = button(f);
+    await f.service.handleVote(interaction);
+    expect(activity.getMember(f.id, 'author')?.points).toBe(5);
+    expect(interaction.editReply).toHaveBeenCalledWith('Vote saved. The uploader earned 5 XP.');
+    expect(activityRankService.syncMemberRank).toHaveBeenCalled();
+  });
   it('accepts a downvote only when an admin enables dual voting', async () => {
     const f = fixture();
-    const reaction: any = { ...f.reaction, emoji: { name: '👎' } };
-    await f.service.handleReaction(reaction, { id: 'voter' } as any);
+    const interaction = button(f, 'voter', 'down');
+    await f.service.handleVote(interaction);
     expect(repo.totals(f.card.id).down).toBe(0);
     activity.updateSettings(f.id, { ratingMode: 'both' }, 0);
-    await f.service.handleReaction(reaction, { id: 'voter' } as any);
+    await f.service.handleVote(interaction);
     expect(repo.totals(f.card.id).down).toBe(1);
     expect(activity.getMember(f.id, 'author')).toBeUndefined();
   });
   it.each(['👍', '👎'])(
-    'removes the uploader self-reaction %s, awards nothing and privately explains once per day',
+    'removes the uploader self-reaction %s without DMs or XP',
     async (emoji) => {
       const f = fixture();
       const users = { remove: vi.fn().mockResolvedValue(null) };
@@ -113,13 +254,11 @@ describe('replay reaction safety', () => {
       for (let n = 0; n < 3; n++) await f.service.handleReaction(reaction, author);
       expect(users.remove).toHaveBeenCalledWith('author');
       expect(users.remove).toHaveBeenCalledTimes(3);
-      expect(author.send).toHaveBeenCalledTimes(1);
-      expect(author.send.mock.calls[0][0].content).toContain('reaction was removed');
-      expect(author.send.mock.calls[0][0].allowedMentions).toEqual({ parse: [] });
+      expect(author.send).not.toHaveBeenCalled();
       expect(repo.totals(f.card.id).up).toBe(0);
       expect(activity.getMember(f.id, 'author')).toBeUndefined();
       await new ReplayRatingService().handleReaction(reaction, author);
-      expect(author.send).toHaveBeenCalledTimes(1);
+      expect(author.send).not.toHaveBeenCalled();
       await f.service.handleReaction(reaction, author, true);
       expect(users.remove).toHaveBeenCalledTimes(4);
     },
@@ -137,7 +276,7 @@ describe('replay reaction safety', () => {
       } as any,
       author,
     );
-    expect(author.send.mock.calls[0][0].content).toContain('Manage Messages');
+    expect(author.send).not.toHaveBeenCalled();
     expect(repo.totals(f.card.id).up).toBe(0);
     expect(f.guild.members.fetch).not.toHaveBeenCalled();
   });
@@ -274,7 +413,7 @@ describe('replay reaction safety', () => {
     f.guild.channels.fetch.mockResolvedValue(null);
     await expect(f.service.scan(f.guild)).rejects.toThrow('text channel');
   });
-  it('orders reaction clears after in-flight votes so a delayed member fetch cannot recreate cleared votes', async () => {
+  it('keeps button votes when legacy reactions are cleared during an in-flight vote', async () => {
     const f = fixture();
     let release!: (value: any) => void;
     f.guild.members.fetch.mockImplementationOnce(
@@ -283,12 +422,12 @@ describe('replay reaction safety', () => {
           release = resolve;
         }),
     );
-    const vote = f.service.handleReaction(f.reaction, { id: 'voter' } as any);
+    const vote = f.service.handleVote(button(f));
     const cleared = f.service.clear(f.message);
     await vi.waitFor(() => expect(release).toBeDefined());
     release(f.member);
     await Promise.all([vote, cleared]);
-    expect(repo.totals(f.card.id)).toEqual({ up: 0, down: 0 });
+    expect(repo.totals(f.card.id)).toEqual({ up: 1, down: 0 });
   });
   it('ignores unrelated cards, emoji, bot votes and self votes before fetching members', async () => {
     const f = fixture();
@@ -305,34 +444,40 @@ describe('replay reaction safety', () => {
   });
   it('only records votes for the configured GenEvo channel', async () => {
     const ra3 = fixture('ra3');
-    await ra3.service.handleReaction(ra3.reaction, { id: 'voter' } as any);
+    await ra3.service.handleVote(button(ra3));
     expect(ra3.guild.members.fetch).not.toHaveBeenCalled();
     const f = fixture();
-    f.message.channelId = 'wrong';
-    await f.service.handleReaction(f.reaction, { id: 'voter' } as any);
+    const interaction = button(f);
+    interaction.channelId = 'wrong';
+    await f.service.handleVote(interaction);
     expect(f.guild.members.fetch).not.toHaveBeenCalled();
   });
   it('rejects young accounts, outsiders and features disabled during the fresh member fetch', async () => {
     const f = fixture();
     f.member.user.createdTimestamp = Date.now();
-    await f.service.handleReaction(f.reaction, { id: 'voter' } as any);
+    await f.service.handleVote(button(f));
     f.guild.members.fetch.mockResolvedValueOnce(null);
-    await f.service.handleReaction(f.reaction, { id: 'outsider' } as any);
+    await f.service.handleVote(button(f, 'outsider'));
     f.guild.members.fetch.mockImplementationOnce(async () => {
       guildRepository.toggleFeature(f.id, 'activityRanks', false);
       return { ...f.member, user: { ...f.member.user, createdTimestamp: 0 } };
     });
-    await f.service.handleReaction(f.reaction, { id: 'voter2' } as any);
+    await f.service.handleVote(button(f, 'voter2'));
     expect(repo.totals(f.card.id)).toEqual({ up: 0, down: 0 });
   });
   it('serializes concurrent votes and awards only the unique net support', async () => {
     const f = fixture();
-    await Promise.all(
-      Array.from({ length: 15 }, () => f.service.handleReaction(f.reaction, { id: 'a' } as any)),
-    );
-    await f.service.handleReaction(f.reaction, { id: 'b' } as any);
+    await Promise.all(Array.from({ length: 15 }, () => f.service.handleVote(button(f, 'a'))));
+    expect(activity.getMember(f.id, 'author')).toBeUndefined();
+    await f.service.handleVote(button(f, 'b'));
+    expect(repo.totals(f.card.id)).toEqual({ up: 1, down: 0 });
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 4000);
+    await f.service.handleVote(button(f, 'a'));
     expect(repo.totals(f.card.id)).toEqual({ up: 2, down: 0 });
     expect(repo.get(f.card.id)?.bonus_awarded).toBe(10);
+    expect(activity.getMember(f.id, 'author')?.points).toBe(10);
+    await f.service.handleVote(button(f, 'b'));
+    await f.service.handleVote(button(f, 'b'));
     expect(activity.getMember(f.id, 'author')?.points).toBe(10);
   });
   it('copies the replay into its card before removing the original, and keeps downloads and owner controls', async () => {
@@ -347,12 +492,21 @@ describe('replay reaction safety', () => {
       repliedUser: false,
     });
     const payload = f.sent.edit.mock.calls.at(-1)![0];
-    expect(payload.embeds[0].toJSON().description).toContain(`/${f.sent.id})`);
-    expect(payload.components[0].toJSON().components.map((c: any) => c.label)).toEqual([
-      'Edit Replay',
-      'Remove Replay',
-    ]);
-    expect(f.sent.react).toHaveBeenCalledWith('👍');
+    expect(payload.embeds).toEqual([]);
+    expect(payload.flags).toBe(MessageFlags.IsComponentsV2);
+    expect(payload.components).toHaveLength(2);
+    const container = payload.components[0].toJSON();
+    expect(container.type).toBe(17);
+    expect(container.components.find((c: any) => c.type === 13).file.url).toBe(
+      `attachment://${card.filename}`,
+    );
+    expect(container.components.some((c: any) => c.type === 1)).toBe(false);
+    const rows = payload.components.slice(1).map((row: any) => row.toJSON());
+    expect(JSON.stringify(payload.components)).not.toContain('replay_manage:');
+    expect(JSON.stringify(payload.components)).toContain(`replay_options:${card.id}`);
+    expect(rows[0].components[0].custom_id).toBe(`replay_vote:up:${card.id}`);
+    expect(container.components.at(-1).content).toBe(`-# Replay #${card.id}`);
+    expect(f.sent.react).not.toHaveBeenCalled();
     expect(f.source.delete).toHaveBeenCalledOnce();
     expect(f.source.delete.mock.invocationCallOrder[0]).toBeGreaterThan(
       f.sent.edit.mock.invocationCallOrder[0],
@@ -380,6 +534,32 @@ describe('replay reaction safety', () => {
     expect(repo.get(pending.id)?.archive_attachment_id).toBe('600');
     expect(f.source.delete).toHaveBeenCalledOnce();
   });
+  it('waits until every replay in a multi-file upload has a verified archive before deletion', async () => {
+    const f = archiveFixture();
+    const second = { ...f.attachment, id: '501', name: 'second.RA3Replay' };
+    f.source.attachments.set(second.id, second);
+    await f.service.post(f.source, f.attachment as any, f.fingerprint, f.file);
+    expect(f.source.delete).not.toHaveBeenCalled();
+    const card = repo.create({
+      guild_id: f.id,
+      user_id: 'author',
+      channel_id: f.channelId,
+      source_message_id: f.source.id,
+      attachment_id: second.id,
+      fingerprint: 'e'.repeat(64),
+      filename: second.name,
+    });
+    repo.attachMessage(card.id, 'second-card');
+    repo.archive(card.id, '601', f.source.content);
+    const copy = {
+      ...f.sent,
+      id: 'second-card',
+      attachments: new Collection([['601', { ...second, id: '601' }]]),
+    };
+    f.fetch.mockImplementation(async (id) => (id === 'second-card' ? copy : f.sent));
+    expect(await f.service.hideSource(f.source)).toBe(true);
+    expect(f.source.delete).toHaveBeenCalledOnce();
+  });
   it('recovers a successful send after a crash without creating a second card', async () => {
     const f = archiveFixture();
     const pending = repo.create({
@@ -398,6 +578,33 @@ describe('replay reaction safety', () => {
     expect(await f.service.post(f.source, f.attachment as any, f.fingerprint, f.file)).toBe(false);
     expect(repo.get(pending.id)?.card_message_id).toBe(f.sent.id);
     expect(f.channel.send).not.toHaveBeenCalled();
+    expect(f.source.delete).toHaveBeenCalledOnce();
+  });
+  it('recovers a single-container card after a crash without sending a duplicate', async () => {
+    const f = archiveFixture();
+    const pending = repo.create({
+      guild_id: f.id,
+      user_id: 'author',
+      channel_id: f.channelId,
+      source_message_id: f.source.id,
+      attachment_id: f.attachment.id,
+      filename: f.attachment.name,
+      fingerprint: f.fingerprint,
+    });
+    f.sent.components = [
+      {
+        toJSON: () => ({
+          type: 17,
+          components: [{ type: 1, components: [{ custom_id: `replay_vote:up:${pending.id}` }] }],
+        }),
+      },
+    ];
+    f.fetch.mockImplementation(async (arg) =>
+      typeof arg === 'string' ? f.sent : new Collection([[f.sent.id, f.sent]]),
+    );
+    await f.service.post(f.source, f.attachment as any, f.fingerprint, f.file);
+    expect(f.channel.send).not.toHaveBeenCalled();
+    expect(repo.get(pending.id)?.card_message_id).toBe(f.sent.id);
     expect(f.source.delete).toHaveBeenCalledOnce();
   });
   it.each(['failed-copy', 'missing-copy', 'other-file', 'missing-permission', 'disabled-scan'])(

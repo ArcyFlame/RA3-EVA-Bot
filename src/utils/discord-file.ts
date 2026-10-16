@@ -4,6 +4,7 @@ import { Attachment } from 'discord.js';
 export async function readDiscordFile(
   attachment: Pick<Attachment, 'url' | 'size'>,
   limit: number,
+  timeout = 8000,
 ): Promise<Buffer> {
   const url = new URL(attachment.url);
   if (
@@ -19,7 +20,7 @@ export async function readDiscordFile(
     throw new Error('Choose a valid Discord attachment within the file size limit.');
   const response = await axios.get<ArrayBuffer>(url.toString(), {
     responseType: 'arraybuffer',
-    timeout: 8000,
+    timeout,
     maxRedirects: 0,
     maxContentLength: limit,
     maxBodyLength: limit,

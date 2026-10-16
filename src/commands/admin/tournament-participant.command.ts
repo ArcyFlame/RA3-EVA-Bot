@@ -1,4 +1,9 @@
-import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
+import {
+  ChatInputCommandInteraction,
+  RepliableInteraction,
+  SlashCommandBuilder,
+  User,
+} from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { tournamentRepository } from '../../repositories/tournament.repository';
 import { guildRepository } from '../../repositories/guild.repository';
@@ -11,24 +16,35 @@ export const data = new SlashCommandBuilder()
   .setName('tournament_participant')
   .setDescription('Verify a registered player Discord association (organizer staff)')
   .addIntegerOption((o) =>
-    o.setName('event').setDescription('Tournament event ID').setMinValue(1).setRequired(true),
+    o.setName('event').setDescription('Event ID; omit to choose in the menu').setMinValue(1),
   )
   .addUserOption((o) =>
-    o.setName('user').setDescription('Verified player Discord account').setRequired(true),
+    o.setName('user').setDescription('Discord member; omit to choose in the menu'),
   )
   .addStringOption((o) =>
-    o
-      .setName('player')
-      .setDescription('Exact registered tournament nickname')
-      .setMaxLength(50)
-      .setRequired(true),
+    o.setName('player').setDescription('Exact registered tournament nickname').setMaxLength(50),
   );
-export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
-  const eventId = interaction.options.getInteger('event', true);
+export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteraction) {
+  const eventId = interaction.options.getInteger('event');
+  const user = interaction.options.getUser('user');
+  const player = interaction.options.getString('player');
+  if (!eventId || !user || !player) {
+    const { openTournamentMenu } = await import('../tournaments/tournament-menu.view');
+    await openTournamentMenu(bot, interaction, 'participant', eventId ?? undefined, user?.id);
+    return;
+  }
+  await associateParticipant(interaction, eventId, user, player);
+}
+
+export async function associateParticipant(
+  interaction: RepliableInteraction,
+  eventId: number,
+  user: User,
+  playerName: string,
+) {
   if (!(await requireTournamentAccess(interaction, eventId))) return;
   const detail = tournamentRepository.getEventDetail(eventId);
-  const user = interaction.options.getUser('user', true);
-  const player = tournamentPlayerKey(interaction.options.getString('player', true));
+  const player = tournamentPlayerKey(playerName);
   const member = await interaction
     .guild!.members.fetch({ user: user.id, force: true })
     .catch(() => null);

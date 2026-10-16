@@ -5,6 +5,7 @@ import {
   TextChannel,
   EmbedBuilder,
   ChannelType,
+  RepliableInteraction,
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { matchPanelRepository } from '../../repositories/match-panel.repository';
@@ -26,12 +27,29 @@ export const data = new SlashCommandBuilder()
       .setName('set')
       .setDescription('Set current channel as match panel')
       .addChannelOption((opt) =>
-        opt.setName('channel').setDescription('Text channel').setRequired(true),
+        opt.setName('channel').setDescription('Text channel; omit to choose in the menu'),
       ),
   )
   .addSubcommand((sub) => sub.setName('disable').setDescription('Disable match panel'));
 
 export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteraction) {
+  const action = interaction.options.getSubcommand();
+  const channel =
+    action === 'set' ? (interaction.options.getChannel('channel') as TextChannel | null) : null;
+  if (action === 'set' && !channel) {
+    const { openPanelMenu } = await import('./panel-menu.view');
+    await openPanelMenu(interaction, 'matches');
+    return;
+  }
+  await applyMatchPanel(bot, interaction, action, channel);
+}
+
+export async function applyMatchPanel(
+  bot: RA3Bot,
+  interaction: RepliableInteraction,
+  sub: string,
+  selected: TextChannel | null,
+) {
   await interaction.deferReply({ ephemeral: true });
   if (!interaction.guild) {
     await interaction.editReply({ content: 'Server only.' });
@@ -44,10 +62,13 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
     return;
   }
 
-  const sub = interaction.options.getSubcommand();
   if (sub === 'set') {
-    const channel = interaction.options.getChannel('channel', true) as TextChannel;
-    if (channel.type !== ChannelType.GuildText) {
+    const channel = selected;
+    if (
+      !channel ||
+      channel.guildId !== interaction.guild.id ||
+      channel.type !== ChannelType.GuildText
+    ) {
       await interaction.editReply({ content: 'Must be a text channel.' });
       return;
     }

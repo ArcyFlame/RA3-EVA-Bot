@@ -20,11 +20,11 @@ import { GameId, GAME_CONFIGS } from '../../config/games';
 
 export const data = new SlashCommandBuilder()
   .setName('checkin')
-  .setDescription('Open the current tournament check-in board')
+  .setDescription('Choose a tournament and open its check-in board')
   .addStringOption((option) =>
     option
       .setName('event')
-      .setDescription('Tournament name; current tournament is used when omitted')
+      .setDescription('Tournament name; omit to choose in the menu')
       .setAutocomplete(true)
       .setRequired(false),
   );
@@ -44,7 +44,12 @@ export async function autocomplete(_bot: RA3Bot, interaction: AutocompleteIntera
   );
 }
 
-export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
+export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteraction) {
+  if (!interaction.options.getString('event')?.trim()) {
+    const { openTournamentMenu } = await import('./tournament-menu.view');
+    await openTournamentMenu(bot, interaction, 'checkin');
+    return;
+  }
   if (!interaction.guild) {
     await interaction.reply({
       content: 'Check-ins are available inside a server.',

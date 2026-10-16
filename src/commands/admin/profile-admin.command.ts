@@ -1,4 +1,10 @@
-import { ChatInputCommandInteraction, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import {
+  ChatInputCommandInteraction,
+  PermissionFlagsBits,
+  RepliableInteraction,
+  SlashCommandBuilder,
+  User,
+} from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { userRepository } from '../../repositories/user.repository';
 import { buildDiscordProfileEmbed } from '../profile/profile.command';
@@ -15,7 +21,7 @@ export const data = new SlashCommandBuilder()
       .setName('view')
       .setDescription('View a member profile as an admin')
       .addUserOption((option) =>
-        option.setName('user').setDescription('Member to inspect').setRequired(true),
+        option.setName('user').setDescription('Member; omit to choose in the menu'),
       ),
   )
   .addSubcommand((subcommand) =>
@@ -23,13 +29,12 @@ export const data = new SlashCommandBuilder()
       .setName('unlink')
       .setDescription('Remove one linked platform from a member profile')
       .addUserOption((option) =>
-        option.setName('user').setDescription('Member whose link is removed').setRequired(true),
+        option.setName('user').setDescription('Member; omit to choose in the menu'),
       )
       .addStringOption((option) =>
         option
           .setName('platform')
           .setDescription('Linked platform to remove')
-          .setRequired(true)
           .addChoices(
             { name: 'Shatabrick', value: 'shatabrick' },
             { name: 'RA3BattleNet', value: 'ra3b' },
@@ -52,6 +57,30 @@ export const data = new SlashCommandBuilder()
   );
 
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
+  const action = interaction.options.getSubcommand();
+  const target = interaction.options.getUser('user');
+  const platform = action === 'unlink' ? interaction.options.getString('platform') : null;
+  if (!target || (action === 'unlink' && !platform)) {
+    const { openProfileAdminMenu } = await import('./profile-admin-menu.view');
+    await openProfileAdminMenu(interaction, target?.id);
+    return;
+  }
+  await applyProfileAction(
+    interaction,
+    action,
+    target,
+    platform,
+    action === 'clear' ? interaction.options.getBoolean('confirm', true) : false,
+  );
+}
+
+export async function applyProfileAction(
+  interaction: RepliableInteraction,
+  action: string,
+  target: User,
+  platform: string | null = null,
+  confirm = false,
+) {
   const member = await resolveMember(interaction);
   const denial = denyUnlessAdmin(member);
   if (denial) {
@@ -59,8 +88,6 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     return;
   }
 
-  const action = interaction.options.getSubcommand();
-  const target = interaction.options.getUser('user', true);
   if (action !== 'view' && target.id !== interaction.user.id && !isOwner(interaction.user.id)) {
     await interaction.reply({
       content:
@@ -82,7 +109,10 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   }
 
   if (action === 'unlink') {
-    const platform = interaction.options.getString('platform', true);
+    if (!['shatabrick', 'ra3b'].includes(platform ?? '')) {
+      await interaction.reply({ content: 'Choose a linked platform.', ephemeral: true });
+      return;
+    }
     if (platform === 'shatabrick') userRepository.unlinkShatabrick(target.id);
     else userRepository.unlinkRa3BattleNet(target.id);
     await interaction.reply({
@@ -92,7 +122,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     return;
   }
 
-  if (!interaction.options.getBoolean('confirm', true)) {
+  if (!confirm) {
     await interaction.reply({ content: 'Nothing was changed.', ephemeral: true });
     return;
   }

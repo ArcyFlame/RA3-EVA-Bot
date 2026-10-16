@@ -6,6 +6,8 @@ import { statsPanelRepository } from '../../repositories/stats-panel.repository'
 import { generateGenevoFactionChartBuffer, generatePieChartBuffer } from '../../utils/charts';
 import { logger } from '../../utils/logger';
 import { getGameContext } from '../../utils/game-context';
+import { appSettingsRepository } from '../../repositories/app-settings.repository';
+import { ra3FactionCharts } from '../../utils/faction-chart-data';
 
 const processing = new Map<string, boolean>();
 
@@ -67,28 +69,14 @@ export async function execute(_bot: RA3Bot, interaction: ButtonInteraction) {
     if (context.chartsEnabled && nextPage === 1 && context.game === 'ra3') {
       try {
         factionFiles = [];
-        if (
-          context.sources.cncOnline &&
-          stats.cnc_faction_distribution &&
-          Object.values(stats.cnc_faction_distribution).some((n) => n > 0)
-        )
+        for (const chart of ra3FactionCharts(
+          stats,
+          context.sources,
+          appSettingsRepository.hasSeparateFactionCharts(interaction.guildId),
+        ))
           factionFiles.push({
-            attachment: await generatePieChartBuffer(
-              { ...stats.cnc_faction_distribution },
-              'Shatabrick - Monthly Faction Picks',
-            ),
-            name: 'shatabrick_faction_distribution.png',
-          });
-        if (
-          context.sources.ra3BattleNet &&
-          Object.values(stats.faction_distribution).some((n) => n > 0)
-        )
-          factionFiles.push({
-            attachment: await generatePieChartBuffer(
-              stats.faction_distribution,
-              'RA3BattleNet - Ranked 1v1 Faction Picks',
-            ),
-            name: 'ra3battlenet_faction_distribution.png',
+            attachment: await generatePieChartBuffer({ ...chart.data }, chart.label),
+            name: chart.name,
           });
       } catch (err) {
         logger.warn('Faction pie chart failed:', err);

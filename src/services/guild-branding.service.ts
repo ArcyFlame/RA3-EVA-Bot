@@ -1,9 +1,10 @@
 import { Client, Guild } from 'discord.js';
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { db } from '../database/sqlite';
 import { GameId, GAME_CONFIGS } from '../config/games';
 import { guildRepository } from '../repositories/guild.repository';
-import { sourceGet } from '../utils/safe-fetch';
 import { logger } from '../utils/logger';
 
 interface BrandingState {
@@ -15,7 +16,6 @@ const PNG_HEADER = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 /** Changes only the bot's own server profile, never its global profile or the server artwork. */
 export class GuildBrandingService {
   private pending = new Map<string, Promise<boolean>>();
-  private assets = new Map<string, Buffer>();
   private profileChanges = new Map<string, Promise<unknown>>();
 
   exclusive<T>(guildId: string, action: () => Promise<T>): Promise<T> {
@@ -69,8 +69,8 @@ export class GuildBrandingService {
       } catch {
         /* Invalid optional state is repaired after a successful profile update. */
       }
-      const url = GAME_CONFIGS[game].guildProfileArtworkUrl;
-      if (!url) {
+      const artwork = GAME_CONFIGS[game].guildProfileArtwork;
+      if (!artwork) {
         // RA3 keeps the owner's existing global avatar/banner. Clear only overrides we managed.
         if (previous?.game === 'genevo') {
           await guild.members.editMe({
@@ -81,15 +81,12 @@ export class GuildBrandingService {
         }
         return true;
       }
-      const source = createHash('sha256').update(url).digest('hex');
-      if (previous?.game === game && previous.source === source) return true;
-      let image = this.assets.get(url);
-      if (!image) {
-        const response = await sourceGet<ArrayBuffer>(url, {
-          responseType: 'arraybuffer',
-          timeout: 10000,
-        });
-        image = Buffer.from(response.data);
+      const [avatar, banner] = await Promise.all(
+        [artwork.avatar, artwork.banner].map((file) =>
+          readFile(path.resolve(__dirname, '../..', file)),
+        ),
+      );
+      for (const image of [avatar, banner]) {
         if (
           image.length > 2 * 1024 * 1024 ||
           image.length < 24 ||
@@ -100,12 +97,13 @@ export class GuildBrandingService {
           image.readUInt32BE(20) > 4096
         )
           throw new Error('Invalid or oversized configured profile artwork');
-        this.assets.set(url, image);
       }
+      const source = createHash('sha256').update(avatar).update(banner).digest('hex');
+      if (previous?.game === game && previous.source === source) return true;
       if (guildRepository.findByDiscordId(guild.id)?.game !== game) return false;
       await guild.members.editMe({
-        ...(!manual.avatar ? { avatar: image } : {}),
-        ...(!manual.banner ? { banner: image } : {}),
+        ...(!manual.avatar ? { avatar } : {}),
+        ...(!manual.banner ? { banner } : {}),
       });
       db.prepare(
         `INSERT INTO app_settings(key,value,updated_at) VALUES(?,?,CURRENT_TIMESTAMP)

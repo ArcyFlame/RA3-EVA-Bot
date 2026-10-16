@@ -7,12 +7,12 @@ import {
 import { emptyGenevoFactionDistribution, GENEVO_FACTIONS } from '../../src/data/genevo-factions';
 
 describe('bar chart themes', () => {
-  it('uses blue, gold and green for the three GenEvo charts', () => {
-    expect(statsChartPalettes('genevo')).toEqual(['Blues_r', 'YlOrBr_r', 'Reds_r']);
+  it('uses blue, China red and green for the three GenEvo charts', () => {
+    expect(statsChartPalettes('genevo')).toEqual(['Blues_r', 'Reds_r', 'Greens_r']);
     expect(statsChartPalettes('ra3')).toEqual(['Reds_r', 'Blues_r', 'YlOrBr_r']);
   });
   it('uses the Miedinger military theme for Generals Evolution', () => {
-    const theme = getBarChartTheme('genevo', 'Reds_r');
+    const theme = getBarChartTheme('genevo', 'Greens_r');
     expect(theme.fontFamily).toContain('Miedinger Book');
     expect(theme.titleColor).toBe('#A7C957');
     expect(theme.deepColor).toBe('#31572C');
@@ -25,10 +25,16 @@ describe('bar chart themes', () => {
     expect(theme.deepColor).toBe('#8B1A1A');
   });
 
-  it('uses a distinct blue chart for new Generals Evolution players', () => {
+  it('keeps the GenEvo online 24-hour chart blue', () => {
     const theme = getBarChartTheme('genevo', 'Blues_r');
     expect(theme.titleColor).toBe('#60A5FA');
     expect(theme.deepColor).toBe('#1D4ED8');
+  });
+  it('uses China red for new Generals Evolution players', () => {
+    const theme = getBarChartTheme('genevo', statsChartPalettes('genevo')[1]);
+    expect(theme.titleColor).toBe('#EF4444');
+    expect(theme.deepColor).toBe('#991B1B');
+    expect(theme.lightColor).toBe('#F87171');
   });
 
   // Cold native font initialization can exceed 15 seconds on shared Windows runners.

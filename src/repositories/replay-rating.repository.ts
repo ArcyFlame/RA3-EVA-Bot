@@ -19,6 +19,100 @@ export interface ReplayRatingCard {
   revision?: number;
 }
 export class ReplayRatingRepository extends BaseRepository {
+  leaderboard(
+    guildId: string,
+    channelId: string,
+  ): Array<ReplayRatingCard & { up: number; down: number; score: number }> {
+    const both = activityRankRepository.getSettings(guildId).ratingMode === 'both';
+    return this.queryAll(
+      `SELECT c.*, COALESCE(SUM(v.vote=1),0) AS up,
+       COALESCE(SUM(v.vote=-1),0) AS down,
+       MAX(0,COALESCE(SUM(v.vote=1),0)-?*COALESCE(SUM(v.vote=-1),0)) AS score
+       FROM replay_rating_cards c LEFT JOIN replay_rating_votes v ON v.card_id=c.id
+       WHERE c.guild_id=? AND c.channel_id=? AND c.closed=0
+       AND c.card_message_id IS NOT NULL AND c.archive_attachment_id IS NOT NULL
+       GROUP BY c.id ORDER BY score DESC, up DESC, c.id ASC LIMIT 10`,
+      [both ? 1 : 0, guildId, channelId],
+    );
+  }
+
+  library(
+    guildId: string,
+    channelId: string,
+    ownerId: string | undefined,
+    offset: number,
+  ): ReplayRatingCard[] {
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset > 10000) return [];
+    return this.queryAll<ReplayRatingCard>(
+      `SELECT * FROM replay_rating_cards WHERE guild_id=? AND channel_id=? AND closed=0
+       AND card_message_id IS NOT NULL AND archive_attachment_id IS NOT NULL
+       ${ownerId ? 'AND user_id=?' : ''} ORDER BY id DESC LIMIT 26 OFFSET ?`,
+      ownerId ? [guildId, channelId, ownerId, offset] : [guildId, channelId, offset],
+    );
+  }
+
+  /** Persistent per-member limits survive restarts and cannot be reset by toggling a vote. */
+  claimVoteAction(
+    guildId: string,
+    voterId: string,
+    uploaderId: string,
+    cardId: number,
+    now = Date.now(),
+  ): string | null {
+    return this.db.transaction(() => {
+      const key = `replay_vote_guard:${guildId}:${voterId}`;
+      const row = this.query<{ value: string }>('SELECT value FROM app_settings WHERE key=?', [
+        key,
+      ]);
+      const date = new Date(now).toISOString().slice(0, 10);
+      let state: { day: string; last: number; recent: number[]; cards: Record<string, string> } = {
+        day: date,
+        last: 0,
+        recent: [],
+        cards: {},
+      };
+      if (row) {
+        try {
+          state = JSON.parse(row.value);
+        } catch {
+          return 'Voting protection could not be checked. Please contact an admin.';
+        }
+        if (
+          !state ||
+          typeof state.last !== 'number' ||
+          !Array.isArray(state.recent) ||
+          !state.cards ||
+          typeof state.cards !== 'object' ||
+          Array.isArray(state.cards)
+        )
+          return 'Voting protection could not be checked. Please contact an admin.';
+        if (state.day !== date)
+          state = { day: date, last: state.last, recent: state.recent, cards: {} };
+      }
+      if (now - state.last < 3000) return 'Please wait 3 seconds between replay votes.';
+      state.recent = state.recent.filter((time) => Number.isFinite(time) && time > now - 60000);
+      if (state.recent.length >= 5) return 'Please wait a minute before voting on more replays.';
+      if (!Object.hasOwn(state.cards, String(cardId))) {
+        if (Object.keys(state.cards).length >= 30)
+          return 'You can rate up to 30 different replays per UTC day.';
+        if (Object.values(state.cards).filter((id) => id === uploaderId).length >= 5)
+          return 'You can rate up to 5 replays from the same uploader per UTC day.';
+        state.cards[String(cardId)] = uploaderId;
+      }
+      state.last = now;
+      state.recent.push(now);
+      this.run(
+        `DELETE FROM app_settings WHERE key LIKE 'replay_vote_guard:%' AND updated_at < datetime('now','-2 days')`,
+      );
+      this.run(
+        `INSERT INTO app_settings(key,value,updated_at) VALUES(?,?,CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP`,
+        [key, JSON.stringify(state)],
+      );
+      return null;
+    })();
+  }
+
   create(
     input: Omit<
       ReplayRatingCard,
@@ -57,6 +151,12 @@ export class ReplayRatingRepository extends BaseRepository {
   get(id: number): ReplayRatingCard | undefined {
     return this.query<ReplayRatingCard>('SELECT * FROM replay_rating_cards WHERE id = ?', [id]);
   }
+  getVote(id: number, userId: string): -1 | 1 | undefined {
+    return this.query<{ vote: -1 | 1 }>(
+      'SELECT vote FROM replay_rating_votes WHERE card_id=? AND user_id=?',
+      [id, userId],
+    )?.vote;
+  }
   bySource(guildId: string, messageId: string): ReplayRatingCard[] {
     return this.queryAll<ReplayRatingCard>(
       'SELECT * FROM replay_rating_cards WHERE guild_id=? AND source_message_id=?',
@@ -71,13 +171,17 @@ export class ReplayRatingRepository extends BaseRepository {
     ]);
   }
   editDescription(id: number, description: string, revision: number): void {
-    if (
-      this.run(
-        'UPDATE replay_rating_cards SET description=?,revision=revision+1 WHERE id=? AND revision=? AND closed=0',
-        [description.slice(0, 1500), id, revision],
-      ).changes !== 1
-    )
-      throw new Error('This replay changed. Open its current card.');
+    this.db.transaction(() => {
+      if (
+        this.run(
+          'UPDATE replay_rating_cards SET description=?,revision=revision+1 WHERE id=? AND revision=? AND closed=0',
+          [description.slice(0, 1500), id, revision],
+        ).changes !== 1
+      )
+        throw new Error('This replay changed. Open its current card.');
+      // Keep the rewarded high-water mark and XP ledger so edits cannot farm rewards.
+      this.run('DELETE FROM replay_rating_votes WHERE card_id=?', [id]);
+    })();
   }
   attachMessage(id: number, messageId: string): void {
     this.run(

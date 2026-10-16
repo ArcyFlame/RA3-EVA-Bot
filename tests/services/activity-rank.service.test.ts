@@ -163,7 +163,7 @@ describe('activity event handling', () => {
       expect.objectContaining({
         maxRedirects: 0,
         maxContentLength: MAX_REPLAY_BYTES,
-        timeout: 8000,
+        timeout: 30000,
       }),
     );
   });
@@ -200,6 +200,28 @@ describe('activity event handling', () => {
     );
     expect(replayRatingService.post).toHaveBeenCalledTimes(6);
     expect(activityRankRepository.getMember(id, 'member')?.points).toBe(75);
+  });
+  it('accepts and archives two larger-than-10-MiB replays in the same upload', async () => {
+    const id = 'large-replay-batch';
+    guildRepository.upsert(id, { game: 'genevo', activityRanksEnabled: 1 });
+    vi.mocked(axios.get).mockImplementation(async (url) => {
+      const buffer = Buffer.alloc(12 * 1024 * 1024);
+      bytes().copy(buffer);
+      buffer[255] = String(url).includes('/124/') ? 1 : 2;
+      return { data: buffer };
+    });
+    const large = { ...attachment, size: 12 * 1024 * 1024 };
+    await new ActivityRankService().handleMessage(
+      message(id, {
+        attachments: new Collection([
+          ['a', large],
+          ['b', { ...large, url: large.url.replace('/123/', '/124/') }],
+        ]),
+        mentions: { roles: new Collection() },
+      }),
+    );
+    expect(replayRatingService.post).toHaveBeenCalledTimes(2);
+    expect(activityRankRepository.getMember(id, 'member')?.qualifyingReplays).toBe(2);
   });
   it('retries a missing card for an already credited replay without awarding duplicate XP', async () => {
     const id = 'retry-rating-card';

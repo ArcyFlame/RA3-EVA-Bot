@@ -7,7 +7,7 @@ export interface GameConfig {
   emoji: string;
   color: number;
   artworkUrl: string;
-  guildProfileArtworkUrl?: string;
+  guildProfileArtwork?: { avatar: string; banner: string };
   description: string;
   supportsRa3BattleNet: boolean;
   tournamentFallbackUrl: string;
@@ -42,8 +42,10 @@ export const GAME_CONFIGS: Record<GameId, GameConfig> = {
     color: 0x3f7d35,
     artworkUrl:
       'https://media.moddb.com/cache/images/articles/1/341/340076/thumb_620x2000/033Art.png',
-    guildProfileArtworkUrl:
-      'https://media.moddb.com/cache/images/articles/1/341/340076/thumb_620x2000/033Art.png',
+    guildProfileArtwork: {
+      avatar: 'assets/branding/genevo-avatar.png',
+      banner: 'assets/branding/genevo-banner.png',
+    },
     description: 'Generals Evolution multiplayer on C&C Online and RA3BattleNet.',
     supportsRa3BattleNet: true,
     tournamentFallbackUrl: 'https://www.moddb.com/mods/command-and-conquer-generals-evolution',

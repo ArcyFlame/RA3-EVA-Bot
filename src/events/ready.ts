@@ -235,7 +235,7 @@ async function updateSinglePanel(bot: RA3Bot, cfg: StatsPanel): Promise<void> {
   view.setPage(0);
   const panelEmbed = view.getEmbed();
   panelEmbed.setFooter({
-    text: `Updates every ${refreshSettings.minutes(cfg.guildId, 'stats')} min - Last refresh: ${new Date().toISOString()}`,
+    text: `Updates every ${refreshSettings.minutes(cfg.guildId, 'stats')} min`,
   });
   const embedPayload: any = { embeds: [panelEmbed], components: view.getComponents() };
 

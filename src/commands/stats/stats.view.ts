@@ -71,8 +71,7 @@ export class StatsView {
     const config = GAME_CONFIGS[this.game];
     const embed = new EmbedBuilder()
       .setColor(config.color)
-      .setFooter({ text: `${config.shortLabel} Community Stats • Updated every 5 minutes` })
-      .setTimestamp();
+      .setFooter({ text: `${config.shortLabel} Community Stats` });
 
     if (this.page === 0) {
       embed.setTitle(`${config.shortLabel} Community Live Stats`);
@@ -239,9 +238,6 @@ export class StatsView {
           : []),
       );
     }
-    embed.setFooter({
-      text: `Last refresh: ${new Date().toISOString()}`,
-    });
     embed.setThumbnail(config.artworkUrl);
     return embed;
   }

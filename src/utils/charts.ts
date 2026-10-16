@@ -54,13 +54,13 @@ const COLOR_TITLE_RED = '#FF0F0F';
 const COLOR_TITLE_BLUE = '#4682B4';
 const COLOR_TITLE_GOLD = '#FFD700';
 
-export type BarChartPalette = 'Reds_r' | 'Blues_r' | 'YlOrBr_r';
+export type BarChartPalette = 'Reds_r' | 'Blues_r' | 'YlOrBr_r' | 'Greens_r';
 
-/** Display order: RA3 red/blue/gold; GenEvo blue/gold/green. */
+/** Display order: RA3 red/blue/gold; GenEvo USA blue/China red/GLA green. */
 export function statsChartPalettes(
   game: GameId,
 ): [BarChartPalette, BarChartPalette, BarChartPalette] {
-  return game === 'genevo' ? ['Blues_r', 'YlOrBr_r', 'Reds_r'] : ['Reds_r', 'Blues_r', 'YlOrBr_r'];
+  return game === 'genevo' ? ['Blues_r', 'Reds_r', 'Greens_r'] : ['Reds_r', 'Blues_r', 'YlOrBr_r'];
 }
 
 export interface BarChartTheme {
@@ -81,7 +81,9 @@ export function getBarChartTheme(game: GameId, palette: BarChartPalette): BarCha
         ? { titleColor: '#D8B45B', deepColor: '#705621', lightColor: '#D9C27C' }
         : palette === 'Blues_r'
           ? { titleColor: '#60A5FA', deepColor: '#1D4ED8', lightColor: '#93C5FD' }
-          : { titleColor: '#A7C957', deepColor: '#31572C', lightColor: '#90A955' };
+          : palette === 'Greens_r'
+            ? { titleColor: '#A7C957', deepColor: '#31572C', lightColor: '#90A955' }
+            : { titleColor: '#EF4444', deepColor: '#991B1B', lightColor: '#F87171' };
     return {
       ...colors,
       textColor: '#EFE4C2',
@@ -407,7 +409,7 @@ export async function generatePieChartBuffer(
   // Title (white, like the old pie).
   ctx.fillStyle = 'white';
   ctx.font = `bold 28px ${RED_ALERT}`;
-  ctx.fillText(sourceLabel, centerX - ctx.measureText(sourceLabel).width / 2, 50);
+  ctx.fillText(sourceLabel, centerX, 50, 760);
 
   // Legend on the right.
   for (let i = 0; i < labels.length; i++) {

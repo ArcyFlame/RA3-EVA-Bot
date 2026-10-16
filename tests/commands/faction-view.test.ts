@@ -6,6 +6,9 @@ import { execute as navigate } from '../../src/interactions/buttons/stats-nav.bu
 import { ra3StatsService, RA3Stats } from '../../src/services/ra3-stats.service';
 import { generatePieChartBuffer } from '../../src/utils/charts';
 import { emptyGenevoFactionDistribution } from '../../src/data/genevo-factions';
+import { appSettingsRepository } from '../../src/repositories/app-settings.repository';
+import { ra3FactionCharts } from '../../src/utils/faction-chart-data';
+import { setFeatureState } from '../../src/commands/setup/feature-toggle.view';
 
 vi.mock('../../src/utils/charts', () => ({
   generatePieChartBuffer: vi.fn().mockResolvedValue(Buffer.from('chart')),
@@ -28,6 +31,32 @@ const stats = () =>
     genevo_faction_source: 'unavailable',
   }) as unknown as RA3Stats;
 describe('source-specific faction page', () => {
+  it('defaults to one chart, sums counts and isolates the split preference per server', () => {
+    expect(appSettingsRepository.hasSeparateFactionCharts('one')).toBe(false);
+    expect(ra3FactionCharts(stats(), {})).toEqual([
+      {
+        data: { Allies: 55, Soviets: 35, Empire: 110 },
+        label: 'Combined Reported Faction Picks',
+        name: 'combined_faction_distribution.png',
+      },
+    ]);
+    setFeatureState('one', 'separateFactionCharts', true);
+    expect(appSettingsRepository.hasSeparateFactionCharts('one')).toBe(true);
+    expect(appSettingsRepository.hasSeparateFactionCharts('two')).toBe(false);
+    expect(ra3FactionCharts(stats(), {}, true)).toHaveLength(2);
+    expect(ra3FactionCharts(stats(), { cncOnline: false, ra3BattleNet: false })).toEqual([]);
+    expect(ra3FactionCharts({ ...stats(), cnc_faction_distribution: undefined }, {})).toHaveLength(
+      1,
+    );
+    setFeatureState('one', 'separateFactionCharts', false);
+    expect(appSettingsRepository.hasSeparateFactionCharts('one')).toBe(false);
+  });
+  it('does not show raw refresh timestamps in stats', () => {
+    const view = new StatsView(stats());
+    view.setPage(1);
+    expect(JSON.stringify(view.getEmbed().toJSON())).not.toContain('Last refresh');
+    expect(view.getEmbed().toJSON().timestamp).toBeUndefined();
+  });
   it('keeps Shatabrick monthly and RA3BattleNet ranked samples separate', () => {
     const view = new StatsView(stats());
     view.setPage(1);
@@ -50,8 +79,14 @@ describe('source-specific faction page', () => {
       'No faction data available.',
     );
   });
-  it.each([true, false])('renders only enabled source charts (C&C Online: %s)', async (useCnc) => {
-    const id = `faction-nav-${useCnc}`;
+  it.each([
+    [true, false],
+    [false, false],
+    [true, true],
+    [false, true],
+  ])('renders enabled sources (C&C Online: %s, split: %s)', async (useCnc, separate) => {
+    const id = `faction-nav-${useCnc}-${separate}`;
+    appSettingsRepository.setSeparateFactionCharts(id, separate);
     guildRepository.upsert(id, {
       game: 'ra3',
       cncOnlineEnabled: useCnc ? 1 : 0,
@@ -67,8 +102,8 @@ describe('source-specific faction page', () => {
       followUp: vi.fn(),
     };
     await navigate(null as never, interaction);
-    expect(generatePieChartBuffer).toHaveBeenCalledTimes(useCnc ? 2 : 1);
-    expect(interaction.followUp).toHaveBeenCalledTimes(useCnc ? 2 : 1);
+    expect(generatePieChartBuffer).toHaveBeenCalledTimes(useCnc && separate ? 2 : 1);
+    expect(interaction.followUp).toHaveBeenCalledTimes(useCnc && separate ? 2 : 1);
     for (const [payload] of interaction.followUp.mock.calls) {
       expect(payload.files).toHaveLength(1);
       expect(payload.ephemeral).toBe(true);

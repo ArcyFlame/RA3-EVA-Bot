@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Collection } from 'discord.js';
+import { Collection, PermissionFlagsBits } from 'discord.js';
 import { connectDatabase } from '../../src/database/connection';
 import { guildRepository } from '../../src/repositories/guild.repository';
 import { replayRatingRepository as repo } from '../../src/repositories/replay-rating.repository';
@@ -86,7 +86,7 @@ describe('uploader-owned replay controls', () => {
     expect(f.message.delete).not.toHaveBeenCalled();
     expect(f.message.edit).not.toHaveBeenCalled();
   });
-  it('allows moderators to remove but never edit another uploader replay', async () => {
+  it('allows admins to edit or remove another uploader replay', async () => {
     const f = fixture('remove', other, true);
     await manageReplay(f.i);
     const response = f.i.reply.mock.calls[0][0];
@@ -96,9 +96,17 @@ describe('uploader-owned replay controls', () => {
     );
     f.i.customId = `replay_manage:edit:${f.card.id}:0`;
     await manageReplay(f.i);
-    expect(f.i.showModal).not.toHaveBeenCalled();
+    expect(f.i.showModal).toHaveBeenCalledOnce();
   });
-  it('edits description without resetting votes or adding XP and advances the card revision', async () => {
+  it('does not let a moderator without admin permission manage another uploader replay', async () => {
+    const f = fixture('edit', other);
+    f.member.permissions.has = (permission?: bigint) =>
+      permission === PermissionFlagsBits.ManageMessages;
+    await manageReplay(f.i);
+    expect(f.i.showModal).not.toHaveBeenCalled();
+    expect(f.i.reply.mock.calls[0][0].ephemeral).toBe(true);
+  });
+  it('resets votes on description edits, preserves earned XP and advances the card revision', async () => {
     const f = fixture('save');
     repo.vote(f.card.id, other, 1);
     const points = activity.getMember(f.guildId, author)?.points;
@@ -108,12 +116,46 @@ describe('uploader-owned replay controls', () => {
       revision: 1,
       bonus_awarded: 5,
     });
-    expect(repo.totals(f.card.id).up).toBe(1);
+    expect(repo.totals(f.card.id)).toEqual({ up: 0, down: 0 });
     expect(activity.getMember(f.guildId, author)?.points).toBe(points);
     expect(f.i.deferReply).toHaveBeenCalledWith({ ephemeral: true });
     expect(f.message.edit).toHaveBeenCalledOnce();
     await manageReplay(f.i);
     expect(f.message.edit).toHaveBeenCalledOnce();
+  });
+  it('clears both vote directions without awarding the same XP again', async () => {
+    const f = fixture('save');
+    activity.updateSettings(
+      f.guildId,
+      { ratingMode: 'both' },
+      activity.getSettings(f.guildId).version,
+    );
+    repo.vote(f.card.id, other, 1);
+    repo.vote(f.card.id, 'negative-voter', -1);
+    await manageReplay(f.i);
+    expect(repo.totals(f.card.id)).toEqual({ up: 0, down: 0 });
+    expect(repo.get(f.card.id)?.rewarded_net_votes).toBe(1);
+    expect(repo.vote(f.card.id, other, 1)).toBe(0);
+    expect(repo.vote(f.card.id, 'new-voter', 1)).toBe(5);
+    expect(activity.getMember(f.guildId, author)?.points).toBe(10);
+  });
+  it('does not erase votes when a stale edit fails', () => {
+    const f = fixture('save');
+    repo.editDescription(f.card.id, 'first edit', 0);
+    repo.vote(f.card.id, other, 1);
+    expect(() => repo.editDescription(f.card.id, 'stale edit', 0)).toThrow('changed');
+    expect(repo.totals(f.card.id).up).toBe(1);
+    expect(repo.get(f.card.id)?.description).toBe('first edit');
+  });
+  it('reports a saved reset honestly and retries if Discord cannot refresh the card', async () => {
+    const f = fixture('save');
+    repo.vote(f.card.id, other, 1);
+    f.message.edit.mockRejectedValue(new Error('Discord unavailable'));
+    const refresh = vi.spyOn(replayRatingService, 'refresh').mockImplementation(() => undefined);
+    await manageReplay(f.i);
+    expect(repo.totals(f.card.id).up).toBe(0);
+    expect(refresh).toHaveBeenCalledWith(f.message, f.card.id);
+    expect(f.i.editReply.mock.calls[0][0].content).toContain('saved and votes reset');
   });
   it('confirms removal privately and closes the fingerprint without refunding or re-awarding XP', async () => {
     const f = fixture('confirm');

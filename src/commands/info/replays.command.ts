@@ -5,11 +5,10 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  PermissionFlagsBits,
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { getGameContext } from '../../utils/game-context';
-import { activityRankRepository } from '../../repositories/activity-rank.repository';
+import { replayLibraryAccess, replayLibraryView } from '../replays/replay-library.view';
 
 export const data = new SlashCommandBuilder()
   .setName('replays')
@@ -21,36 +20,17 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   const context = getGameContext(interaction.guildId);
   if (context.game === 'genevo') {
     await interaction.deferReply({ ephemeral: true });
-    const guild = interaction.guild;
-    const channelId = guild ? activityRankRepository.getSettings(guild.id).replayChannelId : '';
-    const channel = channelId ? await guild?.channels.fetch(channelId).catch(() => null) : null;
-    const member = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
-    const accessible =
-      channel &&
-      channel.guildId === guild?.id &&
-      channel.isTextBased() &&
-      member &&
-      channel.permissionsFor(member)?.has(PermissionFlagsBits.ViewChannel);
-    const embed = new EmbedBuilder()
-      .setTitle('🎮 Generals Evolution Replays')
-      .setDescription(
-        accessible
-          ? `Browse and upload replays in <#${channel.id}>.`
-          : 'No accessible replay channel is selected for this server. An admin can select one in `/notifications` - Notification Channels.',
-      )
-      .setColor(context.config.color)
-      .setThumbnail(context.config.artworkUrl);
-    const components = accessible
-      ? [
-          new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-              .setLabel('Open Replays Channel')
-              .setStyle(ButtonStyle.Link)
-              .setURL(`https://discord.com/channels/${guild!.id}/${channel.id}`),
-          ),
-        ]
-      : [];
-    await interaction.editReply({ embeds: [embed], components, allowedMentions: { parse: [] } });
+    const access = await replayLibraryAccess(interaction);
+    await interaction.editReply(
+      access
+        ? replayLibraryView(access)
+        : {
+            content:
+              'No accessible replay channel is selected. An admin can select one in /notifications.',
+            components: [],
+            allowedMentions: { parse: [] },
+          },
+    );
     return;
   }
   const embed = new EmbedBuilder()

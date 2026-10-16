@@ -79,7 +79,7 @@ export function buildTournamentsEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: '⚔️ Matches & Reporting',
         value:
-          '`/matches` - Live bracket: results, scores, upcoming matches\n`/report score <opponent> <factions> <score>` - Submit a result for referee review',
+          '`/matches` - Live bracket: results, scores, upcoming matches\n`/report score` - Choose tournament, opponent and factions, enter score, then Submit for Review',
         inline: false,
       },
       {
@@ -93,7 +93,7 @@ export function buildTournamentsEmbed(game: GameId = 'ra3'): EmbedBuilder {
         value:
           game === 'ra3'
             ? '`/replays` - Browse popular and event replays on GameReplays'
-            : "`/replays` - Open this server's selected replay channel",
+            : '`/replays` - Top 10 replays, your uploads and private replay controls',
         inline: false,
       },
     )
@@ -149,7 +149,7 @@ export function buildCommunityEmbed(game: GameId = 'ra3'): EmbedBuilder {
         value:
           '`/profile` - Your private profile, activity XP, level and rank\n`/activity leaderboard` - Privately view the top 10 active members' +
           (game === 'genevo'
-            ? '\nReplay uploads in the selected channel earn XP. Upvote individual replay cards with 👍; rating bonuses have daily limits.'
+            ? '\nReplay uploads earn XP. /replays shows the top 10; My Replays opens private Edit and Remove buttons. Use 👍 below a replay to vote. Repeated votes earn no extra XP.'
             : ''),
         inline: false,
       },
@@ -260,7 +260,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: '📊 Panels',
         value:
-          '`/panel stats set <channel>` - Persistent stats panel\n`/panel matches set <channel>` - Live match ticker\n`/panel lobby set <channel>` - Persistent lobby board\n(each also has a `disable` subcommand)',
+          '`/panel stats set` - Stats panel menu\n`/panel matches set` - Match ticker menu\n`/panel lobby set` - Lobby board menu\nChoose a channel, then Create Panel. Each also has a `disable` subcommand.',
         inline: false,
       },
       ...(game === 'ra3'
@@ -276,14 +276,14 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
             {
               name: '🏆 Tournaments',
               value:
-                '`/tournament link` - Link or create a tournament from a Challonge bracket\n`/checkin [event]` - Open the referee check-in board\n`/events` - Edit missing tournament details from the private event browser',
+                '`/tournament link` - Link or create a tournament from a Challonge bracket\n`/checkin` - Choose an event and open its check-in board\n`/events` - Edit missing tournament details from the private event browser',
               inline: false,
             },
           ]),
       {
         name: '👤 Player Profiles',
         value:
-          '`/admin profile view <user>` - Inspect a member profile\n`/admin profile unlink` or `clear` - Shared identity removal: profile owner or bot owner',
+          '`/admin profile view` or `/admin profile unlink` - Choose a member, view their profile or confirm an unlink. Shared identity removal is limited to the profile owner or bot owner.',
         inline: false,
       },
       {
@@ -297,7 +297,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
             {
               name: '🎬 Replay Ratings',
               value:
-                '`/activity admin` → Replay Ratings - Voting, XP limits and replay scanning\nFiles remain downloadable. Replay-only originals are removed after copying. Uploaders can edit or remove their cards.',
+                '`/activity admin` → Replay Ratings - Voting, XP limits, scanning and Medal Settings\n`/replays` → My Replays - Private Edit and Remove buttons. Admins can also manage server replays.',
               inline: false,
             },
           ]
@@ -305,7 +305,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
       {
         name: '✅ Tournament Check-ins',
         value:
-          '`/checkin [event]` - Registration and readiness lists\n`/tournament participant <event> <user> <player>` - Verify a player association (organizer staff)\n`/tournament organizer <event> [server]` - Assign or revoke organizer authority (bot owner)',
+          '`/checkin` - Choose an event and open the readiness board\n`/tournament participant` - Choose event, Discord member and registered player, then Confirm Association (organizer staff)\n`/tournament organizer` - Choose event and server, then assign or remove organizer authority (bot owner)',
         inline: false,
       },
       {
@@ -322,7 +322,8 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
       },
       {
         name: '🔄 Bot Control (bot owner)',
-        value: '`/bot update` - Check for a stable release and confirm Yes or No\n`/restart` - Restart the bot\n`/kill` - Shut down the bot',
+        value:
+          '`/bot update` - Check for a stable release and confirm Yes or No\n`/restart` - Restart the bot\n`/kill` - Shut down the bot',
         inline: false,
       },
     );

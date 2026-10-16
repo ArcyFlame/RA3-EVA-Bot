@@ -8,6 +8,7 @@ import {
   EmbedBuilder,
   TextChannel,
   escapeMarkdown,
+  RepliableInteraction,
 } from 'discord.js';
 import { RA3Bot } from '../../bot';
 import { guildRepository } from '../../repositories/guild.repository';
@@ -17,12 +18,25 @@ import {
 } from '../../repositories/tournament.repository';
 import { tournamentAccessRepository } from '../../repositories/tournament-access.repository';
 import { challongeService } from '../../services/challonge.service';
-import { getCurrentTournament } from '../../services/tournament-context.service';
+import {
+  getCurrentTournament,
+  listTournamentContexts,
+} from '../../services/tournament-context.service';
 import { GameId, GAME_CONFIGS } from '../../config/games';
 import { tournamentPlayerKey } from '../../utils/tournament-player-name';
 
-const FACTION_MATCHUPS = ['SvS', 'SvA', 'SvE', 'AvS', 'AvA', 'AvE', 'EvS', 'EvA', 'EvE'];
-const GENEVO_FACTION_MATCHUPS = ['UvU', 'UvC', 'UvG', 'CvU', 'CvC', 'CvG', 'GvU', 'GvC', 'GvG'];
+export const FACTION_MATCHUPS = ['SvS', 'SvA', 'SvE', 'AvS', 'AvA', 'AvE', 'EvS', 'EvA', 'EvE'];
+export const GENEVO_FACTION_MATCHUPS = [
+  'UvU',
+  'UvC',
+  'UvG',
+  'CvU',
+  'CvC',
+  'CvG',
+  'GvU',
+  'GvC',
+  'GvG',
+];
 const COMMON_SCORES = [
   '1-0',
   '0-1',
@@ -46,21 +60,21 @@ export const data = new SlashCommandBuilder()
       .setName('opponent')
       .setDescription('Tournament nickname of your checked-in opponent')
       .setAutocomplete(true)
-      .setRequired(true),
+      .setRequired(false),
   )
   .addStringOption((option) =>
     option
       .setName('factions')
       .setDescription('Faction matchup: RA3 S/A/E or GenEvo U/C/G')
       .setAutocomplete(true)
-      .setRequired(true),
+      .setRequired(false),
   )
   .addStringOption((option) =>
     option
       .setName('score')
       .setDescription('Series score, for example 2-1')
       .setAutocomplete(true)
-      .setRequired(true),
+      .setRequired(false),
   );
 
 function gameFor(guildId: string | null): GameId {
@@ -115,12 +129,28 @@ export async function autocomplete(_bot: RA3Bot, interaction: AutocompleteIntera
 
 function resolveReporter(
   eventId: number,
-  interaction: ChatInputCommandInteraction<'cached'>,
+  interaction: RepliableInteraction,
 ): TournamentParticipant | undefined {
   return tournamentRepository.findParticipantByDiscord(eventId, interaction.user.id);
 }
 
 export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteraction) {
+  const opponent = interaction.options.getString('opponent');
+  const factions = interaction.options.getString('factions');
+  const score = interaction.options.getString('score');
+  if (!opponent || !factions || !score) {
+    const { openTournamentMenu } = await import('./tournament-menu.view');
+    await openTournamentMenu(bot, interaction, 'report');
+    return;
+  }
+  await submitScore(bot, interaction, { opponent, factions, score });
+}
+
+export async function submitScore(
+  bot: RA3Bot,
+  interaction: RepliableInteraction,
+  input: { opponent: string; factions: string; score: string; eventId?: number },
+) {
   if (!interaction.inCachedGuild()) {
     await interaction.reply({
       content: 'Score reporting is available inside a server.',
@@ -137,7 +167,11 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
     return;
   }
 
-  const event = getCurrentTournament(guildData?.game ?? 'ra3', interaction.guild.id);
+  const event = input.eventId
+    ? listTournamentContexts(guildData?.game ?? 'ra3').find(
+        (candidate) => candidate.id === input.eventId && candidate.status !== 'ended',
+      )
+    : getCurrentTournament(guildData?.game ?? 'ra3', interaction.guild.id);
   if (!event) {
     await interaction.reply({
       content: 'I could not identify a current tournament.',
@@ -172,7 +206,7 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
     return;
   }
 
-  const opponentInput = interaction.options.getString('opponent', true).trim();
+  const opponentInput = input.opponent.trim();
   const opponentKey = tournamentPlayerKey(opponentInput);
   const opponents = checkedOpponents(event.id, interaction.user.id).filter(
     (participant) => opponentKey && tournamentPlayerKey(participant.name) === opponentKey,
@@ -186,14 +220,14 @@ export async function execute(bot: RA3Bot, interaction: ChatInputCommandInteract
     return;
   }
 
-  const factions = interaction.options.getString('factions', true);
+  const factions = input.factions;
   const validFactionMatchups =
     (guildData?.game ?? 'ra3') === 'genevo' ? GENEVO_FACTION_MATCHUPS : FACTION_MATCHUPS;
   if (!validFactionMatchups.includes(factions)) {
     await interaction.reply({ content: 'Invalid faction matchup.', ephemeral: true });
     return;
   }
-  const scoreText = interaction.options.getString('score', true).trim();
+  const scoreText = input.score.trim();
   const scoreMatch = scoreText.match(/^(\d{1,2})\s*-\s*(\d{1,2})$/);
   if (!scoreMatch) {
     await interaction.reply({ content: 'Use a score such as `2-0` or `2-1`.', ephemeral: true });

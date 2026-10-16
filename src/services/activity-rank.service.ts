@@ -23,7 +23,8 @@ export interface RankSyncResult {
   detail?: string;
 }
 
-export const MAX_REPLAY_BYTES = 10 * 1024 * 1024;
+export const MAX_REPLAY_BYTES = 20 * 1024 * 1024;
+const MAX_REPLAY_BATCH_BYTES = 2 * MAX_REPLAY_BYTES;
 
 export function qualifyingChatHash(content: string): string | undefined {
   const normalized = content
@@ -126,7 +127,7 @@ export class ActivityRankService {
     if (this.replayDownloads >= 4) return null;
     this.replayDownloads += 1;
     try {
-      const bytes = await readDiscordFile(attachment, MAX_REPLAY_BYTES);
+      const bytes = await readDiscordFile(attachment, MAX_REPLAY_BYTES, 30000);
       const fingerprint = replayFingerprint(bytes);
       return fingerprint ? { bytes, fingerprint } : null;
     } catch {
@@ -175,7 +176,7 @@ export class ActivityRankService {
         )) {
           if (
             this.replayDownloads >= 4 ||
-            bufferedBytes + attachment.size > 20 * 1024 * 1024 ||
+            bufferedBytes + attachment.size > MAX_REPLAY_BATCH_BYTES ||
             !activityRankRepository.claimReplayDownload(
               message.guild.id,
               message.author.id,
@@ -186,7 +187,7 @@ export class ActivityRankService {
             break;
           const file = await this.downloadReplayFile(attachment);
           if (file) {
-            if (bufferedBytes + file.bytes.length > 20 * 1024 * 1024) break;
+            if (bufferedBytes + file.bytes.length > MAX_REPLAY_BATCH_BYTES) break;
             bufferedBytes += file.bytes.length;
             replayFingerprints.push(file.fingerprint);
             verifiedReplays.push({ attachment, ...file });

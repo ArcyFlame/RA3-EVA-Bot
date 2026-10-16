@@ -10,15 +10,12 @@ import {
   ButtonInteraction,
   ModalSubmitInteraction,
   Message,
+  MessageFlags,
 } from 'discord.js';
 import { replayRatingRepository } from '../../repositories/replay-rating.repository';
-import {
-  replayRatingService,
-  replayRatingEmbed,
-  replayRatingControls,
-} from '../../services/replay-rating.service';
+import { replayRatingService, replayRatingPayload } from '../../services/replay-rating.service';
 import { activityRankService } from '../../services/activity-rank.service';
-import { isModerator } from '../../utils/permissions';
+import { isAdmin } from '../../utils/permissions';
 
 const operations = new Set<number>();
 export async function manageReplay(
@@ -42,14 +39,14 @@ export async function manageReplay(
     card.guild_id !== interaction.guildId ||
     (card.revision ?? 0) !== Number(match[3]) ||
     (match[4] && match[4] !== interaction.user.id) ||
-    (['edit', 'save'].includes(action!)
-      ? card.user_id !== interaction.user.id
-      : card.user_id !== interaction.user.id && !isModerator(member)) ||
-    (['edit', 'remove'].includes(action!) && interaction.message?.id !== card.card_message_id)
+    (card.user_id !== interaction.user.id && !isAdmin(member)) ||
+    (['edit', 'remove'].includes(action!) &&
+      interaction.message?.id !== card.card_message_id &&
+      !(match[4] === interaction.user.id && interaction.message?.flags.has(MessageFlags.Ephemeral)))
   ) {
     await interaction.reply({
       content:
-        'Only the uploader can edit this replay. The uploader or a moderator can remove its current card.',
+        'Only the uploader or server admins can edit or remove this replay. Open your private /replays menu.',
       ephemeral: true,
     });
     return;
@@ -70,7 +67,9 @@ export async function manageReplay(
           ),
           new LabelBuilder()
             .setLabel('Replacement replay (optional)')
-            .setDescription('Upload the correct .RA3Replay file. New files start fresh voting.')
+            .setDescription(
+              'Every saved edit resets likes and dislikes, including description changes.',
+            )
             .setFileUploadComponent(
               new FileUploadBuilder().setCustomId('replacement').setRequired(false).setMaxValues(1),
             ),
@@ -123,11 +122,17 @@ export async function manageReplay(
     if (!replacement) {
       replayRatingRepository.editDescription(card.id, description, card.revision ?? 0);
       const updated = replayRatingRepository.get(card.id)!;
-      await message.edit({
-        embeds: [replayRatingEmbed(updated)],
-        components: replayRatingControls(updated),
-        allowedMentions: { parse: [] },
-      });
+      try {
+        await message.edit({ ...replayRatingPayload(updated), content: null });
+      } catch {
+        replayRatingService.refresh(message, card.id);
+        await interaction.editReply({
+          content:
+            'Replay saved and votes reset. Discord could not refresh the card yet; a retry is scheduled. Previously earned XP is not awarded again.',
+          components: [],
+        });
+        return;
+      }
     } else {
       if (!/\.ra3replay$/i.test(replacement.name ?? ''))
         throw new Error('Upload a .RA3Replay file.');
@@ -140,12 +145,17 @@ export async function manageReplay(
         throw new Error(
           'This replay already has a card. Edit the description instead, or choose a different file.',
         );
+      const uploader = await interaction.guild!.members.fetch(card.user_id).catch(() => null);
+      if (!uploader)
+        throw new Error(
+          'The original uploader is no longer in this server. The existing replay is unchanged.',
+        );
       const source = {
         id: card.source_message_id,
         guild: interaction.guild,
         channelId: card.channel_id,
         channel,
-        author: member.user,
+        author: uploader.user,
         client: interaction.client,
         content: description,
       } as Message;
@@ -157,7 +167,7 @@ export async function manageReplay(
     }
     await interaction.editReply({
       content:
-        'Replay updated. A replacement file starts fresh voting and does not receive another upload XP award.',
+        'Replay updated. Likes and dislikes start from zero. Previously earned XP is kept, but the same reward is not awarded again. Replacement files receive no extra upload XP.',
       components: [],
     });
   } catch (error) {

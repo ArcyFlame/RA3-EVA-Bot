@@ -18,7 +18,10 @@ import { execute as removeMaster } from '../../src/commands/admin/remove-master.
 import { execute as editClan } from '../../src/interactions/modals/clan-manager-edit.modal';
 import { execute as createClan } from '../../src/interactions/modals/clan-create.modal';
 import { execute as associate } from '../../src/commands/admin/tournament-participant.command';
-import { execute as organizer } from '../../src/commands/admin/tournament-organizer.command';
+import {
+  execute as organizer,
+  assignOrganizer,
+} from '../../src/commands/admin/tournament-organizer.command';
 import { challongeService } from '../../src/services/challonge.service';
 import { canManageTournament } from '../../src/utils/tournament-access';
 import { up as migration } from '../../src/database/migrations/037_security_boundaries';
@@ -156,6 +159,8 @@ describe('shared write authorization', () => {
     const trusted = fixture(guildId, owner);
     trusted.opts.event = id;
     await organizer(trusted.bot, trusted.i);
+    expect(access.organizer(id)).toBe(guildId);
+    await assignOrganizer(trusted.bot, trusted.i, id, null);
     expect(access.organizer(id)).toBeUndefined();
     expect(canManageTournament(admin.member, id)).toBe(false);
   });

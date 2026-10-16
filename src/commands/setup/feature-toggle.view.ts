@@ -27,6 +27,7 @@ export type FeatureKey =
   | 'ra3BattleNet'
   | 'activityRanks'
   | 'charts'
+  | 'separateFactionCharts'
   | 'masters'
   | 'menusMode'
   | 'dmPublicCommands'
@@ -42,6 +43,14 @@ interface FeatureDefinition {
 }
 
 export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
+  {
+    key: 'separateFactionCharts',
+    label: 'Separate faction charts',
+    emoji: '📊',
+    description: 'Two platform charts when enabled; one combined chart when disabled',
+    enabled: (g) => appSettingsRepository.hasSeparateFactionCharts(g.discordId),
+    games: ['ra3'],
+  },
   {
     key: 'tips',
     label: 'Gameplay tips',
@@ -201,6 +210,10 @@ export function isFeatureKey(value: string): value is FeatureKey {
 }
 
 export function setFeatureState(guildId: string, key: FeatureKey, enabled: boolean): void {
+  if (key === 'separateFactionCharts') {
+    appSettingsRepository.setSeparateFactionCharts(guildId, enabled);
+    return;
+  }
   if (key === 'tips') {
     tipSettingsRepository.setEnabled(guildId, enabled);
     return;

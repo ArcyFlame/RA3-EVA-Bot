@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { PermissionFlagsBits } from 'discord.js';
+import { Collection } from 'discord.js';
 import { connectDatabase } from '../../src/database/connection';
 import { guildRepository } from '../../src/repositories/guild.repository';
 import { activityRankRepository } from '../../src/repositories/activity-rank.repository';
@@ -16,13 +16,22 @@ function fixture(game: 'ra3' | 'genevo', visible = true) {
     guildId: id,
     isTextBased: () => true,
     permissionsFor: () => ({
-      has: (permission: bigint) => visible && permission === PermissionFlagsBits.ViewChannel,
+      has: () => visible,
     }),
   };
   const guild = {
     id,
     channels: { fetch: vi.fn().mockResolvedValue(channel) },
-    members: { fetch: vi.fn().mockResolvedValue({ id: 'member' }) },
+    members: {
+      fetch: vi
+        .fn()
+        .mockResolvedValue({
+          id: 'member',
+          guild: { id, ownerId: 'owner' },
+          roles: { cache: new Collection() },
+          permissions: { has: () => false },
+        }),
+    },
   };
   const interaction: any = {
     guild,
@@ -40,7 +49,7 @@ describe('replay resources by setup', () => {
     await execute(null as never, interaction);
     expect(interaction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
     const payload = interaction.editReply.mock.calls[0][0];
-    expect(payload.components[0].toJSON().components[0].url).toBe(
+    expect(payload.components[0].toJSON().components.find((button: any) => button.url)?.url).toBe(
       `https://discord.com/channels/${guild.id}/${channel.id}`,
     );
     expect(JSON.stringify(payload.components)).not.toContain('moddb');
@@ -55,7 +64,7 @@ describe('replay resources by setup', () => {
       await execute(null as never, interaction);
       const payload = interaction.editReply.mock.calls[0][0];
       expect(payload.components).toEqual([]);
-      expect(payload.embeds[0].toJSON().description).toContain('admin');
+      expect(payload.content).toContain('admin');
       expect(JSON.stringify(payload)).not.toContain(channel.id);
     },
   );
