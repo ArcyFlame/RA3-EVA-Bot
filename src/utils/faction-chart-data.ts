@@ -22,7 +22,7 @@ export function ra3FactionCharts(stats: RA3Stats, sources: StatsSourceOptions, s
         ]
       : []),
   ].filter((entry) => Object.values(entry.data).some((value) => value > 0));
-  if (separate || entries.length <= 1) return entries;
+  if (separate || !entries.length) return entries;
   return [
     {
       data: entries.reduce(
@@ -33,7 +33,7 @@ export function ra3FactionCharts(stats: RA3Stats, sources: StatsSourceOptions, s
         }),
         { Allies: 0, Soviets: 0, Empire: 0 },
       ),
-      label: 'Combined Reported Faction Picks',
+      label: 'Faction Popularity',
       name: 'combined_faction_distribution.png',
     },
   ];

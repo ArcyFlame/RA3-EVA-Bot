@@ -8,7 +8,7 @@ import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
   .setName('add_master')
-  .setDescription('[Admin] Add a master to the Hall of Fame')
+  .setDescription('[Owner] Add an expert to the shared Hall of Fame')
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .addStringOption((option) =>
     option.setName('name').setDescription('Player name').setRequired(true),
@@ -30,7 +30,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   const name = sanitizeInput(interaction.options.getString('name', true).trim(), 50);
   const context = getGameContext(interaction.guildId);
   if (!context.mastersEnabled) {
-    await interaction.reply({ content: 'Enable Masters in /toggle first.', ephemeral: true });
+    await interaction.reply({ content: 'Enable Experts in /toggle first.', ephemeral: true });
     return;
   }
   const year = interaction.options.getInteger('year', true);
@@ -50,7 +50,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     return;
   }
   if (masterRepository.findByName(name, context.game)) {
-    await interaction.reply({ content: '❌ Master already exists.', ephemeral: true });
+    await interaction.reply({ content: '❌ Expert already exists.', ephemeral: true });
     return;
   }
 
@@ -62,6 +62,6 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
     });
   } catch (error) {
     logger.error('add_master: failed to add master:', error);
-    await interaction.reply({ content: '❌ Failed to add master.', ephemeral: true });
+    await interaction.reply({ content: '❌ Failed to add expert.', ephemeral: true });
   }
 }

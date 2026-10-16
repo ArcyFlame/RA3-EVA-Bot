@@ -7,7 +7,7 @@ import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
   .setName('list_masters')
-  .setDescription('[Admin] List all Hall of Fame masters')
+  .setDescription('[Admin] List all Hall of Fame experts')
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
 
 export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInteraction) {
@@ -20,7 +20,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
 
   const context = getGameContext(interaction.guildId);
   if (!context.mastersEnabled) {
-    await interaction.reply({ content: 'Enable Masters in /toggle first.', ephemeral: true });
+    await interaction.reply({ content: 'Enable Experts in /toggle first.', ephemeral: true });
     return;
   }
   await interaction.reply({

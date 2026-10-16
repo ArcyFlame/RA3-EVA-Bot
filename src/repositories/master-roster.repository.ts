@@ -81,10 +81,10 @@ export class MasterRosterRepository {
   ): number {
     return db.transaction(() => {
       if (revision !== this.snapshot(guild, game).revision)
-        throw new MasterValidationError('This menu is outdated. Reopen /masters.');
+        throw new MasterValidationError('This menu is outdated. Reopen /experts.');
       const state = this.read(guild, game);
       if (id && !state.entries.some((entry) => entry.id === id))
-        throw new MasterValidationError('Master not found. Reopen /masters.');
+        throw new MasterValidationError('Expert not found. Reopen /experts.');
       if (value) {
         const entry = validateMaster(value.name, value.year, value.patch);
         if (
@@ -98,13 +98,13 @@ export class MasterRosterRepository {
         )
           throw new MasterValidationError('That name, year and patch already exist.');
         if (!id && state.entries.length >= 250)
-          throw new MasterValidationError('This server has reached the 250-master limit.');
+          throw new MasterValidationError('This server has reached the 250-expert limit.');
         if (!id) id = Math.max(0, ...state.entries.map((item) => item.id)) + 1;
-        if (id > 999999999) throw new MasterValidationError('Master ID limit reached.');
+        if (id > 999999999) throw new MasterValidationError('Expert ID limit reached.');
         state.entries = state.entries.filter((item) => item.id !== id);
         state.entries.push({ id, ...entry });
       } else {
-        if (!id) throw new MasterValidationError('Select a master to remove.');
+        if (!id) throw new MasterValidationError('Select an expert to remove.');
         state.entries = state.entries.filter((item) => item.id !== id);
       }
       state.version++;

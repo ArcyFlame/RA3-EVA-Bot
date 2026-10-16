@@ -6,6 +6,7 @@ import { trackedStreamerRepository } from '../repositories/tracked-streamer.repo
 import { guildRepository } from '../repositories/guild.repository';
 import { db } from '../database/sqlite';
 import { classifyGameContent, GameId, GAME_CONFIGS } from '../config/games';
+import { fetchTwitchPreview } from '../utils/twitch-preview';
 
 import { startScannerTimer } from '../utils/refresh-scheduler';
 const RE_NOTIFY_AFTER_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -163,9 +164,7 @@ export class TwitchNotifierService {
         { name: '👀 Viewers', value: String(stream.viewerCount ?? 0), inline: true },
       );
 
-    if (stream.thumbnailUrl) {
-      embed.setImage(stream.thumbnailUrl.replace('{width}', '1280').replace('{height}', '720'));
-    }
+    const preview = await fetchTwitchPreview(stream);
     if (profileImageUrl) {
       embed.setThumbnail(profileImageUrl);
     }
@@ -206,7 +205,23 @@ export class TwitchNotifierService {
         const targetEmbed = EmbedBuilder.from(embed).setFooter({
           text: GAME_CONFIGS[guildData.game].shortLabel,
         });
-        await channel.send({ content, embeds: [targetEmbed] });
+        targetEmbed.setImage(
+          preview ? 'attachment://twitch-preview.jpg' : GAME_CONFIGS[guildData.game].artworkUrl,
+        );
+        try {
+          await channel.send({
+            content,
+            embeds: [targetEmbed],
+            files: preview ? [{ attachment: preview, name: 'twitch-preview.jpg' }] : [],
+            allowedMentions: { parse: [] },
+          });
+        } catch (error) {
+          // A confirmed upload-permission refusal is safe to retry without a file.
+          // Do not retry ambiguous failures, which could duplicate a delivered notification.
+          if (!preview || (error as { code?: number }).code !== 50013) throw error;
+          targetEmbed.setImage(GAME_CONFIGS[guildData.game].artworkUrl);
+          await channel.send({ content, embeds: [targetEmbed], allowedMentions: { parse: [] } });
+        }
         logger.info(`✅ Sent Twitch notification to ${guild.name} / #${channel.name}`);
       } catch (error) {
         logger.error(`Failed to send Twitch notification to ${guild.name}:`, error);

@@ -12,8 +12,8 @@ import { isModerator } from '../../utils/permissions';
 import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
-  .setName('masters')
-  .setDescription('Show the Hall of Fame (all-time masters)');
+  .setName('experts')
+  .setDescription('Show the Hall of Fame (all-time experts)');
 
 export const guildOnly = false;
 
@@ -21,7 +21,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   await interaction.deferReply({ ephemeral: true });
   const context = getGameContext(interaction.guildId);
   if (!context.mastersEnabled) {
-    await interaction.editReply('Masters are disabled on this server.');
+    await interaction.editReply('Experts are disabled on this server.');
     return;
   }
   const member = interaction.guild
@@ -39,7 +39,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
               .setCustomId(
                 `masters:manage:${interaction.guildId}:${interaction.user.id}:${context.game}:0:${revision}:0`,
               )
-              .setLabel('Manage Masters')
+              .setLabel('Manage Experts')
               .setStyle(ButtonStyle.Secondary),
           ),
         ]

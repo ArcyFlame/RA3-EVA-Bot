@@ -22,6 +22,7 @@ const HOST_ALLOWLIST = new Set([
   'www.youtube.com',
   'www.googleapis.com',
   'api.twitch.tv',
+  'static-cdn.jtvnw.net',
   'shatabrick.com',
   'www.shatabrick.com',
   'steamplayercount.com',

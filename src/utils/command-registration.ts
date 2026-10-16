@@ -43,7 +43,8 @@ export async function syncCommandDefinitions(
           !keys.has(command.type + ':' + command.name) &&
           !(
             command.type === ApplicationCommandType.ChatInput &&
-            Object.hasOwn(COMMAND_PATHS, command.name)
+            (Object.hasOwn(COMMAND_PATHS, command.name) ||
+              ['master', 'masters'].includes(command.name))
           )
         )
           continue;

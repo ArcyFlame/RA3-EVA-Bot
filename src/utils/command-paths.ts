@@ -4,9 +4,9 @@ import { CommandDefinition } from './command-registration';
 
 export const COMMAND_PATHS: Readonly<Record<string, readonly string[]>> = {
   activity_admin: ['activity', 'admin'],
-  add_master: ['master', 'add'],
-  remove_master: ['master', 'remove'],
-  list_masters: ['master', 'list'],
+  add_master: ['expert', 'add'],
+  remove_master: ['expert', 'remove'],
+  list_masters: ['expert', 'list'],
   bot_setup: ['bot', 'setup'],
   bot_profile: ['bot', 'profile'],
   bot_update: ['bot', 'update'],

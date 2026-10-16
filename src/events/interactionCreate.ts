@@ -24,7 +24,7 @@ const TOURNAMENT_COMMANDS = new Set([
   'tournaments_scan',
   'match_panel',
 ]);
-const MASTERS_COMMANDS = new Set(['masters', 'add_master', 'remove_master', 'list_masters']);
+const MASTERS_COMMANDS = new Set(['experts', 'add_master', 'remove_master', 'list_masters']);
 const TOURNAMENT_COMPONENT_PREFIXES = [
   'eventpg_',
   'resultspg_',
@@ -121,7 +121,7 @@ export async function execute(bot: RA3Bot, interaction: Interaction): Promise<vo
       guildRepository.findByDiscordId(interaction.guildId)?.mastersEnabled === 0
     ) {
       await interaction.reply({
-        content: 'The Masters Hall of Fame is disabled. An admin can enable it in /toggle.',
+        content: 'The Experts Hall of Fame is disabled. An admin can enable it in /toggle.',
         ephemeral: true,
       });
       return;

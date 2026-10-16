@@ -7,7 +7,7 @@ import { getGameContext } from '../../utils/game-context';
 
 export const data = new SlashCommandBuilder()
   .setName('remove_master')
-  .setDescription('[Admin] Remove a master from the Hall of Fame')
+  .setDescription('[Owner] Remove an expert from the shared Hall of Fame')
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .addStringOption((option) =>
     option.setName('name').setDescription('Player name').setRequired(true),
@@ -23,7 +23,7 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
   const name = sanitizeInput(interaction.options.getString('name', true).trim(), 50);
   const context = getGameContext(interaction.guildId);
   if (!context.mastersEnabled) {
-    await interaction.reply({ content: 'Enable Masters in /toggle first.', ephemeral: true });
+    await interaction.reply({ content: 'Enable Experts in /toggle first.', ephemeral: true });
     return;
   }
   if (masterRepository.deleteByName(name, context.game)) {
@@ -32,6 +32,6 @@ export async function execute(_bot: RA3Bot, interaction: ChatInputCommandInterac
       ephemeral: true,
     });
   } else {
-    await interaction.reply({ content: `❌ Master **${name}** not found.`, ephemeral: true });
+    await interaction.reply({ content: `❌ Expert **${name}** not found.`, ephemeral: true });
   }
 }

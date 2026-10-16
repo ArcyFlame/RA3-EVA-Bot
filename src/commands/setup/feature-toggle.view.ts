@@ -67,9 +67,9 @@ export const FEATURE_DEFINITIONS: FeatureDefinition[] = [
   },
   {
     key: 'masters',
-    label: 'Masters Hall of Fame',
+    label: 'Experts Hall of Fame',
     emoji: '🏅',
-    description: 'Masters Hall of Fame',
+    description: 'Experts Hall of Fame',
     enabled: (g) => g.mastersEnabled === 1,
   },
   {

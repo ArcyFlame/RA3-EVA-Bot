@@ -23,6 +23,7 @@ import { GENEVO_FACTIONS, genevoFactionTotal } from '../../data/genevo-factions'
 import { formatMatchPlayers } from '../../utils/match-format';
 import { Ra3FactionCounts } from '../../services/shatabrick-factions.service';
 import { mastersListChunks } from '../info/masters.view';
+import { ra3FactionCharts } from '../../utils/faction-chart-data';
 
 function factionPercentages(f: Ra3FactionCounts | undefined): string {
   if (!f) return 'No faction data available.';
@@ -77,7 +78,9 @@ export class StatsView {
       .setTimestamp();
 
     if (this.page === 0) {
-      embed.setTitle(`${config.shortLabel} Community Live Stats`);
+      embed.setTitle(
+        `${this.game === 'genevo' ? 'GenEvo' : config.shortLabel} Community Live Stats`,
+      );
       const seasonName =
         this.game === 'ra3' && this._stats.ra3b_season
           ? this._stats.ra3b_season.englishName || this._stats.ra3b_season.chineseName
@@ -126,24 +129,16 @@ export class StatsView {
               .join('\n') || 'No active map data right now.',
           inline: false,
         },
-        ...(this.game === 'ra3' && this.showCnc
+        ...(this.game === 'ra3' && (this.showCnc || this.showRa3b)
           ? [
               {
-                name: `${CNC_ONLINE} Faction Popularity - Shatabrick`,
-                value:
-                  factionPercentages(this._stats.cnc_faction_distribution) +
-                  '\nMonthly picks - ranked and unranked.',
-                inline: false,
-              },
-            ]
-          : []),
-        ...(this.game === 'ra3' && this.showRa3b
-          ? [
-              {
-                name: '🎌 Faction Popularity (RA3BattleNet)',
-                value:
-                  factionPercentages(this._stats.faction_distribution) +
-                  '\nRanked 1v1 - ELO 1000+.',
+                name: '🎌 Faction Popularity',
+                value: factionPercentages(
+                  ra3FactionCharts(this._stats, {
+                    cncOnline: this.showCnc,
+                    ra3BattleNet: this.showRa3b,
+                  })[0]?.data,
+                ),
                 inline: false,
               },
             ]
@@ -151,7 +146,7 @@ export class StatsView {
         ...(this.game === 'genevo'
           ? [
               {
-                name: '🎌 Faction & Sub-faction Popularity',
+                name: '🎌 Faction Popularity',
                 value: (() => {
                   const total = genevoFactionTotal(this._stats.genevo_faction_distribution);
                   if (total <= 0) {
@@ -220,7 +215,7 @@ export class StatsView {
       );
     } else if (this.page === 3) {
       embed.setTitle(
-        this.showMasters ? `${GOLD_CUP} Tournament Wins & Masters` : `${GOLD_CUP} Tournament Wins`,
+        this.showMasters ? `${GOLD_CUP} Tournament Wins & Experts` : `${GOLD_CUP} Tournament Wins`,
       );
       const wins =
         Object.entries(this._stats.tournament_wins)
@@ -233,7 +228,7 @@ export class StatsView {
         const chunks = mastersListChunks(this._stats.masters);
         embed.setDescription(
           `🏆 **Hall of Fame**\n\n${chunks[0]}` +
-            (chunks.length > 1 ? '\n\nUse /masters to see the complete list.' : ''),
+            (chunks.length > 1 ? '\n\nUse /experts to see the complete list.' : ''),
         );
       }
     }

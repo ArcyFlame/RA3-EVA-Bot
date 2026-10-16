@@ -75,13 +75,13 @@ describe('Hall of Fame formatting', () => {
         game === 'ra3' ? '1558460619194368070' : '1558460709472305264',
       );
       expect(embed.description).toContain(
-        '**3** masters  ·  **2** recorded years  ·  **2009 - 2025**',
+        '**3** experts  ·  **2** recorded years  ·  **2009 - 2025**',
       );
       expect(embed.description).toContain(
-        '__**2025**__  ·  *2 masters*\n> • **Alpha**\n> • **Beta**',
+        '__**2025**__  ·  *2 experts*\n> • **Alpha**\n> • **Beta**',
       );
       expect(embed.description).toContain(
-        '__**2009**__  ·  *1 master*\n> • **Gamma** | Patch 1.10',
+        '__**2009**__  ·  *1 expert*\n> • **Gamma** | Patch 1.10',
       );
       expect(embed.description).not.toContain('🥇');
       expect(embed.description).not.toContain('🛠');
@@ -89,7 +89,7 @@ describe('Hall of Fame formatting', () => {
   );
   it('keeps an empty Hall of Fame tidy without a bogus year range', () => {
     const embed = buildMastersList([], 'genevo')[0].toJSON();
-    expect(embed.description).toContain('No masters recorded yet.');
+    expect(embed.description).toContain('No experts recorded yet.');
     expect(embed.description).not.toMatch(/undefined|NaN|0 recorded years/);
   });
   it('keeps every entry in a continuous list, newest year first', () => {
@@ -135,7 +135,7 @@ describe('Hall of Fame formatting', () => {
     view.setPage(3);
     const embed = view.getEmbed().toJSON();
     expect(embed.description!.length).toBeLessThanOrEqual(4096);
-    expect(embed.description).toContain('Use /masters to see the complete list.');
+    expect(embed.description).toContain('Use /experts to see the complete list.');
   });
   it.each(['ra3', 'genevo'] as const)('uses bullets and patch separators for %s', (game) => {
     const embed = buildMastersEmbed(
@@ -205,13 +205,13 @@ describe('masters controls', () => {
     await execute({} as RA3Bot, i as unknown as ChatInputCommandInteraction);
     expect(i.deferReply).toHaveBeenCalledWith({ ephemeral: true });
     const view = JSON.stringify(i.editReply.mock.calls[0][0]);
-    if (staff) expect(view).toContain('Manage Masters');
-    else expect(view).not.toContain('Manage Masters');
+    if (staff) expect(view).toContain('Manage Experts');
+    else expect(view).not.toContain('Manage Experts');
     expect(view).not.toContain('Next');
   });
   it('allows adding to an empty enabled GenEvo roster and honors the disabled feature', async () => {
     context.game = 'genevo';
-    expect(JSON.stringify(mastersView(guild, user, 'genevo', true))).toContain('Add Master');
+    expect(JSON.stringify(mastersView(guild, user, 'genevo', true))).toContain('Add Expert');
     context.mastersEnabled = false;
     const i = interaction();
     await call(i);
@@ -233,7 +233,7 @@ describe('masters controls', () => {
     const i = interaction('manage');
     await call(i);
     expect(i.reply.mock.calls[0][0].ephemeral).toBe(true);
-    expect(JSON.stringify(i.reply.mock.calls[0][0])).toContain('Add Master');
+    expect(JSON.stringify(i.reply.mock.calls[0][0])).toContain('Add Expert');
     expect(i.update).not.toHaveBeenCalled();
   });
   it('sends long lists as private continuations without next/previous buttons', async () => {
@@ -299,11 +299,11 @@ describe('masters controls', () => {
       });
     const view = mastersView(guild, user, 'ra3', false);
     expect(view.embeds[0].length).toBeLessThanOrEqual(6000);
-    expect(JSON.stringify(view.components)).not.toContain('Add Master');
+    expect(JSON.stringify(view.components)).not.toContain('Add Expert');
     const next = interaction('page', 0, 'button', false);
     next.customId = view.components[0].toJSON().components[1].custom_id!;
     await call(next);
     expect(JSON.stringify(next.update.mock.calls[0][0])).toContain('Page 2/3');
-    expect(JSON.stringify(next.update.mock.calls[0][0])).not.toContain('Edit Master');
+    expect(JSON.stringify(next.update.mock.calls[0][0])).not.toContain('Edit Expert');
   });
 });

@@ -36,7 +36,7 @@ describe('source-specific faction page', () => {
     expect(ra3FactionCharts(stats(), {})).toEqual([
       {
         data: { Allies: 55, Soviets: 35, Empire: 110 },
-        label: 'Combined Reported Faction Picks',
+        label: 'Faction Popularity',
         name: 'combined_faction_distribution.png',
       },
     ]);
@@ -61,16 +61,17 @@ describe('source-specific faction page', () => {
     custom.setPage(1);
     expect(custom.getEmbed().toJSON().footer?.text).toBe('Updates every 30 min');
   });
-  it('keeps Shatabrick monthly and RA3BattleNet ranked samples separate', () => {
+  it('combines pick counts in one Faction Popularity field', () => {
     const view = new StatsView(stats());
     view.setPage(1);
     const fields = view.getEmbed().toJSON().fields!;
-    const shata = fields.find((f) => f.name.includes('Shatabrick'))!;
-    const ra3b = fields.find((f) => f.name.includes('Popularity (RA3BattleNet)'))!;
-    expect(shata.value).toContain('50%');
-    expect(shata.value).toContain('Monthly');
-    expect(ra3b.value).toContain('90%');
-    expect(ra3b.value).toContain('Ranked 1v1');
+    const popularity = fields.filter((f) => f.name.includes('Faction Popularity'));
+    expect(popularity).toHaveLength(1);
+    expect(popularity[0].name).toBe('🎌 Faction Popularity');
+    expect(popularity[0].value).toContain('Allies: 28%');
+    expect(popularity[0].value).toContain('Soviets: 18%');
+    expect(popularity[0].value).toContain('Empire: 55%');
+    expect(JSON.stringify(popularity)).not.toContain('Shatabrick');
     expect(fields[0].value).toBe('**Solo** · *Test*');
     expect(fields[0].value).not.toMatch(/\(\d+ players?\)/);
   });
@@ -79,9 +80,27 @@ describe('source-specific faction page', () => {
     view.setPage(1);
     const fields = view.getEmbed().toJSON().fields!;
     expect(fields.some((f) => f.name.includes('Shatabrick'))).toBe(false);
-    expect(fields.find((f) => f.name.includes('Sub-faction'))?.value).toBe(
+    expect(fields.find((f) => f.name.includes('Faction Popularity'))?.value).toBe(
       'No faction data available.',
     );
+  });
+  it('uses the short GenEvo stats title', () => {
+    expect(new StatsView(stats(), 'genevo').getEmbed().toJSON().title).toBe(
+      'GenEvo Community Live Stats',
+    );
+  });
+  it.each([
+    [true, false, '50%'],
+    [false, true, '5%'],
+  ] as const)('counts only enabled sources', (cncOnline, ra3BattleNet, expected) => {
+    const view = new StatsView(stats(), 'ra3', { cncOnline, ra3BattleNet });
+    view.setPage(1);
+    expect(
+      view
+        .getEmbed()
+        .toJSON()
+        .fields!.find((f) => f.name.includes('Faction Popularity'))?.value,
+    ).toContain(`Allies: ${expected}`);
   });
   it.each([
     [true, false],

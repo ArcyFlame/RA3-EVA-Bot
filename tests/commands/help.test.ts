@@ -78,8 +78,8 @@ describe('staff-only help', () => {
         const text = JSON.stringify(i.update.mock.calls[0][0]);
         for (const command of [
           '/admin',
-          '/master add',
-          '/master remove',
+          '/expert add',
+          '/expert remove',
           '/bot setup',
           '/bot tips',
           '/bot refresh',

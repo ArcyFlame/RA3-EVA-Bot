@@ -70,6 +70,24 @@ describe('slash command synchronization', () => {
     expect(api.delete).not.toHaveBeenCalled();
     expect(api.get).not.toHaveBeenCalled();
   });
+  it('removes old masters slash commands without touching context menu commands', async () => {
+    const api = rest();
+    api.get.mockResolvedValue([
+      { id: 'old-public', name: 'masters', type: 1 },
+      { id: 'old-admin', name: 'master', type: 1 },
+      { id: 'context', name: 'masters', type: 2 },
+    ]);
+    const result = await syncCommandDefinitions(
+      api as unknown as REST,
+      'app',
+      [{ name: 'experts' }, { name: 'expert' }],
+      ['guild'],
+    );
+    expect(result.removed).toBe(2);
+    expect(api.delete).not.toHaveBeenCalledWith(
+      Routes.applicationGuildCommand('app', 'guild', 'context'),
+    );
+  });
   it('retains cleanup failures without silently declaring success', async () => {
     const api = rest();
     api.get.mockRejectedValue(new Error('forbidden'));

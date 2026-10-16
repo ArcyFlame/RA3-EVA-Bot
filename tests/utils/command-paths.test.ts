@@ -19,6 +19,13 @@ function interaction(root: string, group?: string, sub?: string) {
   } as unknown as ChatInputCommandInteraction;
 }
 describe('public command paths', () => {
+  it('publishes experts instead of masters while retaining the existing management handlers', () => {
+    expect(publicCommands.map((c) => c.name)).toContain('experts');
+    expect(publicCommands.map((c) => c.name)).not.toContain('masters');
+    expect(publicCommands.map((c) => c.name)).not.toContain('master');
+    expect(resolveCommandName(interaction('expert', undefined, 'add'))).toBe('add_master');
+    expect(resolveCommandName(interaction('experts'))).toBe('experts');
+  });
   it('groups tips, refresh and updates under /bot without the old admin leaves', () => {
     const bot = publicCommands.find((command) => command.name === 'bot')!;
     expect((bot.options as any[]).map((option) => option.name)).toEqual(

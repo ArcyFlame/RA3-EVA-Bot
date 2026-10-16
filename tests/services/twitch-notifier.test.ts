@@ -7,12 +7,15 @@ import { trackedStreamerRepository } from '../../src/repositories/tracked-stream
 import { classifyGameContent } from '../../src/config/games';
 import { TwitchNotifierService } from '../../src/services/twitch-notifier.service';
 import { twitchService, TwitchStream } from '../../src/services/twitch.service';
+import * as preview from '../../src/utils/twitch-preview';
+import { GAME_CONFIGS } from '../../src/config/games';
 
 beforeAll(async () => {
   await connectDatabase();
 });
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.spyOn(preview, 'fetchTwitchPreview').mockResolvedValue(undefined);
   db.prepare('DELETE FROM twitch_notified_streams').run();
 });
 const stream = (userId: string, title: string): TwitchStream => ({
@@ -27,6 +30,46 @@ const stream = (userId: string, title: string): TwitchStream => ({
 });
 
 describe('GenEvo stream discovery and routing', () => {
+  it.each(['snapshot', 'missing', 'permission', 'ambiguous'] as const)(
+    'handles %s preview delivery',
+    async (mode) => {
+      const send = vi.fn().mockResolvedValue({});
+      const image = Buffer.from('jpeg snapshot');
+      vi.mocked(preview.fetchTwitchPreview).mockResolvedValue(
+        mode === 'missing' ? undefined : image,
+      );
+      if (mode === 'permission') send.mockRejectedValueOnce({ code: 50013 });
+      if (mode === 'ambiguous') send.mockRejectedValueOnce(new Error('timeout'));
+      const channel = Object.create(TextChannel.prototype);
+      channel.send = send;
+      channel.name = 'live';
+      const guildId = 'preview-' + mode;
+      guildRepository.upsert(guildId, {
+        game: 'genevo',
+        twitchChannelId: 'channel',
+        twitchNotifierEnabled: 1,
+      });
+      const guild = {
+        id: guildId,
+        name: guildId,
+        channels: { cache: new Collection([['channel', channel]]) },
+      };
+      vi.spyOn(twitchService, 'getUserByLogin').mockResolvedValue(null);
+      await (new TwitchNotifierService() as any).handleStream(
+        { guilds: { cache: new Collection([[guildId, guild]]) } },
+        stream('image-' + mode, 'GenEvo'),
+      );
+      expect(send).toHaveBeenCalledTimes(mode === 'permission' ? 2 : 1);
+      const payload = send.mock.calls.at(-1)![0];
+      expect(payload.allowedMentions).toEqual({ parse: [] });
+      expect(payload.embeds[0].toJSON().image.url).toBe(
+        mode === 'missing' || mode === 'permission'
+          ? GAME_CONFIGS.genevo.artworkUrl
+          : 'attachment://twitch-preview.jpg',
+      );
+      if (mode === 'snapshot') expect(payload.files[0].attachment).toEqual(image);
+    },
+  );
   it.each([
     'GenEvo 2v2',
     'Generals Evolution on RA3',

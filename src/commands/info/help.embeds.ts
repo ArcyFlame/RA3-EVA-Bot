@@ -12,7 +12,7 @@ export function buildMainEmbed(game: GameId = 'ra3', staff = false): EmbedBuilde
     .addFields(
       {
         name: '🏆 Tournaments',
-        value: `Events, sign-ups, results, match reporting and replays${game === 'ra3' ? ', plus the Masters Hall of Fame' : ''}.`,
+        value: `Events, sign-ups, results, match reporting and replays${game === 'ra3' ? ', plus the Experts Hall of Fame' : ''}.`,
         inline: false,
       },
       {
@@ -65,14 +65,14 @@ export function buildTournamentsEmbed(game: GameId = 'ra3'): EmbedBuilder {
             {
               name: '🏅 Hall of Fame',
               value:
-                '`/masters` - All-time ladder masters. Controlled by the Masters feature toggle.',
+                '`/experts` - All-time community experts. Controlled by the Experts feature toggle.',
               inline: false,
             },
           ]
         : [
             {
               name: '🏅 Hall of Fame',
-              value: '`/masters` - GenEvo masters, if enabled by an admin.',
+              value: '`/experts` - GenEvo experts, if enabled by an admin.',
               inline: false,
             },
           ]),
@@ -246,9 +246,9 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
         inline: false,
       },
       {
-        name: '🏅 Masters (admin/mod)',
+        name: '🏅 Experts (admin/mod)',
         value:
-          '`/masters` - Add Master, Edit Master or Remove Master. Set name, year and optional patch. Changes affect this server only.',
+          '`/experts` - Add Expert, Edit Expert or Remove Expert. Set name, year and optional patch. Changes affect this server only.',
         inline: false,
       },
       {
@@ -266,7 +266,7 @@ export function buildAdminEmbed(game: GameId = 'ra3'): EmbedBuilder {
       ...(game === 'ra3'
         ? [
             {
-              name: '🏆 Masters & Tournaments',
+              name: '🏆 Experts & Tournaments',
               value:
                 '`/tournament link` - Link a Challonge bracket (paste URL)\n`/tournament scan` - Scan the portal + forum for tournaments, brackets and sign-ups\n`/events` - Edit missing tournament details from the private event browser',
               inline: false,

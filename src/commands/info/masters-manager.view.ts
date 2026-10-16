@@ -46,7 +46,7 @@ export function mastersView(
         new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
           new StringSelectMenuBuilder()
             .setCustomId(id('select'))
-            .setPlaceholder('Choose a master to edit or remove')
+            .setPlaceholder('Choose an expert to edit or remove')
             .addOptions(
               visible.map((entry) => ({
                 label: `${entry.name} (${entry.year})`.slice(0, 100),
@@ -61,16 +61,16 @@ export function mastersView(
       new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId(id('add', 0))
-          .setLabel('Add Master')
+          .setLabel('Add Expert')
           .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
           .setCustomId(id('edit'))
-          .setLabel('Edit Master')
+          .setLabel('Edit Expert')
           .setStyle(ButtonStyle.Primary)
           .setDisabled(!target),
         new ButtonBuilder()
           .setCustomId(id('remove'))
-          .setLabel('Remove Master')
+          .setLabel('Remove Expert')
           .setStyle(ButtonStyle.Danger)
           .setDisabled(!target),
       ),
@@ -92,9 +92,9 @@ export function mastersView(
       ),
     );
   const embed = buildMastersEmbed(visible, game).setFooter({
-    text: `${entries.length} masters - Page ${page + 1}/${pages}`,
+    text: `${entries.length} experts - Page ${page + 1}/${pages}`,
   });
-  if (!entries.length) embed.setDescription('No masters in Hall of Fame yet.');
+  if (!entries.length) embed.setDescription('No experts in Hall of Fame yet.');
   return {
     content:
       staff && guild
@@ -115,7 +115,7 @@ export async function handleMasters(interaction: Interaction) {
   const reply = (content: string) =>
     interaction.reply({ content, ephemeral: true, allowedMentions: { parse: [] as [] } });
   if (!match || match[2] !== (interaction.guildId ?? 'dm') || match[3] !== interaction.user.id) {
-    await reply('Open your own /masters menu.');
+    await reply('Open your own /experts menu.');
     return;
   }
   const [, action, rawGuild, user, rawGame, rawId, revision, rawPage] = match;
@@ -128,12 +128,12 @@ export async function handleMasters(interaction: Interaction) {
     : null;
   const staff = !!member && isModerator(member);
   if (action !== 'page' && (!guild || !staff)) {
-    await reply('Only server admins and moderators can manage masters.');
+    await reply('Only server admins and moderators can manage experts.');
     return;
   }
   const context = getGameContext(guild);
   if (!context.mastersEnabled || context.game !== game) {
-    await reply('Masters are disabled or the setup changed. Reopen /masters.');
+    await reply('Experts are disabled or the setup changed. Reopen /experts.');
     return;
   }
   if (
@@ -141,14 +141,14 @@ export async function handleMasters(interaction: Interaction) {
     (action === 'select' && !interaction.isStringSelectMenu()) ||
     (!['save', 'select'].includes(action) && !interaction.isButton())
   ) {
-    await reply('Use the controls in /masters.');
+    await reply('Use the controls in /experts.');
     return;
   }
   let saved = false;
   try {
     const snapshot = masterRosterRepository.snapshot(guild, game);
     if (revision !== snapshot.revision) {
-      await reply('This menu is outdated. Reopen /masters.');
+      await reply('This menu is outdated. Reopen /experts.');
       return;
     }
     if (action === 'manage' && interaction.isButton()) {
@@ -164,7 +164,7 @@ export async function handleMasters(interaction: Interaction) {
         .slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
         .find((entry) => String(entry.id) === interaction.values[0]);
       if (!target || interaction.values.length !== 1) {
-        await reply('Choose a master from this page.');
+        await reply('Choose an expert from this page.');
         return;
       }
       await interaction.update(mastersView(guild, user, game, staff, page, target.id));
@@ -172,7 +172,7 @@ export async function handleMasters(interaction: Interaction) {
     }
     const target = snapshot.entries.find((entry) => entry.id === id);
     if (action !== 'add' && !(action === 'save' && id === 0) && !target) {
-      await reply('Master not found. Reopen /masters.');
+      await reply('Expert not found. Reopen /experts.');
       return;
     }
     const customId = (next: string) =>
@@ -191,7 +191,7 @@ export async function handleMasters(interaction: Interaction) {
       await interaction.showModal(
         new ModalBuilder()
           .setCustomId(customId('save'))
-          .setTitle(action === 'add' ? 'Add Master' : 'Edit Master')
+          .setTitle(action === 'add' ? 'Add Expert' : 'Edit Expert')
           .addComponents(
             field('name', 'Name', 50, target?.name),
             field('year', 'Year', 4, target ? String(target.year) : ''),
@@ -202,7 +202,7 @@ export async function handleMasters(interaction: Interaction) {
     }
     if (action === 'remove' && interaction.isButton()) {
       await interaction.update({
-        content: `Remove the selected master (${target!.year})?`,
+        content: `Remove the selected expert (${target!.year})?`,
         embeds: [buildMastersEmbed([target!], game)],
         components: [
           new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -237,7 +237,7 @@ export async function handleMasters(interaction: Interaction) {
     } else if (action === 'confirm' && interaction.isButton())
       masterRosterRepository.change(guild!, game, revision, id);
     else {
-      await reply('Use the controls in /masters.');
+      await reply('Use the controls in /experts.');
       return;
     }
     saved = true;
@@ -261,10 +261,10 @@ export async function handleMasters(interaction: Interaction) {
       error: error instanceof Error ? error.message : 'Unknown error',
     });
     const content = saved
-      ? 'Masters saved, but the menu could not refresh. Reopen /masters.'
+      ? 'Experts saved, but the menu could not refresh. Reopen /experts.'
       : error instanceof MasterValidationError
         ? error.message
-        : 'Unable to update masters. Reopen /masters and try again.';
+        : 'Unable to update experts. Reopen /experts and try again.';
     if (interaction.replied || interaction.deferred)
       await interaction.followUp({ content, ephemeral: true });
     else await reply(content);
