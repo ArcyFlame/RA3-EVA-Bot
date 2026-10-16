@@ -268,6 +268,31 @@ describe('parseRegistrationRoster', () => {
     ).toEqual([]);
   });
 
+  it.each([
+    '<div id="fb-root"></div><table><tr><td><a class="twitter-share-button">Tweet</a></td></tr></table>',
+    '<table><tr><td><a class="twitter-share-button">Tweet</a></td></tr></table>',
+    '<span class="edited">This post has been edited by <b>XOUTH</b>: Nov 9 2025, 07:24 AM</span>',
+    '<div class="signature">Registered: SignatureNickname</div>',
+  ])('stops at an embedded forum footer: %s', (footer) => {
+    const html = firstPost(
+      'Registered:<ol><li>Speranski271828</li><li>XOUTH</li><li>TweetMaster</li></ol>' +
+        footer +
+        '<br>07:24 AM<br>Registered:<br>FooterNickname',
+    );
+    expect(parseRegistrationRoster(html)).toEqual(['Speranski271828', 'XOUTH', 'TweetMaster']);
+  });
+
+  it.each(['Tweet', '07:24 AM', 'This post has been edited by XOUTH: Nov 9 2025, 07:24 AM'])(
+    'stops at unmarked footer text before splitting it into names: %s',
+    (footer) => {
+      expect(
+        parseRegistrationRoster(
+          firstPost(`Registered:<br>Speranski271828<br>${footer}<br>FooterNickname`),
+        ),
+      ).toEqual(['Speranski271828']);
+    },
+  );
+
   it('parses XMAS-style 2v2 teams and 1v1 lists from the first post', () => {
     const html = firstPost(
       `Registered for 2vs2:\n` +

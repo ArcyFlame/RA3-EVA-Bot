@@ -365,6 +365,13 @@ export function parseRegistrationRoster(html: string): string[] {
   const comment = (
     liveBody.length > 0 ? liveBody : firstPostElement.find('.comment').first()
   ).clone();
+  // GameReplays embeds sharing widgets and edit notes inside the post body.
+  // Stop at the first footer boundary, rather than interpreting its descendants
+  // (or any later footer text) as registrations. Keep the boundary through text extraction.
+  const footerBoundary = '[EVA:FORUM_ROSTER_END]';
+  comment
+    .find('.edited, .twitter-share-button, .fb-like, #fb-root, .signature, .postsignature')
+    .replaceWith(`\n${footerBoundary}\n`);
   comment.find('script, style, blockquote, .signature, .postsignature').remove();
   comment.find('br').replaceWith('\n');
   comment.find('li, p, div, ol, ul, h1, h2, h3, h4').each((_, element) => {
@@ -376,6 +383,7 @@ export function parseRegistrationRoster(html: string): string[] {
   const names: string[] = [];
   let inRoster = false;
   for (const rawLine of rosterLines) {
+    if (rawLine.includes(footerBoundary)) break;
     let clean = rawLine
       .replace(/\s+/g, ' ')
       .replace(/^\d{1,3}\.\s*/, '')

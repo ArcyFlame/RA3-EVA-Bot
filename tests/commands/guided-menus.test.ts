@@ -206,6 +206,9 @@ describe('tournament menus', () => {
       'PRIZES',
       '1st Place: 100$',
       '2nd Place: 50$',
+      'Tweet',
+      '07:24 AM',
+      'This post has been edited by XOUTH: Nov 9 2025',
     ];
     for (const name of junk) {
       expect(tournaments.addParticipant(eventId, name, 'forum')).toBe(false);
@@ -226,7 +229,27 @@ describe('tournament menus', () => {
     expect(options.map((o: any) => o.label)).toEqual(['Arcy', 'Details']);
     expect(
       db.prepare('SELECT COUNT(*) AS n FROM tournament_participants WHERE event_id=?').get(eventId),
-    ).toEqual({ n: 7 });
+    ).toEqual({ n: junk.length + 2 });
+  });
+
+  it('preserves genuine verified and checked-in players even when their names resemble footer labels', () => {
+    const f = fixture();
+    const eventId = event(f);
+    db.prepare(
+      'INSERT INTO tournament_participants (event_id,source,name,discord_id,discord_binding_verified) VALUES (?,?,?,?,1)',
+    ).run(eventId, 'forum', 'Tweet', target);
+    db.prepare(
+      'INSERT INTO tournament_participants (event_id,source,name,checked_in) VALUES (?,?,?,1)',
+    ).run(eventId, 'forum', '07:24 AM');
+    for (const name of ['XOUTH', 'AMGeneral', 'TweetMaster'])
+      expect(tournaments.addParticipant(eventId, name, 'forum')).toBe(true);
+    expect(tournaments.getParticipants(eventId).map((p) => p.name)).toEqual([
+      'Tweet',
+      '07:24 AM',
+      'XOUTH',
+      'AMGeneral',
+      'TweetMaster',
+    ]);
   });
 
   it('offers only relevant organizer servers and rechecks eligibility before assignment', async () => {

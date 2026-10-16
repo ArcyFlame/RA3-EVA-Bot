@@ -12,6 +12,9 @@ export function isForumPlayerName(name: string): boolean {
 
 export function isForumRegistrationMetadata(name: string): boolean {
   return (
+    /^tweet\s*$/i.test(name) ||
+    /^(?:this\s+)?post\s+(?:has\s+been\s+)?edited\b/i.test(name) ||
+    /^(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?\s*(?:[ap]m)?$/i.test(name) ||
     /https?:\/\/|\bdiscord\b.*\b(?:events?|server|invite)\b/i.test(name) ||
     /\b(?:announcement|registration closes|registration closed)\b/i.test(name) ||
     /^(?:prizes?|prize pool|format|details|fair play|streaming|registered|registration|sign up|gl\s*hf)\s*[:!*]*$/i.test(
