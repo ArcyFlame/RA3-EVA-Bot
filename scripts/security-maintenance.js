@@ -299,6 +299,15 @@ function push(root) {
   );
 }
 
+function shouldRequestReview(previousBody, sha, passed) {
+  return (
+    passed &&
+    (!previousBody ||
+      !previousBody.includes(`Tested commit: \`${sha}\``) ||
+      !previousBody.includes('Status: **Ready for your review**'))
+  );
+}
+
 function publish(root) {
   const repository = process.env.GITHUB_REPOSITORY;
   const sha = process.env.UPDATE_SHA;
@@ -399,7 +408,7 @@ function publish(root) {
     number = Number(url.match(/\/pull\/(\d+)$/)?.[1]);
     if (!number) throw new Error('Could not identify the created security PR.');
   }
-  if (passed && previous?.body !== body)
+  if (shouldRequestReview(previous?.body, sha, passed))
     gh(['pr', 'edit', String(number), '--repo', repository, '--add-reviewer', 'ArcyFlame']);
   const url = `https://github.com/${repository}/pull/${number}`;
   if (process.env.GITHUB_STEP_SUMMARY)
@@ -430,4 +439,5 @@ module.exports = {
   assertFiles,
   updateProject,
   prepare,
+  shouldRequestReview,
 };

@@ -11,6 +11,7 @@ const {
   assertCompatible,
   assertFiles,
   updateProject,
+  shouldRequestReview,
 } = require('../../scripts/security-maintenance.js');
 const roots: string[] = [];
 afterEach(() => {
@@ -25,6 +26,15 @@ const manifest = () => ({
 const lock = (version = '1.0.0') => ({ packages: { 'node_modules/demo': { version } } });
 
 describe('compatible security update boundaries', () => {
+  it('requests review only for a new tested commit or a transition to passing', () => {
+    const sha = 'a'.repeat(40);
+    const body = `Status: **Ready for your review**\nTested commit: \`${sha}\`\nold run link`;
+    expect(shouldRequestReview(body, sha, true)).toBe(false);
+    expect(shouldRequestReview(body, 'b'.repeat(40), true)).toBe(true);
+    expect(shouldRequestReview('Needs attention', sha, true)).toBe(true);
+    expect(shouldRequestReview(undefined, sha, true)).toBe(true);
+    expect(shouldRequestReview(body, sha, false)).toBe(false);
+  });
   it('selects a patched older release line even when the latest major is newer', () => {
     expect(compatibleCandidate('^4.1.11', '4.1.11', ['5.0.5', '4.1.12', '4.1.11'])).toBe('4.1.12');
     expect(compatibleCandidate('~4.1.11', '4.1.11', ['4.2.0', '4.1.12'])).toBe('4.1.12');
