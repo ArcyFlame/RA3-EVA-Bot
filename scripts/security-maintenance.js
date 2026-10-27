@@ -317,20 +317,21 @@ function publish(root) {
   const runUrl = `https://github.com/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`;
   // Reusable validation runs belong to the scheduler's commit. Publish the
   // result on the dependency commit too, so reviewers see it in the PR checks.
-  gh([
-    'api',
-    '--method',
-    'POST',
-    `repos/${repository}/statuses/${sha}`,
-    '-f',
-    `state=${passed ? 'success' : 'failure'}`,
-    '-f',
-    'context=Security update validation',
-    '-f',
-    `target_url=${runUrl}`,
-    '-f',
-    `description=${passed ? 'Windows/Linux Node 22 and 24 checks passed' : 'Validation needs attention - see workflow logs'}`,
-  ]);
+  if (process.env.PUBLISH_UPDATE_STATUS === 'true')
+    gh([
+      'api',
+      '--method',
+      'POST',
+      `repos/${repository}/statuses/${sha}`,
+      '-f',
+      `state=${passed ? 'success' : 'failure'}`,
+      '-f',
+      'context=Security update validation',
+      '-f',
+      `target_url=${runUrl}`,
+      '-f',
+      `description=${passed ? 'Windows/Linux Node 22 and 24 checks passed' : 'Validation needs attention - see workflow logs'}`,
+    ]);
   const body = [
     'Compatible dependency security fixes for the bot and optional Discord testing tool.',
     '',
