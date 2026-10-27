@@ -19,7 +19,7 @@
     "stop": "node scripts/stop-host.js",
     "update:check": "node scripts/check-update.js",
     "dev": "node --watch -r ts-node/register/transpile-only src/index.ts",
-    "lint": "eslint src scripts/host-bot.js scripts/host-worker.js scripts/lib/updater.js scripts/lib/update-controls.js scripts/stop-host.js scripts/check-update.js scripts/validate-update.js",
+    "lint": "eslint src scripts/host-bot.js scripts/host-worker.js scripts/lib/updater.js scripts/lib/update-controls.js scripts/stop-host.js scripts/check-update.js scripts/validate-update.js scripts/security-maintenance.js",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

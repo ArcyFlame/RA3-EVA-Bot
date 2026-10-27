@@ -35,6 +35,7 @@ module.exports = [
       'scripts/stop-host.js',
       'scripts/check-update.js',
       'scripts/validate-update.js',
+      'scripts/security-maintenance.js',
     ],
     languageOptions: { sourceType: 'commonjs', globals: nodeGlobals },
   },

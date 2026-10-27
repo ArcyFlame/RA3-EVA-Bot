@@ -1,0 +1,78 @@
+name: Prepare security updates
+
+on:
+  schedule:
+    - cron: '10 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-dependency-maintenance
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    outputs:
+      has_updates: ${{ steps.update.outputs.has_updates }}
+      sha: ${{ steps.update.outputs.sha }}
+      report: ${{ steps.update.outputs.report }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Prepare compatible fixes in both packages
+        id: update
+        run: node scripts/security-maintenance.js prepare
+      - name: Refresh the single review branch
+        if: steps.update.outputs.has_updates == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh auth setup-git --hostname github.com
+          node scripts/security-maintenance.js push
+
+  validate:
+    needs: prepare
+    if: needs.prepare.outputs.has_updates == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+
+  review:
+    needs: [prepare, validate]
+    if: always() && !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.has_updates == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # Run the publisher from the trusted default branch, not the update branch.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Create or refresh the approval PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_SHA: ${{ needs.prepare.outputs.sha }}
+          UPDATE_REPORT: ${{ needs.prepare.outputs.report }}
+          UPDATE_RESULT: ${{ needs.validate.result }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: node scripts/security-maintenance.js publish
