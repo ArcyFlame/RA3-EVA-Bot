@@ -33,6 +33,9 @@ jobs:
           node-version: '24'
       - name: Prepare compatible fixes in both packages
         id: update
+        env:
+          # Read-only lookups of public GitHub advisories. npm never sees it.
+          GH_TOKEN: ${{ github.token }}
         run: node scripts/security-maintenance.js prepare
       - name: Refresh the single review branch
         if: steps.update.outputs.has_updates == 'true'
@@ -57,7 +60,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      contents: read
+      # Write access is used only to merge the exact tested commit.
+      contents: write
       pull-requests: write
       statuses: write
     steps:
@@ -69,12 +73,14 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
-      - name: Create or refresh the approval PR
+      - name: Create, refresh or merge the security PR
         env:
           GH_TOKEN: ${{ github.token }}
           UPDATE_SHA: ${{ needs.prepare.outputs.sha }}
           UPDATE_REPORT: ${{ needs.prepare.outputs.report }}
           UPDATE_RESULT: ${{ needs.validate.result }}
           PUBLISH_UPDATE_STATUS: 'true'
+          # Merge automatically when every Windows/Linux check passed. Releases stay manual.
+          AUTO_MERGE: 'true'
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: node scripts/security-maintenance.js publish
