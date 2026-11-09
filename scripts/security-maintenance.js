@@ -16,6 +16,10 @@ const FILES = [
 ];
 const SHA = /^[a-f0-9]{40}$/;
 const BOT = 'github-actions[bot]';
+const NAME = /^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/i;
+const GHSA = /^https:\/\/github\.com\/advisories\/(GHSA(?:-[a-z0-9]{4}){3})$/i;
+const OVERRIDE_KEY = /^\^(?:0\.\d+|[1-9]\d*)$/;
+const OVERRIDE_VALUE = /^\^\d+\.\d+\.\d+$/;
 
 function run(file, args, cwd, allowed = [0], env = process.env) {
   const result = spawnSync(file, args, {
@@ -59,12 +63,54 @@ function compatibleVersion(before, after) {
   return right[1] > left[1] || (right[1] === left[1] && right[2] >= left[2]);
 }
 
+function parseVersion(value) {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(value || '');
+  return match ? match.slice(1).map(Number) : null;
+}
+
+function newer(a, b) {
+  const left = parseVersion(a),
+    right = parseVersion(b);
+  if (!left || !right) return false;
+  const index = left.findIndex((part, i) => part !== right[i]);
+  return index >= 0 && left[index] > right[index];
+}
+
+// Overrides may only be added or raised, each scoped to one release line of a
+// single package and pinned to a plain registry version range.
+function assertOverrides(before = {}, after = {}) {
+  for (const key of Object.keys(before))
+    if (!(key in after))
+      throw new Error('Update removed a dependency override. Manual review required.');
+  for (const [key, value] of Object.entries(after)) {
+    if (isDeepStrictEqual(before[key], value)) continue;
+    const at = key.lastIndexOf('@');
+    if (
+      at <= 0 ||
+      !NAME.test(key.slice(0, at)) ||
+      !OVERRIDE_KEY.test(key.slice(at + 1)) ||
+      typeof value !== 'string' ||
+      !OVERRIDE_VALUE.test(value)
+    )
+      throw new Error(`Unexpected dependency override ${key}. Manual review required.`);
+    const old = before[key];
+    if (
+      old !== undefined &&
+      (typeof old !== 'string' || !OVERRIDE_VALUE.test(old) || !newer(value.slice(1), old.slice(1)))
+    )
+      throw new Error(`Dependency override ${key} was not raised. Manual review required.`);
+  }
+}
+
 function assertCompatible(before, after, oldLock, newLock) {
   const fields = ['dependencies', 'devDependencies', 'optionalDependencies'];
   const rest = (manifest) =>
-    Object.fromEntries(Object.entries(manifest).filter(([key]) => !fields.includes(key)));
+    Object.fromEntries(
+      Object.entries(manifest).filter(([key]) => !fields.includes(key) && key !== 'overrides'),
+    );
   if (!isDeepStrictEqual(rest(before), rest(after)))
     throw new Error('Update changed non-dependency manifest settings. Manual review required.');
+  assertOverrides(before.overrides, after.overrides);
   for (const field of fields) {
     const oldDeps = before[field] || {},
       newDeps = after[field] || {};
@@ -127,6 +173,111 @@ function audit(cwd, npmRun = npm) {
   return report;
 }
 
+// npm entries of a GitHub advisory (e.g. GHSA-g3hv-75wg-m249): the vulnerable
+// range per release line and its first patched version, when one exists.
+function advisoryFixes(id, gh = (args) => run('gh', args, process.cwd())) {
+  const advisory = JSON.parse(gh(['api', `advisories/${id}`]));
+  return (advisory.vulnerabilities || [])
+    .filter((entry) => entry?.package?.ecosystem === 'npm' && NAME.test(entry.package.name || ''))
+    .map((entry) => ({
+      name: entry.package.name,
+      range:
+        typeof entry.vulnerable_version_range === 'string' ? entry.vulnerable_version_range : null,
+      patched: parseVersion(entry.first_patched_version) ? entry.first_patched_version : null,
+    }));
+}
+
+// GitHub advisory ranges are comma-joined comparators such as ">= 7.0.0, < 11.0.1".
+// Anything unreadable counts as vulnerable, so it can never be picked as a fix.
+function vulnerable(version, entry) {
+  if (!entry.range) return !entry.patched || newer(entry.patched, version);
+  return entry.range.split(',').every((part) => {
+    const match = /^\s*(<=|>=|<|>|=)?\s*(\d+\.\d+\.\d+)\s*$/.exec(part);
+    if (!match) return true;
+    const [, op = '=', bound] = match;
+    const above = newer(version, bound),
+      below = newer(bound, version);
+    return op === '<'
+      ? below
+      : op === '<='
+        ? !above
+        : op === '>'
+          ? above
+          : op === '>='
+            ? !below
+            : !above && !below;
+  });
+}
+
+function overrideKey(name, version) {
+  const [major, minor] = parseVersion(version);
+  return `${name}@^${major === 0 ? `0.${minor}` : major}`;
+}
+
+// Last resort for a vulnerable package that only arrives through other
+// packages whose own ranges block the patched release (for example a parent
+// that still asks for minimatch ^10 when only 11.0.1 is fixed). Plans a scoped
+// override per installed release line to the lowest version that clears every
+// advisory. The full test matrix and the owner's review still decide.
+function overridePlan(report, manifest, lock, lookup = advisoryFixes) {
+  const overrides = manifest.overrides || {};
+  const cache = new Map();
+  const fixes = (id) => {
+    if (!cache.has(id)) cache.set(id, lookup(id));
+    return cache.get(id);
+  };
+  const plan = new Map();
+  for (const [name, finding] of Object.entries(report.vulnerabilities || {})) {
+    if (finding.isDirect || !NAME.test(name) || name in overrides) continue;
+    const ids = [
+      ...new Set(
+        (finding.via || [])
+          .filter((via) => via && typeof via === 'object' && via.name === name)
+          .map((via) => GHSA.exec(via.url || '')?.[1]),
+      ),
+    ].filter(Boolean);
+    if (!ids.length) continue;
+    const entries = ids.map((id) => fixes(id).filter((entry) => entry.name === name));
+    if (entries.some((list) => !list.length)) continue;
+    const all = entries.flat();
+    for (const node of finding.nodes || []) {
+      const current = lock.packages?.[node]?.version;
+      if (!parseVersion(current)) continue;
+      // Lowest first-patched release above the installed one that falls
+      // outside every advisory's vulnerable ranges.
+      const target = all
+        .map((entry) => entry.patched)
+        .filter((patched) => patched && newer(patched, current))
+        .sort((a, b) => (newer(a, b) ? 1 : -1))
+        .find((patched) => all.every((entry) => !vulnerable(patched, entry)));
+      if (!target) continue;
+      // An existing override that already lifted this copy to its current line
+      // is the rule npm applies here, so raise it rather than adding another.
+      const [major] = parseVersion(current);
+      const key =
+        Object.keys(overrides).find(
+          (existing) =>
+            existing.startsWith(`${name}@`) &&
+            typeof overrides[existing] === 'string' &&
+            OVERRIDE_VALUE.test(overrides[existing]) &&
+            parseVersion(overrides[existing].slice(1))[0] === major,
+        ) || overrideKey(name, current);
+      const old = overrides[key];
+      if (old !== undefined && (typeof old !== 'string' || !newer(target, old.slice(1)))) continue;
+      const planned = plan.get(key);
+      if (planned && !newer(target, planned.to.slice(1))) continue;
+      plan.set(key, {
+        key,
+        name,
+        from: current,
+        to: `^${target}`,
+        major: parseVersion(target)[0] !== major,
+      });
+    }
+  }
+  return [...plan.values()];
+}
+
 function summary(report) {
   return {
     total: report.metadata.vulnerabilities.total,
@@ -134,13 +285,14 @@ function summary(report) {
   };
 }
 
-function updateProject(root, project, npmRun = npm) {
+function updateProject(root, project, npmRun = npm, lookup = advisoryFixes) {
   const cwd = path.resolve(root, project);
   const manifestPath = path.join(cwd, 'package.json'),
     lockPath = path.join(cwd, 'package-lock.json');
   const before = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const oldLock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
   const initial = audit(cwd, npmRun);
+  let overrides = [];
   if (initial.metadata.vulnerabilities.total > 0) {
     // No lifecycle scripts or forced upgrades. npm may return 1 when manual fixes remain.
     npmRun(
@@ -194,11 +346,41 @@ function updateProject(root, project, npmRun = npm) {
         cwd,
       );
     }
+    const pending = audit(cwd, npmRun);
+    if (pending.metadata.vulnerabilities.total > 0) {
+      const text = fs.readFileSync(manifestPath, 'utf8');
+      const current = JSON.parse(text);
+      overrides = overridePlan(
+        pending,
+        current,
+        JSON.parse(fs.readFileSync(lockPath, 'utf8')),
+        lookup,
+      );
+      if (overrides.length) {
+        current.overrides = {
+          ...current.overrides,
+          ...Object.fromEntries(overrides.map((item) => [item.key, item.to])),
+        };
+        const eol = text.includes('\r\n') ? '\r\n' : '\n';
+        fs.writeFileSync(manifestPath, JSON.stringify(current, null, 2).replace(/\n/g, eol) + eol);
+        npmRun(
+          [
+            'install',
+            '--package-lock-only',
+            '--ignore-scripts',
+            '--include=dev',
+            '--no-audit',
+            '--no-fund',
+          ],
+          cwd,
+        );
+      }
+    }
   }
   const after = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const newLock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
   assertCompatible(before, after, oldLock, newLock);
-  return { project, before: summary(initial), after: summary(audit(cwd, npmRun)) };
+  return { project, before: summary(initial), after: summary(audit(cwd, npmRun)), overrides };
 }
 
 function assertFiles(files) {
@@ -308,18 +490,32 @@ function shouldRequestReview(previousBody, sha, passed) {
   );
 }
 
-function publish(root) {
+// Merge only the exact tested commit, and only while it sits directly on the
+// current default branch, so the merged result is the tree the matrix tested.
+function canAutoMerge(enabled, passed, mainSha, parents) {
+  return (
+    enabled === true &&
+    passed === true &&
+    SHA.test(mainSha || '') &&
+    Array.isArray(parents) &&
+    parents.length === 1 &&
+    parents[0] === mainSha
+  );
+}
+
+function publish(root, gh = (args) => run('gh', args, root)) {
   const repository = process.env.GITHUB_REPOSITORY;
   const sha = process.env.UPDATE_SHA;
   if (repository !== 'ArcyFlame/RA3-EVA-Bot' || !SHA.test(sha || ''))
     throw new Error('Unexpected repository or commit.');
-  const gh = (args) => run('gh', args, root);
   const branch = JSON.parse(gh(['api', `repos/${repository}/git/ref/heads/${BRANCH}`]));
   if (branch.object.sha !== sha)
     throw new Error(
       'Update branch changed after testing. No review-ready status will be published.',
     );
   const passed = process.env.UPDATE_RESULT === 'success';
+  const autoMerge = process.env.AUTO_MERGE === 'true';
+  const defaultBranch = process.env.DEFAULT_BRANCH || 'main';
   const report = JSON.parse(
     Buffer.from(process.env.UPDATE_REPORT || '', 'base64').toString('utf8'),
   );
@@ -348,13 +544,25 @@ function publish(root) {
     `Tested commit: \`${sha}\``,
     `[Windows/Linux validation](${runUrl})`,
     '',
-    ...report.map(
-      (item) =>
-        `- ${item.project === '.' ? 'Bot' : 'Discord testing tool'}: ${item.before.total} affected packages before, ${item.after.total} remaining.`,
-    ),
+    ...report.flatMap((item) => [
+      `- ${item.project === '.' ? 'Bot' : 'Discord testing tool'}: ${item.before.total} affected packages before, ${item.after.total} remaining.`,
+      ...(Array.isArray(item.overrides) ? item.overrides : [])
+        .filter(
+          (entry) =>
+            NAME.test(entry?.name || '') &&
+            parseVersion(entry.from) &&
+            OVERRIDE_VALUE.test(entry.to || ''),
+        )
+        .map(
+          (entry) =>
+            `  - Override: \`${entry.name}\` ${entry.from} raised to \`${entry.to}\`${entry.major ? ' - **new major version, check the test results and changelog**' : ''}.`,
+        ),
+    ]),
     '',
-    'Your approval is required before merging and publishing a new bot release. This workflow never merges, approves, tags or publishes a release.',
-    'Major upgrades and incompatible fixes require separate review.',
+    autoMerge
+      ? 'This PR is merged automatically once the Windows/Linux checks pass on this exact commit. Publishing a new bot release stays manual: this workflow never tags or publishes a release.'
+      : 'Your approval is required before merging and publishing a new bot release. This workflow never merges, approves, tags or publishes a release.',
+    'Direct major upgrades and incompatible fixes require separate review.',
   ].join('\n');
   const title = passed
     ? 'Security updates - tested and ready for review'
@@ -408,15 +616,40 @@ function publish(root) {
     number = Number(url.match(/\/pull\/(\d+)$/)?.[1]);
     if (!number) throw new Error('Could not identify the created security PR.');
   }
-  if (shouldRequestReview(previous?.body, sha, passed))
-    gh(['pr', 'edit', String(number), '--repo', repository, '--add-reviewer', 'ArcyFlame']);
   const url = `https://github.com/${repository}/pull/${number}`;
+  let outcome = passed ? 'Ready for approval' : 'Needs attention';
+  if (autoMerge && passed) {
+    const main = JSON.parse(gh(['api', `repos/${repository}/git/ref/heads/${defaultBranch}`]));
+    const commit = JSON.parse(gh(['api', `repos/${repository}/git/commits/${sha}`]));
+    const parents = (commit.parents || []).map((parent) => parent.sha);
+    if (canAutoMerge(autoMerge, passed, main.object?.sha, parents)) {
+      gh([
+        'pr',
+        'merge',
+        String(number),
+        '--repo',
+        repository,
+        '--squash',
+        '--match-head-commit',
+        sha,
+        '--subject',
+        `Apply tested compatible dependency security fixes (#${number})`,
+        '--body',
+        `Merged automatically after Windows/Linux Node 22 and 24 validation of ${sha}.\n${runUrl}`,
+      ]);
+      try {
+        gh(['api', '--method', 'DELETE', `repos/${repository}/git/refs/heads/${BRANCH}`]);
+      } catch (error) {
+        console.error(`Merged, but the update branch was not deleted: ${error.message}`);
+      }
+      outcome = 'Merged automatically';
+    } else
+      outcome = `Not merged yet: ${defaultBranch} moved after testing. The next run rebuilds and retries`;
+  } else if (shouldRequestReview(previous?.body, sha, passed))
+    gh(['pr', 'edit', String(number), '--repo', repository, '--add-reviewer', 'ArcyFlame']);
   if (process.env.GITHUB_STEP_SUMMARY)
-    fs.appendFileSync(
-      process.env.GITHUB_STEP_SUMMARY,
-      `${passed ? 'Ready for approval' : 'Needs attention'}: ${url}\n\n${body}\n`,
-    );
-  console.log(url);
+    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${outcome}: ${url}\n\n${body}\n`);
+  console.log(`${outcome}: ${url}`);
 }
 
 if (require.main === module) {
@@ -436,8 +669,12 @@ module.exports = {
   compatibleVersion,
   compatibleCandidate,
   assertCompatible,
+  advisoryFixes,
+  overridePlan,
+  canAutoMerge,
   assertFiles,
   updateProject,
   prepare,
+  publish,
   shouldRequestReview,
 };
